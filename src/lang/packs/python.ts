@@ -35,6 +35,9 @@ const pureModules = new Set([
   "contextlib", "warnings", "traceback", "types", "weakref",
 ]);
 
+// 会调用其函数实参的内建/模块成员：map/filter/sorted/max/min（key=）、functools.reduce
+const hofCallsArgs = new Set(["map", "filter", "sorted", "max", "min", "reduce"]);
+
 export const pythonPack: LangPack = {
   name: "python",
   extensions: [".py", ".pyw"],
@@ -54,6 +57,7 @@ export const pythonPack: LangPack = {
   pureModules,
   impureGlobals: {},
   pureGlobals: new Set(),
+  hofCallsArgs,
 
   extractImports(root: SyntaxNode): RawImport[] {
     const out: RawImport[] = [];

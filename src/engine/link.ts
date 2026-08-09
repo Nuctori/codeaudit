@@ -142,6 +142,22 @@ export function link(
           addEffect: (e) => direct.add(e),
           markUnknown: () => calls.add(UNKNOWN_TARGET),
           markDynamic: () => { dynamicCalls++; calls.add(UNKNOWN_TARGET); },
+          addArgEdges: (names) => {
+            for (const n of names) {
+              const local = fi.bySimple.get(n);
+              if (local && local.length > 0) { calls.add(local[0]!); continue; }
+              const imp = fi.importMap.get(n);
+              if (imp && imp.imported !== null && imp.imported !== "default" && imp.imported !== "*") {
+                const target = fi.pack.resolveModule(imp.module, fi.facts.file, projectFiles);
+                if (target !== null) {
+                  const hit = resolveSymbol(target, imp.imported, 0);
+                  if (hit !== null) { calls.add(hit); continue; }
+                }
+              }
+              // 解析不到（变量实参/外部函数）：跳过——无法区分 max(xs) 与 map(ext_fn)，
+              // 记未知会把 max(xs) 这类常见形态误伤成噪音
+            }
+          },
           effectFromModule,
         });
       }
@@ -169,6 +185,7 @@ interface Sink {
   addEffect(effect: string): void;
   markUnknown(): void;
   markDynamic(): void;
+  addArgEdges(names: readonly string[]): void;
   effectFromModule(module: string, member: string | null): boolean;
 }
 
@@ -218,7 +235,10 @@ function resolveCall(
         sink.markUnknown();
         return;
       }
-      if (member !== null && sink.effectFromModule(imp.module, member)) return;
+      if (member !== null && sink.effectFromModule(imp.module, member)) {
+        if (pack.hofCallsArgs.has(member)) sink.addArgEdges(call.argFns); // functools.reduce(cb, …)
+        return;
+      }
       if (sink.effectFromModule(imp.module, null)) return;
       sink.markUnknown();
       return;
@@ -247,14 +267,21 @@ function resolveCall(
   // 4. 效应表
   if (call.obj === null) {
     if (pack.impureBuiltins.has(call.attr)) { sink.addEffect("io"); return; }
-    if (pack.pureBuiltins.has(call.attr)) return;
+    if (pack.pureBuiltins.has(call.attr)) {
+      // HOF（map/filter/sorted…）会调用函数实参：回调效应必须保留，否则假纯
+      if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns);
+      return;
+    }
   } else {
     const rule = pack.impureGlobals[call.obj];
     if (rule === "*" || (Array.isArray(rule) && rule.includes(call.attr))) {
       sink.addEffect("io");
       return;
     }
-    if (pack.pureGlobals.has(call.obj)) return;
+    if (pack.pureGlobals.has(call.obj)) {
+      if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns); // Array.from(xs, cb)
+      return;
+    }
   }
 
   // 5. 星号导入回退；其余裸名记未知，对象方法记动态分派

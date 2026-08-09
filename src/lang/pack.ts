@@ -21,6 +21,8 @@ export interface RawCall {
   readonly obj: string | null;
   /** 末段（方法/函数名）。 */
   readonly attr: string;
+  /** 语法函数实参（命名函数/import 绑定的标识符），供 HOF 回调边使用。 */
+  readonly argFns: readonly string[];
 }
 
 /** 原始 import 记录。 */
@@ -91,6 +93,8 @@ export interface LangPack {
   readonly impureGlobals: Readonly<Record<string, "*" | readonly string[]>>;
   /** 已知纯全局对象。 */
   readonly pureGlobals: ReadonlySet<string>;
+  /** 高阶函数名：会调用其函数实参的内建/模块成员（map/filter/sorted/Array.from…），用于回调实参边。 */
+  readonly hofCallsArgs: ReadonlySet<string>;
 
   // ---- 行为侧 ----
   /** 从 AST 提取 import 记录（含再导出）。 */

@@ -110,13 +110,30 @@ export class Extractor {
 
   /** 调用点提取：点连文本 + 首段对象 + 末段名。不可拍平（super().m()、factory()()、d[k]()）产哨兵走未知。 */
   private callOf(node: SyntaxNode): RawCall {
+    const argFns = this.argFnsOf(node);
     const fn = node.childForFieldName("function") ?? node.children[0];
-    if (!fn) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET };
+    if (!fn) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET, argFns };
     const flat = flattenCallTarget(fn);
-    if (flat === null) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET };
+    if (flat === null) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET, argFns };
     const dot = flat.indexOf(".");
-    if (dot === -1) return { target: flat, obj: null, attr: flat };
-    return { target: flat, obj: flat.slice(0, dot), attr: flat.slice(dot + 1) };
+    if (dot === -1) return { target: flat, obj: null, attr: flat, argFns };
+    return { target: flat, obj: flat.slice(0, dot), attr: flat.slice(dot + 1), argFns };
+  }
+
+  /** 命名函数实参（HOF 回调边原料）：arguments 子节点中直接是标识符的，及 Python 关键字实参（key=fn）的值。 */
+  private argFnsOf(node: SyntaxNode): string[] {
+    const args = node.childForFieldName("arguments");
+    if (!args) return [];
+    const out: string[] = [];
+    for (const c of args.children) {
+      if (c.type === "identifier" || c.type === "property_identifier") {
+        out.push(c.text);
+      } else if (c.type === "keyword_argument") {
+        const v = c.childForFieldName("value");
+        if (v && (v.type === "identifier" || v.type === "property_identifier")) out.push(v.text);
+      }
+    }
+    return out;
   }
 }
 

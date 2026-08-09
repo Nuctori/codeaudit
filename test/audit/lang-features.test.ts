@@ -264,3 +264,38 @@ describe("公理4：令牌级规范化（身份即内容）", () => {
     expect(idA).not.toBe(idB);
   });
 });
+
+describe("HOF 回调边（map/filter 吞回调效应修复）", () => {
+  it("map(warn, xs) 中 warn 的 io 效应传播到调用方", async () => {
+    const root = project("hof1", {
+      "hof.py": "def warn(x):\n    print(x)\n\ndef run(xs):\n    return list(map(warn, xs))\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("hof.py::warn")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("hof.py::run")!.purity).toBe(Purity.IMPURE); // 修复前 PURE（假纯）
+  });
+
+  it("sorted(xs, key=warn) 关键字实参同样保留效应", async () => {
+    const root = project("hof2", {
+      "hof.py": "def warn(x):\n    print(x)\n\ndef run2(xs):\n    return sorted(xs, key=warn)\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("hof.py::run2")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("functools.reduce 模块成员 HOF", async () => {
+    const root = project("hof3", {
+      "hof.py": "import functools\ndef warn(a, b):\n    print(a)\n    return b\n\ndef run3(xs):\n    return functools.reduce(warn, xs, 0)\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("hof.py::run3")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("Array.from(xs, cb) TS 全局 HOF", async () => {
+    const root = project("hof4", {
+      "hof.ts": "function cb(x: number) { console.log(x); return x; }\nexport function run4(xs: number[]) { return Array.from(xs, cb); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("hof.ts::run4")!.purity).toBe(Purity.IMPURE);
+  });
+});

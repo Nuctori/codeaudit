@@ -174,6 +174,7 @@ export const typescriptPack: LangPack = {
   pureModules,
   impureGlobals,
   pureGlobals,
+  hofCallsArgs: new Set(["from"]), // Array.from(xs, cb) 会调用 cb
   extractImports: extractEsmImports,
   resolveModule: (module, fromFile, projectFiles) =>
     resolveEsmModule(module, fromFile, projectFiles, [".ts", ".tsx", ".js", ".jsx"]),
