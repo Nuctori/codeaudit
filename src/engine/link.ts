@@ -1,5 +1,5 @@
 import type { LangPack, RawCall, RawChunk, RawFileFacts, RawImport } from "../lang/pack";
-import { Chunk, UNKNOWN_TARGET } from "../core/types";
+import { type Chunk, UNKNOWN_TARGET } from "../core/types";
 import { chunkId } from "../core/hash";
 
 /**
@@ -18,6 +18,8 @@ interface FileIndex {
   readonly pack: LangPack;
   /** 文件内限定名 -> chunk key："Svc.save"、"handle"。 */
   readonly byQualified: Map<string, string>;
+  /** 限定名冲突（同名重载/多态）→ 解析时记未知，不静默选一。 */
+  readonly ambiguous: ReadonlySet<string>;
   /** 裸名 -> chunk keys（可能多个：方法名与顶层函数同名）。 */
   readonly bySimple: Map<string, string[]>;
   readonly importMap: Map<string, RawImport>;
@@ -44,6 +46,7 @@ export function link(
   for (const facts of allFacts) {
     const pack = packs.get(facts.lang)!;
     const byQualified = new Map<string, string>();
+    const ambiguous = new Set<string>();
     const bySimple = new Map<string, string[]>();
     const chunkByKey = new Map<string, RawChunk>();
     const seenIds = new Map<string, number>();
@@ -53,10 +56,11 @@ export function link(
       const baseId = rc.name === "<module>" ? "module" : chunkId(rc.sourceText);
       const n = (seenIds.get(baseId) ?? 0) + 1;
       seenIds.set(baseId, n);
-      const id = baseId;
       const key = `${facts.file}::${n > 1 ? `${baseId}#${n}` : baseId}`;
       const qualified = rc.ownerClass ? `${rc.ownerClass}.${rc.name}` : rc.name;
-      byQualified.set(qualified, key);
+      const existing = byQualified.get(qualified);
+      if (existing !== undefined) ambiguous.add(qualified);
+      else byQualified.set(qualified, key);
       const arr = bySimple.get(rc.name) ?? [];
       arr.push(key);
       bySimple.set(rc.name, arr);
@@ -83,7 +87,7 @@ export function link(
       });
     }
 
-    files.set(facts.file, { facts, pack, byQualified, bySimple, importMap, wildcards, chunkByKey });
+    files.set(facts.file, { facts, pack, byQualified, ambiguous, bySimple, importMap, wildcards, chunkByKey });
   }
 
   // ---- 符号解析（含再导出跟随，深度受限） ----
@@ -98,7 +102,7 @@ export function link(
     const direct = fi.bySimple.get(name);
     if (direct && direct.length > 0) return direct[0]!;
     const q = fi.byQualified.get(name);
-    if (q) return q;
+    if (q && !fi.ambiguous.has(name)) return q;
     // 导入跟随：Python 语义下模块内绑定的名字即可作为属性再导出；
     // TS 的显式 reexport 与普通 import 都走这里（深度受限防环）
     for (const imp of fi.facts.imports) {
@@ -137,7 +141,7 @@ export function link(
           addEdge: (k) => calls.add(k),
           addEffect: (e) => direct.add(e),
           markUnknown: () => calls.add(UNKNOWN_TARGET),
-          markDynamic: () => dynamicCalls++,
+          markDynamic: () => { dynamicCalls++; calls.add(UNKNOWN_TARGET); },
           effectFromModule,
         });
       }
@@ -179,13 +183,16 @@ function resolveCall(
 ): void {
   const pack = fi.pack;
 
-  // 1. self/this 方法调用 → 所在类
+  // 1. self/this 方法调用 → 所在类（同名冲突时诚实记未知）
   if (call.obj !== null && pack.selfNames.includes(call.obj)) {
     if (caller.ownerClass) {
-      const key = fi.byQualified.get(`${caller.ownerClass}.${call.attr}`);
-      if (key) { sink.addEdge(key); return; }
+      const q = `${caller.ownerClass}.${call.attr}`;
+      if (!fi.ambiguous.has(q)) {
+        const key = fi.byQualified.get(q);
+        if (key) { sink.addEdge(key); return; }
+      }
     }
-    sink.markUnknown(); // 继承/混入：诚实标记
+    sink.markUnknown(); // 继承/混入/冲突：诚实标记
     return;
   }
 
@@ -232,7 +239,7 @@ function resolveCall(
       sink.markUnknown();
       return;
     }
-    // from db import conn; conn.execute(...) → 导入对象的方法，动态分派
+    // from db import conn; conn.execute(...) → 导入对象的方法：记未知（含 dynamic 计数）
     sink.markDynamic();
     return;
   }

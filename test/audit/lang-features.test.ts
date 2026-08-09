@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanProject } from "../../src/index";
-import { Purity, Verdict } from "../../src/core/types";
+import { Purity, type Verdict } from "../../src/core/types";
 
 /**
  * 维度 21-25：语言特性覆盖。
@@ -120,9 +120,10 @@ describe("维度22: TypeScript 特性", () => {
     const b = by(await scanProject(root));
     expect(b.get("g.ts::identity")!.purity).toBe(Purity.PURE);
     expect(b.get("g.ts::Box.value")).toBeDefined();
-    // 可选链调用不崩溃；m?.run?.() 是局部对象方法 → dynamic（诚实忽略）
+    // 可选链调用不崩溃；m?.run?.() 是局部对象方法 → 记未知（诚实承认不可见）
     expect(b.get("g.ts::optCall")).toBeDefined();
-    expect(b.get("g.ts::usePipe")!.purity).toBe(Purity.PURE);
+    // pipe(1)(2) 是不可拍平调用（调用结果再调用）→ 记未知，不再静默丢边
+    expect(b.get("g.ts::usePipe")!.purity).toBe(Purity.UNKNOWN);
   });
 });
 
@@ -166,7 +167,8 @@ describe("维度24: TSX 特性", () => {
     const r = await scanProject(root);
     expect(r.stats.parseErrors).toBe(0);
     const b = by(r);
-    expect(b.get("App.tsx::List")!.purity).toBe(Purity.PURE);
+    // items.map(...) 是参数方法调用 → 记 `?`，诚实未知
+    expect(b.get("App.tsx::List")!.purity).toBe(Purity.UNKNOWN);
     // onClick 是变量声明的箭头函数 chunk，含 fs 效应
     const onClick = b.get("App.tsx::onClick")!;
     expect(onClick.purity).toBe(Purity.IMPURE);
@@ -196,5 +198,36 @@ describe("维度25: 动态导入边界", () => {
     // 动态说明符无法解析 → 不允许假装成功
     expect(b.get("a.ts::load")).toBeDefined();
     expect(b.get("a.ts::loadCjs")).toBeDefined();
+  });
+});
+
+describe("OO 健全性回归：假纯修复", () => {
+  it("super().save() 继承调用不假纯（父类效应不再静默丢失）", async () => {
+    const root = project("oosuper", {
+      "base.py": "class Base:\n    def save(self):\n        print('io')\n",
+      "child.py": "from base import Base\nclass Child(Base):\n    def save(self):\n        super().save()\n",
+    });
+    const b = by(await scanProject(root));
+    // 不可拍平 → 诚实未知，而非 PURE
+    expect(b.get("child.py::Child.save")!.purity).toBe(Purity.UNKNOWN);
+  });
+
+  it("导入对象的方法调用不假纯（import { db }; db.query()）", async () => {
+    const root = project("ooobj", {
+      "db.ts": "export const db = { query: (q: string) => console.log(q) };\n",
+      "app.ts": "import { db } from './db';\nexport function run() { db.query('DELETE FROM t'); }\n",
+    });
+    const b = by(await scanProject(root));
+    // 对象方法调用 → 诚实未知，而非 PURE
+    expect(b.get("app.ts::run")!.purity).toBe(Purity.UNKNOWN);
+  });
+
+  it("同名方法冲突不静默选一（self 调用记未知）", async () => {
+    const root = project("oopoly", {
+      "poly.py": "class C:\n    def m(self):\n        print('a')\n    def m(self):\n        print('b')\n    def run(self):\n        self.m()\n",
+    });
+    const b = by(await scanProject(root));
+    // 冲突 → 不猜，记未知
+    expect(b.get("poly.py::C.run")!.purity).toBe(Purity.UNKNOWN);
   });
 });

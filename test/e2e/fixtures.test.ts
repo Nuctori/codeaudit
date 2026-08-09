@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { join } from "node:path";
 import { scanProject } from "../../src/index";
-import { Purity, Verdict } from "../../src/core/types";
+import { Purity, type Verdict } from "../../src/core/types";
 
 const FIX = join(__dirname, "..", "fixtures");
 
@@ -24,29 +24,34 @@ describe("E2E: pyshop（Python）", () => {
     expect(connect.chain).toBe(0);
     expect(connect.effects.has("io")).toBe(true);
 
-    // save_user -> connect → chain 1
-    expect(by.get("db.py::save_user")!.chain).toBe(1);
-    // create_user -> save_user → chain 2
-    expect(by.get("service.py::create_user")!.chain).toBe(2);
-    // batch_create → chain 3；handle_request → chain 4（副作用藏得最深，排最前）
-    expect(by.get("service.py::batch_create")!.chain).toBe(3);
-    expect(by.get("api.py::handle_request")!.chain).toBe(4);
+    // conn.execute 是局部对象方法 → 记 `?`：audit 悲观链=0（未知视为潜在效应源），dev 链=1，区间非零
+    expect(by.get("db.py::save_user")!.chain).toBe(0);
+    expect(by.get("db.py::save_user")!.chainCertain).toBe(false);
+    // create_user 无自身 `?`（裸名调用）→ audit 链=1（经 save_user）
+    expect(by.get("service.py::create_user")!.chain).toBe(1);
+    // batch_create / handle_request 自身含 `?`（created.append / req.get）→ audit 链=0
+    expect(by.get("service.py::batch_create")!.chain).toBe(0);
+    expect(by.get("api.py::handle_request")!.chain).toBe(0);
 
-    // 纯函数
-    expect(by.get("utils.py::validate_user")!.purity).toBe(Purity.PURE);
-    expect(by.get("api.py::deep_nesting")!.purity).toBe(Purity.PURE);
+    // 纯逻辑但含参数方法调用（user.get / name.strip）→ 诚实未知
+    expect(by.get("utils.py::validate_user")!.purity).toBe(Purity.UNKNOWN);
+    expect(by.get("utils.py::format_name")!.purity).toBe(Purity.UNKNOWN);
+    // 无调用 → 纯
+    expect(by.get("utils.py::clamp")!.purity).toBe(Purity.PURE);
+    // deep_nesting 含 group.get → UNKNOWN；嵌套指标不受影响
+    expect(by.get("api.py::deep_nesting")!.purity).toBe(Purity.UNKNOWN);
     expect(by.get("api.py::deep_nesting")!.chunk.nesting).toBeGreaterThanOrEqual(5);
 
-    // 跨文件相互递归：终止且保持纯
+    // 跨文件相互递归：终止且保持纯（无成员调用）
     expect(by.get("cyc_a.py::ping")!.purity).toBe(Purity.PURE);
     expect(by.get("cyc_b.py::pong")!.purity).toBe(Purity.PURE);
 
     // 未知第三方：weirdlib / mystery 不在任何表 → UNKNOWN
     expect(by.get("worker.py::engage")!.purity).toBe(Purity.UNKNOWN);
 
-    // 排序：IMPURE 组最前者是 chain 最大的 handle_request
+    // 排序：IMPURE 组最前者 = audit 链最大的 create_user（唯一 chain 1）
     const impures = report.verdicts.filter((v) => v.purity === Purity.IMPURE);
-    expect(impures[0]!.chunk.name).toBe("handle_request");
+    expect(impures[0]!.chunk.name).toBe("create_user");
   });
 });
 
@@ -92,7 +97,7 @@ describe("E2E: jsapp（JavaScript / CommonJS）", () => {
 
     expect(by.get("store.js::write")!.chain).toBe(0);
     expect(by.get("handler.js::handlePut")!.chain).toBe(1);
-    expect(by.get("handler.js::normalize")!.purity).toBe(Purity.PURE);
+    expect(by.get("handler.js::normalize")!.purity).toBe(Purity.UNKNOWN); // name.trim() 参数方法 → `?`
   });
 });
 

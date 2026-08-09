@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type Parser from "web-tree-sitter";
 import type { SyntaxNode } from "./pack";
 import type { LangPack, RawCall, RawChunk, RawFileFacts } from "./pack";
+import { UNRESOLVED_TARGET } from "./pack";
 
 /**
  * 通用提取器：一次 AST 遍历，由语言包的数据表驱动。
@@ -49,8 +50,7 @@ export class Extractor {
         }
       }
       if (this.pack.callNodes.includes(node.type)) {
-        const call = this.callOf(node);
-        if (call !== null) stack[stack.length - 1]!.calls.push(call);
+        stack[stack.length - 1]!.calls.push(this.callOf(node));
       }
       for (const child of node.children) visit(child);
       if (pushed) stack.pop();
@@ -107,12 +107,12 @@ export class Extractor {
     return max;
   }
 
-  /** 调用点提取：点连文本 + 首段对象 + 末段名。 */
-  private callOf(node: SyntaxNode): RawCall | null {
+  /** 调用点提取：点连文本 + 首段对象 + 末段名。不可拍平（super().m()、factory()()、d[k]()）产哨兵走未知。 */
+  private callOf(node: SyntaxNode): RawCall {
     const fn = node.childForFieldName("function") ?? node.children[0];
-    if (!fn) return null;
+    if (!fn) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET };
     const flat = flattenCallTarget(fn);
-    if (flat === null) return null;
+    if (flat === null) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET };
     const dot = flat.indexOf(".");
     if (dot === -1) return { target: flat, obj: null, attr: flat };
     return { target: flat, obj: flat.slice(0, dot), attr: flat.slice(dot + 1) };

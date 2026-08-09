@@ -10,6 +10,9 @@ export type TreeSitterLanguage = Parser.Language;
  * 名字解析是行为不是数据，每门语言自己实现。
  */
 
+/** 不可拍平调用点（super().m()、factory()() 等）的哨兵 attr/target。 */
+export const UNRESOLVED_TARGET = "<unresolved>";
+
 /** 原始调用点（解析前）。target 为点连文本，如 "os.getcwd"、"this.save"、"print"。 */
 export interface RawCall {
   /** 完整点连名，如 "os.getcwd"；裸名为 "print"。 */
