@@ -50,12 +50,12 @@ IMPURE
   chain=   3  {io}       batch_create                 service.py:13
   ...
 UNKNOWN (audit 假设为不纯)
-  chain=   0?  {?}        engage                       worker.py:5
+  chain=   0?→-  {?}        engage                       worker.py:5
 ```
 
 - **chain = 0**：直接效应源（调了 `sqlite3`、`fs.writeFileSync`、`console.log`……）。
 - **chain = N**：距离最近的效应源隔了 N 层调用。数值越大，副作用越隐蔽、越难 mock、重构越危险——排序越靠前。
-- **chain 带 `?`**：结论依赖未解析符号（audit 悲观值），标注后可能翻案。
+- **chain 带 `?`**：结论依赖未解析符号（audit 悲观值），标注后可能翻案；`?→N` 显示 dev 乐观链（区间上界），如 `0?→4` 表示该链标注后最坏藏 4 层，`-` 表示 dev 视为纯。JSON 输出对应字段为 `chain`（audit）与 `chainDev`（dev）。
 - **effects**：传播后的真实效应集；`{?}` 表示只有未知来源。
 
 ## 架构

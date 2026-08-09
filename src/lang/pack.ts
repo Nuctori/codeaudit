@@ -42,8 +42,10 @@ export interface RawChunk {
   readonly line: number;
   readonly endLine: number;
   readonly nesting: number;
-  /** 规范化前的源码文本（用于内容哈希）。 */
+  /** 规范化前的源码文本（原始函数文本）。 */
   readonly sourceText: string;
+  /** 令牌级规范化文本（去注释、令牌间单空格，字符串原样）——公理4 内容身份来源。 */
+  readonly normText: string;
   readonly calls: RawCall[];
   /** 所在类名（方法归属），顶层为 null。 */
   readonly ownerClass: string | null;

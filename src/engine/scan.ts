@@ -6,7 +6,7 @@ import type { LangPack, RawFileFacts, TreeSitterLanguage } from "../lang/pack";
 import { Extractor } from "../lang/extractor";
 import { link } from "./link";
 import { analyze } from "../core/analyze";
-import { Purity, ScanReport } from "../core/types";
+import { Purity, type ScanReport } from "../core/types";
 
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", "build", "out", ".venv", "venv",
@@ -23,8 +23,10 @@ export interface ScanOptions {
   readonly ParserCtor: typeof Parser;
 }
 
+const CACHE_VERSION = 2;
+
 interface CacheFile {
-  version: 1;
+  version: typeof CACHE_VERSION;
   files: Record<string, { contentHash: string; facts: RawFileFacts }>;
 }
 
@@ -55,16 +57,18 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
   const root = normalize(opts.root);
   const fileMap = discoverFiles(root, opts.packs);
 
-  let cache: CacheFile = { version: 1, files: {} };
+  let cache: CacheFile = { version: CACHE_VERSION, files: {} };
   const cachePath = opts.cacheDir ? join(opts.cacheDir, "cache.json") : null;
   if (opts.useCache && cachePath) {
     try {
-      cache = JSON.parse(readFileSync(cachePath, "utf8")) as CacheFile;
+      const parsed = JSON.parse(readFileSync(cachePath, "utf8")) as CacheFile;
+      // facts 结构随版本演进（normText 等）；版本不符即全量重扫，防陈旧复用
+      if (parsed && parsed.version === CACHE_VERSION) cache = parsed;
     } catch {
-      cache = { version: 1, files: {} };
+      cache = { version: CACHE_VERSION, files: {} };
     }
   }
-  const nextCache: CacheFile = { version: 1, files: {} };
+  const nextCache: CacheFile = { version: CACHE_VERSION, files: {} };
   let cachedFiles = 0;
 
   const extractors = new Map<string, Extractor>();
@@ -123,7 +127,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 
   const packsByName = new Map(opts.packs.map((p) => [p.name, p]));
   const { chunks } = link(facts, packsByName);
-  const { verdicts, cycleCount } = analyze(chunks);
+  const { verdicts, cycleCount, staleEdges, invariantViolations } = analyze(chunks);
 
   const impure = verdicts.filter((v) => v.purity === Purity.IMPURE).length;
   const unknown = verdicts.filter((v) => v.purity === Purity.UNKNOWN).length;
@@ -143,6 +147,8 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
       unknownRate: verdicts.length === 0 ? 0 : uncertain / verdicts.length,
       cycles: cycleCount,
       cachedFiles,
+      staleEdges,
+      invariantViolations,
     },
   };
 }

@@ -27,7 +27,7 @@ export class Extractor {
     const root = tree.rootNode;
     const chunks: RawChunk[] = [];
     // 伪 chunk 收容模块级调用（公理1）
-    const moduleChunk = fresh("<module>", 1, source.split("\n").length, "");
+    const moduleChunk = fresh("<module>", 1, source.split("\n").length, "", "");
     const stack: MutableChunk[] = [moduleChunk];
 
     const visit = (node: SyntaxNode): void => {
@@ -41,6 +41,7 @@ export class Extractor {
             node.startPosition.row + 1,
             node.endPosition.row + 1,
             node.text,
+            normalizeCode(node),
             this.ownerClass(node),
           );
           mc.nesting = this.maxNesting(node);
@@ -125,8 +126,28 @@ interface MutableChunk {
   endLine: number;
   nesting: number;
   sourceText: string;
+  normText: string;
   calls: RawCall[];
   ownerClass: string | null;
+}
+
+/**
+ * 令牌级规范化（公理4 单射）：跳过 comment 节点；叶子令牌文本原样保留
+ * （字符串内容、运算符、私有字段名都精确），令牌间以单空格连接。
+ * 结果：注释/缩进/CRLF 改动不敏感；真实改动（含字符串内 //、#、整除）敏感。
+ */
+function normalizeCode(node: SyntaxNode): string {
+  const parts: string[] = [];
+  const walk = (n: SyntaxNode): void => {
+    if (n.type === "comment") return;
+    if (n.childCount === 0) {
+      parts.push(n.text);
+      return;
+    }
+    for (const c of n.children) walk(c);
+  };
+  for (const c of node.children) walk(c);
+  return parts.join(" ");
 }
 
 function fresh(
@@ -134,9 +155,10 @@ function fresh(
   line: number,
   endLine: number,
   sourceText: string,
+  normText: string,
   ownerClass: string | null = null,
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, sourceText, calls: [], ownerClass };
+  return { name, line, endLine, nesting: 0, sourceText, normText, calls: [], ownerClass };
 }
 
 /** 把 member/attribute 链拍平成点连文本；动态部分（下标、调用结果）返回 null。 */

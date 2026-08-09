@@ -2,7 +2,7 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { scanProject } from "./index";
-import { Purity, Verdict } from "./core/types";
+import { Purity, type Verdict } from "./core/types";
 
 interface CliArgs {
   dir: string;
@@ -55,7 +55,8 @@ function printHelp(): void {
 function fmtChain(v: Verdict): string {
   if (v.chain === Infinity) return "   -";
   const s = String(v.chain).padStart(4);
-  return v.chainCertain ? s : s + "?";
+  // 不确定链显示区间 [audit, dev]：如 0?→3（标注后可能翻案到 3）
+  return v.chainCertain ? s : `${s}?→${v.chainDev === Infinity ? "-" : v.chainDev}`;
 }
 
 function fmtEffects(v: Verdict): string {
@@ -71,6 +72,12 @@ async function main(): Promise<void> {
     useCache: !args.noCache,
     cacheDir: resolve(root, ".codeaudit"),
   });
+
+  if (report.stats.invariantViolations > 0 || report.stats.staleEdges > 0) {
+    console.error(
+      `codeaudit: warning — ${report.stats.invariantViolations} invariant violations, ${report.stats.staleEdges} stale edges`,
+    );
+  }
 
   if (args.format === "json") {
     console.log(JSON.stringify(report, (k, v) =>

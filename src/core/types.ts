@@ -46,6 +46,8 @@ export interface Verdict {
    * audit 模式下的悲观值（未知视为不纯时算得）。
    */
   readonly chain: number;
+  /** 链区间上界：dev（乐观）模式链（未知视为纯时算得）。区间 [chain, chainDev] 即未知翻案后的可能范围。 */
+  readonly chainDev: number;
   /**
    * chain 是否确定：dev（乐观）与 audit（悲观）两遍结果一致时为 true。
    * false 表示结论依赖未知符号，需要标注。
@@ -67,6 +69,10 @@ export interface ScanStats {
   /** 强连通分量中大小 > 1 的个数（调用环数）。 */
   readonly cycles: number;
   readonly cachedFiles: number;
+  /** 指向图中不存在目标的陈旧调用数（缓存漂移可致；>0 时图不完整）。 */
+  readonly staleEdges: number;
+  /** 传播不变量违规数（边单调性 purity(caller)≥purity(callee)、链三角）；0 = 不变量全部成立。 */
+  readonly invariantViolations: number;
 }
 
 export interface ScanReport {

@@ -231,3 +231,36 @@ describe("OO 健全性回归：假纯修复", () => {
     expect(b.get("poly.py::C.run")!.purity).toBe(Purity.UNKNOWN);
   });
 });
+
+describe("公理4：令牌级规范化（身份即内容）", () => {
+  const idOf = async (p: string): Promise<string> => {
+    const r = await scanProject(p);
+    return r.verdicts.find((v) => v.chunk.name === "f")!.chunk.id;
+  };
+
+  it("注释/空白不敏感（改注释、调缩进 id 不变）", async () => {
+    const a = project("ax4a", { "f.py": "def f(x):\n    # 注释\n    return x + 1\n" });
+    const b = project("ax4b", { "f.py": "def f(x):\n    return x + 1\n" });
+    expect(await idOf(a)).toBe(await idOf(b));
+  });
+
+  it("字符串内容敏感（旧正则会把 \"a  b\" 与 \"a b\" 塌缩为同 id）", async () => {
+    const a = project("ax4c", { "f.py": 'def f(x):\n    return "a  b"\n' });
+    const b = project("ax4d", { "f.py": 'def f(x):\n    return "a b"\n' });
+    expect(await idOf(a)).not.toBe(await idOf(b));
+  });
+
+  it("整除 // 不被当注释（旧正则 x//2 与 x//3 同 id）", async () => {
+    const a = project("ax4e", { "f.py": "def f(x):\n    return x // 2\n" });
+    const b = project("ax4f", { "f.py": "def f(x):\n    return x // 3\n" });
+    expect(await idOf(a)).not.toBe(await idOf(b));
+  });
+
+  it("TS 私有字段 # 不被剥离（旧正则 this.#a 与 this.#b 同 id）", async () => {
+    const a = project("ax4g", { "g.ts": "export class C {\n  #a = 1;\n  f() { return this.#a; }\n}\n" });
+    const b = project("ax4h", { "g.ts": "export class C {\n  #b = 1;\n  f() { return this.#b; }\n}\n" });
+    const idA = (await scanProject(a)).verdicts.find((v) => v.chunk.name === "C.f")!.chunk.id;
+    const idB = (await scanProject(b)).verdicts.find((v) => v.chunk.name === "C.f")!.chunk.id;
+    expect(idA).not.toBe(idB);
+  });
+});

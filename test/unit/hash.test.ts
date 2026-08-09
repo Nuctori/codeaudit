@@ -1,27 +1,23 @@
 import { describe, it, expect } from "vitest";
-import { chunkId, normalizeSource } from "../../src/core/hash";
+import { contentHash, chunkId } from "../../src/core/hash";
 
-describe("chunkId（公理4：身份即内容）", () => {
-  it("对注释不敏感", () => {
-    const a = "def f(x):\n    return x + 1";
-    const b = "def f(x):\n    # 加一\n    return x + 1";
-    expect(chunkId(a)).toBe(chunkId(b));
+describe("hash 基础（公理4 内容身份）", () => {
+  it("16 位 hex", () => {
+    expect(chunkId("def f(): pass")).toMatch(/^[0-9a-f]{16}$/);
+    expect(contentHash("x")).toMatch(/^[0-9a-f]{16}$/);
   });
 
-  it("对空白/缩进风格不敏感", () => {
-    const a = "function f() { return 1; }";
-    const b = "function f() {\n    return 1;\n}";
-    expect(chunkId(a)).toBe(chunkId(b));
+  it("确定性", () => {
+    const s = "def f(x):\n    return x + 1";
+    expect(chunkId(s)).toBe(chunkId(s));
   });
 
-  it("对真实改动敏感", () => {
-    const a = "def f(x):\n    return x + 1";
-    const b = "def f(x):\n    return x + 2";
-    expect(chunkId(a)).not.toBe(chunkId(b));
+  it("对输入敏感", () => {
+    expect(chunkId("a")).not.toBe(chunkId("b"));
+    expect(contentHash("a")).not.toBe(contentHash("b"));
   });
 
-  it("normalizeSource 确定性", () => {
-    const s = "a /* x */ b // y\n# z\nc";
-    expect(normalizeSource(s)).toBe(normalizeSource(s));
+  it("chunkId 是纯哈希（规范化在 extractor，见 lang-features 公理4 回归）", () => {
+    expect(chunkId("x // 2")).not.toBe(chunkId("x // 3"));
   });
 });

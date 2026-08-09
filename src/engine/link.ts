@@ -53,7 +53,7 @@ export function link(
 
     for (const rc of facts.chunks) {
       // 公理4：id 永远是纯内容身份；唯一性后缀只加在图键 key 上
-      const baseId = rc.name === "<module>" ? "module" : chunkId(rc.sourceText);
+      const baseId = rc.name === "<module>" ? "module" : chunkId(rc.normText);
       const n = (seenIds.get(baseId) ?? 0) + 1;
       seenIds.set(baseId, n);
       const key = `${facts.file}::${n > 1 ? `${baseId}#${n}` : baseId}`;
@@ -148,7 +148,7 @@ export function link(
 
       out.push({
         // 公理4：id 由内容直接重算，与 key 的去重后缀无关
-        id: rc.name === "<module>" ? "module" : chunkId(rc.sourceText),
+        id: rc.name === "<module>" ? "module" : chunkId(rc.normText),
         key,
         name: rc.ownerClass ? `${rc.ownerClass}.${rc.name}` : rc.name,
         file,

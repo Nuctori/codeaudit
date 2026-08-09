@@ -1,4 +1,4 @@
-import { Chunk, Purity, Verdict, UNKNOWN_TARGET } from "./types";
+import { type Chunk, Purity, type Verdict, UNKNOWN_TARGET } from "./types";
 import { tarjan } from "./tarjan";
 
 interface ModeResult {
@@ -14,17 +14,19 @@ interface ModeResult {
 function runOnce(
   chunks: readonly Chunk[],
   audit: boolean,
-): { res: Map<string, ModeResult>; inDeg: Map<string, number>; cycleCount: number } {
+): { res: Map<string, ModeResult>; inDeg: Map<string, number>; cycleCount: number; staleEdges: number } {
   const byKey = new Map<string, Chunk>();
   for (const c of chunks) byKey.set(c.key, c);
 
   const edges = new Map<string, Set<string>>();
   const hasUnknown = new Set<string>();
+  let staleEdges = 0;
   for (const c of chunks) {
     const s = new Set<string>();
     for (const t of c.calls) {
       if (t === UNKNOWN_TARGET) hasUnknown.add(c.key);
       else if (byKey.has(t)) s.add(t);
+      else staleEdges++; // 陈旧边：目标不在图中（缓存漂移/幽灵条目）
     }
     edges.set(c.key, s);
   }
@@ -70,18 +72,22 @@ function runOnce(
     const purity: Purity =
       real.size > 0
         ? Purity.IMPURE
-        : eff[k]!.has(UNKNOWN_TARGET) || hasUnknown.has(c.key)
+        : eff[k]!.has(UNKNOWN_TARGET) || (audit && hasUnknown.has(c.key))
           ? Purity.UNKNOWN
           : Purity.PURE;
     res.set(c.key, { effects: real, chain: chain[k]!, purity });
   }
   const cycleCount = sccs.filter((s) => s.length > 1).length;
-  return { res, inDeg, cycleCount };
+  return { res, inDeg, cycleCount, staleEdges };
 }
 
 export interface AnalyzeOutput {
   readonly verdicts: Verdict[];
   readonly cycleCount: number;
+  /** 指向图中不存在目标的陈旧调用数。 */
+  readonly staleEdges: number;
+  /** 传播不变量违规数（0 = 边单调性 + 链三角全部成立）。 */
+  readonly invariantViolations: number;
 }
 
 /**
@@ -100,6 +106,7 @@ export function analyze(chunks: readonly Chunk[]): AnalyzeOutput {
       purity: a.purity,
       effects: a.effects,
       chain: a.chain,
+      chainDev: d.chain,
       chainCertain: a.chain === d.chain,
       inDegree: audit.inDeg.get(c.key) ?? 0,
       outDegree: c.calls.size - (c.calls.has(UNKNOWN_TARGET) ? 1 : 0),
@@ -116,5 +123,42 @@ export function analyze(chunks: readonly Chunk[]): AnalyzeOutput {
     return x.chunk.key < y.chunk.key ? -1 : x.chunk.key > y.chunk.key ? 1 : 0;
   });
 
-  return { verdicts, cycleCount: audit.cycleCount };
+  return {
+    verdicts,
+    cycleCount: audit.cycleCount,
+    staleEdges: audit.staleEdges,
+    invariantViolations: countInvariantViolations(verdicts, chunks),
+  };
+}
+
+/**
+ * 传播不变量机检（把公理变成可机检断言）：
+ * ① 边单调性：purity(caller) ≥ purity(callee)（格序 PURE < UNKNOWN < IMPURE）——
+ *    不纯 callee 必致不纯 caller，任何传播回归都会被抓住；
+ * ② 链三角不等式：chain(caller) ≤ 1 + chain(callee)——最短路径性质。
+ */
+function countInvariantViolations(
+  verdicts: readonly Verdict[],
+  chunks: readonly Chunk[],
+): number {
+  const byKey = new Map<string, Chunk>();
+  for (const c of chunks) byKey.set(c.key, c);
+  const purity = new Map<string, number>();
+  const chain = new Map<string, number>();
+  for (const v of verdicts) {
+    purity.set(v.chunk.key, v.purity);
+    chain.set(v.chunk.key, v.chain);
+  }
+  let violations = 0;
+  for (const v of verdicts) {
+    const vp = purity.get(v.chunk.key)!;
+    const vc = chain.get(v.chunk.key)!;
+    for (const t of v.chunk.calls) {
+      if (t === UNKNOWN_TARGET || !byKey.has(t)) continue;
+      if (vp < purity.get(t)!) violations++;
+      const tc = chain.get(t)!;
+      if (vc !== Infinity && tc !== Infinity && vc > 1 + tc) violations++;
+    }
+  }
+  return violations;
 }
