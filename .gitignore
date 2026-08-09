@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.codeaudit/
+.codeaudit-test/
+.pi/
+.pi-subagents/
+.ruff_cache/
+*.log

@@ -1,0 +1,77 @@
+/**
+ * 核心数据模型 —— 五条设计公理的载体。
+ *
+ * 公理1（边的守恒）：每个调用点恰归属一个 chunk（含文件级伪 chunk）。
+ * 公理2（先凝聚后计算）：一切传播在 SCC 凝聚后的 DAG 上进行。
+ * 公理3（纯度三值，未知不猜）：PURE / UNKNOWN / IMPURE，audit 开关决定未知倒向。
+ * 公理4（身份即内容）：chunk.id = hash(规范化源码文本)，搬家改名不漂移。
+ * 公理5（排序不混合量纲）：报告排序只用字典序。
+ */
+
+/** 图中表示"存在未解析调用"的哨兵目标。 */
+export const UNKNOWN_TARGET = "?";
+
+export enum Purity {
+  PURE = 0,
+  UNKNOWN = 1,
+  IMPURE = 2,
+}
+
+/** 链接完成后的图节点（不可变）。 */
+export interface Chunk {
+  /** 内容寻址身份：规范化源码文本的哈希。公理4。 */
+  readonly id: string;
+  /** 图内唯一键：file::id（同文件重复内容时追加 #n）。 */
+  readonly key: string;
+  /** 展示名，文件内限定名，如 "Svc.save"、"handle"。 */
+  readonly name: string;
+  readonly file: string;
+  readonly line: number;
+  readonly endLine: number;
+  /** 最大嵌套深度（空函数 = 0）。 */
+  readonly nesting: number;
+  /** 自身直接效应，如 {"io"} / {"state"}；空集 = 无直接效应。 */
+  readonly direct: ReadonlySet<string>;
+  /** 已解析 callee 的 key 集合；含 UNKNOWN_TARGET 表示存在未解析调用。 */
+  readonly calls: ReadonlySet<string>;
+}
+
+export interface Verdict {
+  readonly chunk: Chunk;
+  readonly purity: Purity;
+  /** 传播后的真实效应集（不含 "?"）。 */
+  readonly effects: ReadonlySet<string>;
+  /**
+   * 到效应源的最短距离；Infinity = 纯。
+   * audit 模式下的悲观值（未知视为不纯时算得）。
+   */
+  readonly chain: number;
+  /**
+   * chain 是否确定：dev（乐观）与 audit（悲观）两遍结果一致时为 true。
+   * false 表示结论依赖未知符号，需要标注。
+   */
+  readonly chainCertain: boolean;
+  readonly inDegree: number;
+  readonly outDegree: number;
+}
+
+export interface ScanStats {
+  readonly files: number;
+  readonly parseErrors: number;
+  readonly chunks: number;
+  readonly pure: number;
+  readonly impure: number;
+  readonly unknown: number;
+  /** chain 不确定的 chunk 占比（0..1），工具对代码库的"无知程度"。 */
+  readonly unknownRate: number;
+  /** 强连通分量中大小 > 1 的个数（调用环数）。 */
+  readonly cycles: number;
+  readonly cachedFiles: number;
+}
+
+export interface ScanReport {
+  readonly root: string;
+  readonly mode: "audit" | "dev";
+  readonly verdicts: Verdict[];
+  readonly stats: ScanStats;
+}
