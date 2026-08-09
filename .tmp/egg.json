@@ -1,0 +1,506 @@
+{
+  "root": "D:\\node\\nodejs_wx_aipay_api-master\\app\\controller",
+  "mode": "audit",
+  "verdicts": [
+    {
+      "chunk": {
+        "id": "a9ce61cb847039e4",
+        "key": "client.js::a9ce61cb847039e4",
+        "name": "ClientController.pay",
+        "file": "client.js",
+        "line": 58,
+        "endLine": 90,
+        "nesting": 2,
+        "direct": [
+          "io"
+        ],
+        "calls": [
+          "?",
+          "client.js::fcab4a60ceec0c27"
+        ]
+      },
+      "purity": 2,
+      "effects": [
+        "io"
+      ],
+      "chain": 0,
+      "chainDev": 0,
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 1
+    },
+    {
+      "chunk": {
+        "id": "module",
+        "key": "client.js::module",
+        "name": "<module>",
+        "file": "client.js",
+        "line": 1,
+        "endLine": 94,
+        "nesting": 0,
+        "direct": [
+          "io"
+        ],
+        "calls": []
+      },
+      "purity": 2,
+      "effects": [
+        "io"
+      ],
+      "chain": 0,
+      "chainDev": 0,
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "module",
+        "key": "login.js::module",
+        "name": "<module>",
+        "file": "login.js",
+        "line": 1,
+        "endLine": 29,
+        "nesting": 0,
+        "direct": [
+          "io"
+        ],
+        "calls": []
+      },
+      "purity": 2,
+      "effects": [
+        "io"
+      ],
+      "chain": 0,
+      "chainDev": 0,
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "module",
+        "key": "order.js::module",
+        "name": "<module>",
+        "file": "order.js",
+        "line": 1,
+        "endLine": 199,
+        "nesting": 0,
+        "direct": [
+          "io"
+        ],
+        "calls": []
+      },
+      "purity": 2,
+      "effects": [
+        "io"
+      ],
+      "chain": 0,
+      "chainDev": 0,
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "module",
+        "key": "qrcode.js::module",
+        "name": "<module>",
+        "file": "qrcode.js",
+        "line": 1,
+        "endLine": 32,
+        "nesting": 0,
+        "direct": [
+          "io"
+        ],
+        "calls": []
+      },
+      "purity": 2,
+      "effects": [
+        "io"
+      ],
+      "chain": 0,
+      "chainDev": 0,
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "module",
+        "key": "updata.js::module",
+        "name": "<module>",
+        "file": "updata.js",
+        "line": 1,
+        "endLine": 66,
+        "nesting": 0,
+        "direct": [
+          "io"
+        ],
+        "calls": []
+      },
+      "purity": 2,
+      "effects": [
+        "io"
+      ],
+      "chain": 0,
+      "chainDev": 0,
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "366acc1ab7204c2c",
+        "key": "order.js::366acc1ab7204c2c",
+        "name": "OrderController.create_order",
+        "file": "order.js",
+        "line": 74,
+        "endLine": 162,
+        "nesting": 6,
+        "direct": [],
+        "calls": [
+          "?",
+          "order.js::79796aa3432cf20f"
+        ]
+      },
+      "purity": 1,
+      "effects": [],
+      "chain": 0,
+      "chainDev": "Infinity",
+      "chainCertain": false,
+      "inDegree": 0,
+      "outDegree": 1
+    },
+    {
+      "chunk": {
+        "id": "3dabd6e8a1beb33c",
+        "key": "client.js::3dabd6e8a1beb33c",
+        "name": "ClientController.index",
+        "file": "client.js",
+        "line": 25,
+        "endLine": 40,
+        "nesting": 2,
+        "direct": [],
+        "calls": [
+          "?",
+          "client.js::fcab4a60ceec0c27"
+        ]
+      },
+      "purity": 1,
+      "effects": [],
+      "chain": 0,
+      "chainDev": "Infinity",
+      "chainCertain": false,
+      "inDegree": 0,
+      "outDegree": 1
+    },
+    {
+      "chunk": {
+        "id": "79796aa3432cf20f",
+        "key": "order.js::79796aa3432cf20f",
+        "name": "OrderController.filterNewPrice",
+        "file": "order.js",
+        "line": 119,
+        "endLine": 119,
+        "nesting": 2,
+        "direct": [],
+        "calls": [
+          "?"
+        ]
+      },
+      "purity": 1,
+      "effects": [],
+      "chain": 0,
+      "chainDev": "Infinity",
+      "chainCertain": false,
+      "inDegree": 1,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "79796aa3432cf20f",
+        "key": "order.js::79796aa3432cf20f#2",
+        "name": "OrderController.filterNewPrice",
+        "file": "order.js",
+        "line": 150,
+        "endLine": 150,
+        "nesting": 2,
+        "direct": [],
+        "calls": [
+          "?"
+        ]
+      },
+      "purity": 1,
+      "effects": [],
+      "chain": 0,
+      "chainDev": "Infinity",
+      "chainCertain": false,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "e6d44501f08b19cd",
+        "key": "order.js::e6d44501f08b19cd",
+        "name": "OrderController.index",
+        "file": "order.js",
+        "line": 8,
+        "endLine": 55,
+        "nesting": 2,
+        "direct": [],
+        "calls": [
+          "?"
+        ]
+      },
+      "purity": 1,
+      "effects": [],
+      "chain": 0,
+      "chainDev": "Infinity",
+      "chainCertain": false,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "7db02db302a64c49",
+        "key": "updata.js::7db02db302a64c49",
+        "name": "index",
+        "file": "updata.js",
+        "line": 11,
+        "endLine": 64,
+        "nesting": 2,
+        "direct": [],
+        "calls": [
+          "?"
+        ]
+      },
+      "purity": 1,
+      "effects": [],
+      "chain": 0,
+      "chainDev": "Infinity",
+      "chainCertain": false,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "8f790d1e2f0d8abf",
+        "key": "order.js::8f790d1e2f0d8abf",
+        "name": "OrderController.update",
+        "file": "order.js",
+        "line": 164,
+        "endLine": 195,
+        "nesting": 1,
+        "direct": [],
+        "calls": [
+          "?"
+        ]
+      },
+      "purity": 1,
+      "effects": [],
+      "chain": 0,
+      "chainDev": "Infinity",
+      "chainCertain": false,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "c288bc52d592518f",
+        "key": "qrcode.js::c288bc52d592518f",
+        "name": "QrcodeController.destroy",
+        "file": "qrcode.js",
+        "line": 19,
+        "endLine": 28,
+        "nesting": 1,
+        "direct": [],
+        "calls": [
+          "?"
+        ]
+      },
+      "purity": 1,
+      "effects": [],
+      "chain": 0,
+      "chainDev": "Infinity",
+      "chainCertain": false,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "c566b5fb32ff790e",
+        "key": "qrcode.js::c566b5fb32ff790e",
+        "name": "QrcodeController.index",
+        "file": "qrcode.js",
+        "line": 6,
+        "endLine": 18,
+        "nesting": 1,
+        "direct": [],
+        "calls": [
+          "?"
+        ]
+      },
+      "purity": 1,
+      "effects": [],
+      "chain": 0,
+      "chainDev": "Infinity",
+      "chainCertain": false,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "8627171c185cceb6",
+        "key": "order.js::8627171c185cceb6",
+        "name": "OrderController",
+        "file": "order.js",
+        "line": 6,
+        "endLine": 196,
+        "nesting": 7,
+        "direct": [],
+        "calls": []
+      },
+      "purity": 0,
+      "effects": [],
+      "chain": "Infinity",
+      "chainDev": "Infinity",
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "f7af0a623c255f28",
+        "key": "client.js::f7af0a623c255f28",
+        "name": "ClientController",
+        "file": "client.js",
+        "line": 6,
+        "endLine": 91,
+        "nesting": 3,
+        "direct": [],
+        "calls": []
+      },
+      "purity": 0,
+      "effects": [],
+      "chain": "Infinity",
+      "chainDev": "Infinity",
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "0a33f15f2363721f",
+        "key": "login.js::0a33f15f2363721f",
+        "name": "LoginController",
+        "file": "login.js",
+        "line": 5,
+        "endLine": 26,
+        "nesting": 3,
+        "direct": [],
+        "calls": []
+      },
+      "purity": 0,
+      "effects": [],
+      "chain": "Infinity",
+      "chainDev": "Infinity",
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "a28b073cea717a6e",
+        "key": "login.js::a28b073cea717a6e",
+        "name": "LoginController.create",
+        "file": "login.js",
+        "line": 6,
+        "endLine": 20,
+        "nesting": 2,
+        "direct": [],
+        "calls": []
+      },
+      "purity": 0,
+      "effects": [],
+      "chain": "Infinity",
+      "chainDev": "Infinity",
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "2c2cd1e858a13204",
+        "key": "qrcode.js::2c2cd1e858a13204",
+        "name": "QrcodeController",
+        "file": "qrcode.js",
+        "line": 5,
+        "endLine": 29,
+        "nesting": 2,
+        "direct": [],
+        "calls": []
+      },
+      "purity": 0,
+      "effects": [],
+      "chain": "Infinity",
+      "chainDev": "Infinity",
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "fcab4a60ceec0c27",
+        "key": "client.js::fcab4a60ceec0c27",
+        "name": "ClientController.error",
+        "file": "client.js",
+        "line": 8,
+        "endLine": 11,
+        "nesting": 0,
+        "direct": [],
+        "calls": []
+      },
+      "purity": 0,
+      "effects": [],
+      "chain": "Infinity",
+      "chainDev": "Infinity",
+      "chainCertain": true,
+      "inDegree": 2,
+      "outDegree": 0
+    },
+    {
+      "chunk": {
+        "id": "9edf6b8c04d730e8",
+        "key": "login.js::9edf6b8c04d730e8",
+        "name": "LoginController.index",
+        "file": "login.js",
+        "line": 21,
+        "endLine": 25,
+        "nesting": 0,
+        "direct": [],
+        "calls": []
+      },
+      "purity": 0,
+      "effects": [],
+      "chain": "Infinity",
+      "chainDev": "Infinity",
+      "chainCertain": true,
+      "inDegree": 0,
+      "outDegree": 0
+    }
+  ],
+  "stats": {
+    "files": 5,
+    "parseErrors": 0,
+    "chunks": 22,
+    "pure": 7,
+    "impure": 6,
+    "unknown": 9,
+    "unknownRate": 0.4090909090909091,
+    "cycles": 0,
+    "cachedFiles": 0,
+    "staleEdges": 0,
+    "invariantViolations": 0
+  }
+}

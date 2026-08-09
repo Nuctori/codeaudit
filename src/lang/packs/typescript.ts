@@ -181,6 +181,8 @@ export const typescriptPack: LangPack = {
   pureGlobals,
   hofCallsArgs: new Set(["from"]), // Array.from(xs, cb) 会调用 cb
   assignmentTargets: ["variable_declarator", "assignment_expression", "for_in_statement", "for_of_statement"],
+  // egg.js 惯例：ctx.model（sequelize DB）/ ctx.service（业务层）/ ctx.app —— 均为 io 边界
+  frameworkIo: { ctx: ["model", "service", "app"] },
   extractImports: extractEsmImports,
   resolveModule: (module, fromFile, projectFiles) =>
     resolveEsmModule(module, fromFile, projectFiles, [".ts", ".tsx", ".js", ".jsx"]),

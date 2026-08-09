@@ -59,6 +59,7 @@ export const pythonPack: LangPack = {
   pureGlobals: new Set(),
   hofCallsArgs,
   assignmentTargets: ["assignment", "augmented_assignment", "for_statement", "named_expression"],
+  frameworkIo: {},
 
   extractImports(root: SyntaxNode): RawImport[] {
     const out: RawImport[] = [];

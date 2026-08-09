@@ -99,6 +99,8 @@ export interface LangPack {
   readonly hofCallsArgs: ReadonlySet<string>;
   /** 赋值目标节点类型（x = ... / const x = ... 的左侧收集，遮蔽守卫用）。 */
   readonly assignmentTargets: readonly string[];
+  /** 框架命名空间（如 egg 的 ctx）：对象名 → 成员前缀列表，命中视为 io 边界（ctx.model.* / ctx.service.*）。 */
+  readonly frameworkIo: Readonly<Record<string, readonly string[]>>;
 
   // ---- 行为侧 ----
   /** 从 AST 提取 import 记录（含再导出）。 */

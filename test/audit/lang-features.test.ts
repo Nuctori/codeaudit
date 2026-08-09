@@ -404,3 +404,25 @@ describe("迭代1：影响面方向 + 模块导出面解析（D 四件套）", (
     expect(b.get("use.ts::isM")!.purity).toBe(Purity.PURE);
   });
 });
+
+describe("迭代2：module id 锚点 + egg 框架命名空间", () => {
+  it("module chunk 的 id 按文件限定（标注不跨文件泄漏）", async () => {
+    const root = project("modid", {
+      "a.py": "def f():\n    return 1\n",
+      "b.py": "def g():\n    return 2\n",
+    });
+    const r = await scanProject(root);
+    const mods = r.verdicts.filter((v) => v.chunk.name === "<module>");
+    expect(mods.length).toBe(2);
+    expect(mods[0]!.chunk.id).not.toBe(mods[1]!.chunk.id);
+    expect(mods[0]!.chunk.id).toContain("module@");
+  });
+
+  it("egg 框架命名空间：ctx.model.X → io", async () => {
+    const root = project("egg1", {
+      "c.js": "async function index() {\n  const { ctx } = this;\n  const users = await ctx.model.Orders.findAll();\n  ctx.body = users;\n}\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("c.js::index")!.purity).toBe(Purity.IMPURE);
+  });
+});

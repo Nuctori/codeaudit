@@ -52,8 +52,9 @@ export function link(
     const seenIds = new Map<string, number>();
 
     for (const rc of facts.chunks) {
-      // 公理4：id 永远是纯内容身份；唯一性后缀只加在图键 key 上
-      const baseId = rc.name === "<module>" ? "module" : chunkId(rc.normText);
+      // 公理4：id 永远是纯内容身份；唯一性后缀只加在图键 key 上。
+      // module 伪 chunk 无源码，id 用文件限定（否则所有文件的 module chunk 共享 "module"，标注会泄漏）
+      const baseId = rc.name === "<module>" ? `module@${facts.file}` : chunkId(rc.normText);
       const n = (seenIds.get(baseId) ?? 0) + 1;
       seenIds.set(baseId, n);
       const key = `${facts.file}::${n > 1 ? `${baseId}#${n}` : baseId}`;
@@ -173,8 +174,8 @@ export function link(
       }
 
       out.push({
-        // 公理4：id 由内容直接重算，与 key 的去重后缀无关
-        id: rc.name === "<module>" ? "module" : chunkId(rc.normText),
+        // 公理4：id 由内容直接重算，与 key 的去重后缀无关（module 用文件限定 id）
+        id: rc.name === "<module>" ? `module@${file}` : chunkId(rc.normText),
         key,
         name: rc.ownerClass ? `${rc.ownerClass}.${rc.name}` : rc.name,
         file,
@@ -227,6 +228,19 @@ function resolveCall(
   if (call.obj === null) {
     const local = fi.bySimple.get(call.attr);
     if (local && local.length > 0) { sink.addEdge(local[0]!); return; }
+  }
+
+  // 2.5 框架命名空间（egg ctx.model.* / ctx.service.* → io 边界；遮蔽/参数同名则跳过判定）
+  if (call.obj !== null && !caller.assigned.includes(call.obj)) {
+    const prefixes = pack.frameworkIo[call.obj];
+    if (prefixes) {
+      for (const p of prefixes) {
+        if (call.attr === p || call.attr.startsWith(p + ".")) {
+          sink.addEffect("io");
+          return;
+        }
+      }
+    }
   }
 
   // 3. import 映射
