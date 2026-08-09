@@ -26,12 +26,12 @@ export function influenceAnalysis(chunks: readonly Chunk[]): Map<string, number>
   const sccs = tarjan(byKey.keys(), edges);
   const comp = new Map<string, number>();
   sccs.forEach((s, k) => s.forEach((i) => comp.set(i, k)));
-  // pred[k] = 直接 caller 分量集（与效应传播的 succ 反向）
-  const pred: Array<Set<number>> = sccs.map(() => new Set<number>());
+  // succ[k] = 直接 callee 分量集（与效应传播同向）
+  const succ: Array<Set<number>> = sccs.map(() => new Set<number>());
   sccs.forEach((s, k) => {
     for (const i of s)
       for (const t of edges.get(i)!)
-        if (comp.get(t)! !== k) pred[comp.get(t)!]!.add(k);
+        if (comp.get(t)! !== k) succ[k]!.add(comp.get(t)!);
   });
 
   const sourceOf = new Map<number, string[]>(); // 分量 → 含 `?` 的 chunk key 列表
@@ -44,21 +44,19 @@ export function influenceAnalysis(chunks: readonly Chunk[]): Map<string, number>
     }
   }
 
-  // 自上而下：caller 先（分量下标大 → 小）
-  const S: Array<Set<number>> = sccs.map(() => new Set<number>());
+  // 沿 succ（callee）方向传播：Down[k] = k 及其调用链下游（callee 子孙）中的未知源集。
+  // 语义：未知从源沿调用边 callee→caller 传导，故 chunk k 的 UNKNOWN 依赖其下游源 u；
+  // 标注 u 释放的 chunk = {k : u ∈ Down[k]}（k 是 u 的祖先/调用方）。
+  // 与效应传播同序（callee 分量下标小、先处理），逆拓扑单趟即收敛。
+  const Down: Array<Set<number>> = sccs.map(() => new Set<number>());
   const inflByComp = new Map<number, number>();
-  for (let k = sccs.length - 1; k >= 0; k--) {
+  for (let k = 0; k < sccs.length; k++) {
     const set = new Set<number>();
     if (sourceOf.has(k)) set.add(k);
-    for (const p of pred[k]!) for (const s of S[p]!) set.add(s);
-    S[k] = set;
-    // 本分量的每个未知源都影响本分量（SCC 内共享），且影响 S 传播到的下游
-    if (sourceOf.has(k)) {
-      inflByComp.set(k, (inflByComp.get(k) ?? 0) + sccs[k]!.length);
-    }
-    for (const s of set) {
-      if (s !== k) inflByComp.set(s, (inflByComp.get(s) ?? 0) + sccs[k]!.length);
-    }
+    for (const s2 of succ[k]!) for (const s of Down[s2]!) set.add(s);
+    Down[k] = set;
+    // k ∈ I(u)：u 的下游之一，标注 u 会释放 k（SCC 内共享）
+    for (const s of set) inflByComp.set(s, (inflByComp.get(s) ?? 0) + sccs[k]!.length);
   }
 
   const influence = new Map<string, number>();

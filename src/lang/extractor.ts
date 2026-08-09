@@ -45,6 +45,7 @@ export class Extractor {
             this.ownerClass(node),
           );
           mc.nesting = this.maxNesting(node);
+          mc.assigned = this.assignedNames(node);
           chunks.push(mc as RawChunk);
           stack.push(mc);
           pushed = true;
@@ -120,19 +121,43 @@ export class Extractor {
     return { target: flat, obj: flat.slice(0, dot), attr: flat.slice(dot + 1), argFns };
   }
 
-  /** 命名函数实参（HOF 回调边原料）：arguments 子节点中直接是标识符的，及 Python 关键字实参（key=fn）的值。 */
+  /** 命名函数实参（HOF 回调边原料）：arguments 子节点中直接是标识符或可拍平成员表达式（this.log）的，及 Python 关键字实参（key=fn）的值。 */
   private argFnsOf(node: SyntaxNode): string[] {
     const args = node.childForFieldName("arguments");
     if (!args) return [];
     const out: string[] = [];
+    const pushArg = (n: SyntaxNode): void => {
+      if (n.type === "identifier" || n.type === "property_identifier") {
+        out.push(n.text);
+      } else if (n.type === "attribute" || n.type === "member_expression") {
+        const flat = flattenCallTarget(n);
+        if (flat !== null) out.push(flat);
+      }
+    };
     for (const c of args.children) {
-      if (c.type === "identifier" || c.type === "property_identifier") {
-        out.push(c.text);
-      } else if (c.type === "keyword_argument") {
+      if (c.type === "keyword_argument") {
         const v = c.childForFieldName("value");
-        if (v && (v.type === "identifier" || v.type === "property_identifier")) out.push(v.text);
+        if (v) pushArg(v);
+      } else {
+        pushArg(c);
       }
     }
+    return out;
+  }
+
+  /** 函数内赋值目标名（遮蔽守卫：from-import 绑定被局部重绑时不再解析）。流不敏感保守收集。 */
+  private assignedNames(root: SyntaxNode): string[] {
+    const out: string[] = [];
+    const walk = (n: SyntaxNode): void => {
+      if (this.pack.assignmentTargets.includes(n.type)) {
+        const left = n.childForFieldName("left") ?? n.childForFieldName("name");
+        if (left && (left.type === "identifier" || left.type === "property_identifier")) {
+          out.push(left.text);
+        }
+      }
+      for (const c of n.children) walk(c);
+    };
+    for (const c of root.children) walk(c);
     return out;
   }
 }
@@ -145,6 +170,7 @@ interface MutableChunk {
   sourceText: string;
   normText: string;
   calls: RawCall[];
+  assigned: string[];
   ownerClass: string | null;
 }
 
@@ -175,7 +201,7 @@ function fresh(
   normText: string,
   ownerClass: string | null = null,
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, sourceText, normText, calls: [], ownerClass };
+  return { name, line, endLine, nesting: 0, sourceText, normText, calls: [], assigned: [], ownerClass };
 }
 
 /** 把 member/attribute 链拍平成点连文本；动态部分（下标、调用结果）返回 null。 */

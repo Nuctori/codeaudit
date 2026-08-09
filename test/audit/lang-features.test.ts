@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanProject } from "../../src/index";
+import { influenceAnalysis } from "../../src/core/influence";
 import { Purity, type Verdict } from "../../src/core/types";
 
 /**
@@ -323,5 +324,83 @@ describe("标注回读（AI 标注闭环注入端）", () => {
     const r1 = await scanProject(root, { annotations: new Map([[src.chunk.id, "IMPURE"]]) });
     expect(r1.verdicts.find((v) => v.chunk.name === "source")!.purity).toBe(Purity.IMPURE);
     expect(r1.verdicts.find((v) => v.chunk.name === "caller")!.purity).toBe(Purity.IMPURE);
+  });
+});
+
+describe("迭代1：影响面方向 + 模块导出面解析（D 四件套）", () => {
+  it("影响面方向：标注 u 释放其调用方（a 调 b、b 含 ? → I(b)=2）", async () => {
+    const root = project("infl1", {
+      "a.py": "import b\ndef a():\n    b.source()\n",
+      "b.py": "import weirdlib\ndef source():\n    weirdlib.run()\n",
+    });
+    const r = await scanProject(root);
+    const chunks = r.verdicts.map((v) => v.chunk);
+    const infl = influenceAnalysis(chunks);
+    const bKey = chunks.find((c) => c.file.endsWith("b.py") && c.name === "source")!.key;
+    expect(infl.get(bKey)).toBe(2); // b 自身 + 调用方 a
+  });
+
+  it("HOF 成员形回调不假纯：Array.from(xs, this.log)", async () => {
+    const root = project("hofmem", {
+      "ui.ts": "class UI {\n  log(x: string) { console.log(x); }\n  build(xs: string[]) { return Array.from(xs, this.log); }\n}\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("ui.ts::UI.build")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("from-import 类成员：from db import Conn; Conn.open() → 真边", async () => {
+    const root = project("fm1", {
+      "db.py": "class Conn:\n    def open(self):\n        print('io')\n",
+      "use.py": "from db import Conn\ndef run():\n    Conn.open(Conn())\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("use.py::run")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("from-import 成员遮蔽守卫：绑定被重绑后不解析（防假纯）", async () => {
+    const root = project("fm2", {
+      "db.py": "class conn:\n    def execute(self):\n        pass\n",
+      "use.py": "from db import conn\ndef run():\n    conn = make_evil()\n    conn.execute()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("use.py::run")!.purity).toBe(Purity.UNKNOWN);
+  });
+
+  it("别名再导出：export { a as b } from → 消费者解析", async () => {
+    const root = project("alias1", {
+      "lib.ts": "export function a() { console.log('x'); }\n",
+      "barrel.ts": "export { a as b } from './lib';\n",
+      "use.ts": "import { b } from './barrel';\nexport function run() { b(); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("use.ts::run")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("export * as ns from → 命名空间绑定解析", async () => {
+    const root = project("ns1", {
+      "lib.ts": "export function go() { console.log('x'); }\n",
+      "barrel.ts": "export * as ns from './lib';\n",
+      "use.ts": "import { ns } from './barrel';\nexport function run() { ns.go(); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("use.ts::run")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("Python 点连模块：import a.b; a.b.fn() → 模块内解析", async () => {
+    const root = project("dot1", {
+      "pkg/a.py": "def fn():\n    print('io')\n",
+      "pkg/__init__.py": "",
+      "main.py": "import pkg.a\ndef run():\n    pkg.a.fn()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("main.py::run")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("纯库 from-import 成员：immutable Map.isMap → PURE", async () => {
+    const root = project("g2", {
+      "use.ts": "import { Map } from 'immutable';\nexport function isM(x: unknown) { return Map.isMap(x); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("use.ts::isM")!.purity).toBe(Purity.PURE);
   });
 });

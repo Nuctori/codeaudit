@@ -49,6 +49,8 @@ export interface RawChunk {
   /** 令牌级规范化文本（去注释、令牌间单空格，字符串原样）——公理4 内容身份来源。 */
   readonly normText: string;
   readonly calls: RawCall[];
+  /** 函数内赋值目标名（from-import 绑定被局部重绑时跳过解析，防假纯）。 */
+  readonly assigned: string[];
   /** 所在类名（方法归属），顶层为 null。 */
   readonly ownerClass: string | null;
 }
@@ -95,6 +97,8 @@ export interface LangPack {
   readonly pureGlobals: ReadonlySet<string>;
   /** 高阶函数名：会调用其函数实参的内建/模块成员（map/filter/sorted/Array.from…），用于回调实参边。 */
   readonly hofCallsArgs: ReadonlySet<string>;
+  /** 赋值目标节点类型（x = ... / const x = ... 的左侧收集，遮蔽守卫用）。 */
+  readonly assignmentTargets: readonly string[];
 
   // ---- 行为侧 ----
   /** 从 AST 提取 import 记录（含再导出）。 */

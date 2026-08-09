@@ -107,7 +107,7 @@ export function link(
     // TS 的显式 reexport 与普通 import 都走这里（深度受限防环）
     for (const imp of fi.facts.imports) {
       if (imp.local !== name && imp.local !== "*") continue;
-      if (imp.imported !== null && imp.imported !== name && imp.imported !== "*") continue;
+      if (imp.imported === null) continue; // 命名空间在调用侧解析；别名/再导出（imported 可为别名）按 imported 跟随
       const target = fi.pack.resolveModule(imp.module, file, projectFiles);
       if (target === null) continue;
       const importedName = imp.imported === "*" || imp.imported === null ? name : imp.imported;
@@ -144,6 +144,16 @@ export function link(
           markDynamic: () => { dynamicCalls++; calls.add(UNKNOWN_TARGET); },
           addArgEdges: (names) => {
             for (const n of names) {
+              // 成员形回调：this.log / self.render → 当前类的同名方法（HOF 成员形假纯修复）
+              const dotIdx = n.indexOf(".");
+              if (dotIdx !== -1 && rc.ownerClass && fi.pack.selfNames.includes(n.slice(0, dotIdx))) {
+                const q = `${rc.ownerClass}.${n.slice(dotIdx + 1)}`;
+                if (!fi.ambiguous.has(q)) {
+                  const hit = fi.byQualified.get(q);
+                  if (hit) { calls.add(hit); continue; }
+                }
+                continue;
+              }
               const local = fi.bySimple.get(n);
               if (local && local.length > 0) { calls.add(local[0]!); continue; }
               const imp = fi.importMap.get(n);
@@ -231,6 +241,16 @@ function resolveCall(
         if (member !== null) {
           const hit = resolveSymbol(target, member, 0);
           if (hit !== null) { sink.addEdge(hit); return; }
+          // 点连成员：import a.b; a.b.fn() → callOf 首点切分得 obj=a、attr=b.fn，
+          // 全名 a.b.fn 去掉模块路径 a.b 后的段（fn）在模块内解析（遮蔽重绑则跳过）
+          if (call.obj !== null && !caller.assigned.includes(call.obj)) {
+            const full = `${call.obj}.${call.attr}`;
+            if (full.startsWith(imp.module + ".")) {
+              const inner = full.slice(imp.module.length + 1);
+              const hit2 = resolveSymbol(target, inner, 0);
+              if (hit2 !== null) { sink.addEdge(hit2); return; }
+            }
+          }
         }
         sink.markUnknown();
         return;
@@ -259,7 +279,35 @@ function resolveCall(
       sink.markUnknown();
       return;
     }
-    // from db import conn; conn.execute(...) → 导入对象的方法：记未知（含 dynamic 计数）
+    // from db import conn; conn.execute(...) → 模块导出面解析：类成员真边；外部模块走效应表；重绑遮蔽则跳过
+    if (call.obj !== null && !caller.assigned.includes(call.obj)) {
+      const target = pack.resolveModule(imp.module, fi.facts.file, projectFiles);
+      const name = imp.imported === "default"
+        ? (target !== null ? (files.get(target)?.facts.defaultExport ?? imp.imported) : imp.imported)
+        : imp.imported;
+      if (target !== null) {
+        const tf = files.get(target);
+        if (tf) {
+          const q = `${name}.${call.attr}`;
+          if (!tf.ambiguous.has(q)) {
+            const hit = tf.byQualified.get(q);
+            if (hit) { sink.addEdge(hit); return; }
+          }
+          // 命名空间再导出链：ns 在 target 里是 export * as ns from → 继续解析 attr
+          const nsImp = tf.importMap.get(name);
+          if (nsImp && nsImp.imported === null) {
+            const t2 = pack.resolveModule(nsImp.module, target, projectFiles);
+            if (t2 !== null) {
+              const hit2 = resolveSymbol(t2, call.attr, 0);
+              if (hit2 !== null) { sink.addEdge(hit2); return; }
+            }
+          }
+        }
+      } else if (sink.effectFromModule(imp.module, call.attr)) {
+        if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns); // _.map(cb, xs)
+        return;
+      }
+    }
     sink.markDynamic();
     return;
   }

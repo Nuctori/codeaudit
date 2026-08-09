@@ -25,7 +25,7 @@ export interface ScanOptions {
   readonly annotations?: ReadonlyMap<string, "PURE" | "IMPURE">;
 }
 
-const CACHE_VERSION = 2;
+const CACHE_VERSION = 3;
 
 interface CacheFile {
   version: typeof CACHE_VERSION;

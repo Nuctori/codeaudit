@@ -55,8 +55,12 @@ export function extractEsmImports(root: SyntaxNode): RawImport[] {
       const src = n.childForFieldName("source");
       if (src) {
         const module = strip(src.text);
-        // export * from "./x"
-        if (n.children.some((c) => c.type === "*")) {
+        // export * as ns from "./x"：命名空间再导出，绑定 local=ns（tree-sitter 包在 namespace_export 节点里）
+        const nsexp = n.children.find((c) => c.type === "namespace_export");
+        if (nsexp) {
+          const nsNode = nsexp.children.find((c) => c.type === "identifier" || c.type === "property_identifier");
+          if (nsNode) out.push({ local: nsNode.text, module, imported: null, reexport: true });
+        } else if (n.children.some((c) => c.type === "*")) {
           out.push({ local: "*", module, imported: "*", reexport: true });
         }
         // export { a, b as c } from "./x"
@@ -133,6 +137,7 @@ const pureModules = new Set([
   "path", "url", "querystring", "util", "events", "buffer", "stream",
   "crypto", "zlib", "assert", "lodash", "lodash-es", "ramda", "date-fns",
   "dayjs", "moment", "uuid", "zod", "yup", "joi", "immutable", "rxjs",
+  "reselect", "classnames", "prop-types",
 ]);
 
 const impureGlobals: Record<string, "*" | readonly string[]> = {
@@ -175,6 +180,7 @@ export const typescriptPack: LangPack = {
   impureGlobals,
   pureGlobals,
   hofCallsArgs: new Set(["from"]), // Array.from(xs, cb) 会调用 cb
+  assignmentTargets: ["variable_declarator", "assignment_expression", "for_in_statement", "for_of_statement"],
   extractImports: extractEsmImports,
   resolveModule: (module, fromFile, projectFiles) =>
     resolveEsmModule(module, fromFile, projectFiles, [".ts", ".tsx", ".js", ".jsx"]),
