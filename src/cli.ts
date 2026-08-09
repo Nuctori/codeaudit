@@ -2,7 +2,8 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { scanProject } from "./index";
-import { Purity, type Verdict } from "./core/types";
+import { Purity, UNKNOWN_TARGET, type Verdict } from "./core/types";
+import { influenceAnalysis } from "./core/influence";
 
 interface CliArgs {
   dir: string;
@@ -45,7 +46,7 @@ function printHelp(): void {
 选项:
   --format text|json   输出格式（默认 text）
   --top N              只显示前 N 条
-  --unknowns <file>    导出未解析符号清单（供 AI 标注）
+  --unknowns <file>    导出未解析符号清单（按影响面排序，含 id 锚点，供 AI 标注）
   --no-cache           禁用增量缓存
   --strict             存在 IMPURE chunk 时退出码为 1
   -h, --help           显示帮助
@@ -107,16 +108,22 @@ async function main(): Promise<void> {
   }
 
   if (args.unknowns) {
+    // 影响面排序：只导出自身含 `?` 的源（纯传播型 UNKNOWN 标它无意义）；
+    // 影响面 = 该符号反向可达闭包内的 chunk 数（一次标注解除的 UNKNOWN 量）
+    const influence = influenceAnalysis(report.verdicts.map((v) => v.chunk));
     const unknowns = report.verdicts
-      .filter((v) => v.purity === Purity.UNKNOWN)
+      .filter((v) => v.purity === Purity.UNKNOWN && v.chunk.calls.has(UNKNOWN_TARGET))
       .map((v) => ({
+        id: v.chunk.id,
         symbol: v.chunk.name,
         file: v.chunk.file,
         line: v.chunk.line,
+        influence: influence.get(v.chunk.key) ?? 0,
         suggested_prompt:
           `函数 \`${v.chunk.name}\`（${v.chunk.file}:${v.chunk.line}）调用了无法静态解析的符号。` +
           `请判断它是否执行 I/O 或副作用，回答 PURE / IMPURE / UNKNOWN 并给出一句话理由。`,
-      }));
+      }))
+      .sort((a, b) => b.influence - a.influence);
     writeFileSync(args.unknowns, JSON.stringify(unknowns, null, 2));
     console.error(`unknowns -> ${args.unknowns} (${unknowns.length} 条)`);
   }
