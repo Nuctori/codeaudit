@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { scanProject } from "./index";
 import { Purity, UNKNOWN_TARGET, type Verdict } from "./core/types";
@@ -10,13 +10,14 @@ interface CliArgs {
   format: "text" | "json";
   top: number | null;
   unknowns: string | null;
+  annotations: string | null;
   noCache: boolean;
   strict: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
-    dir: ".", format: "text", top: null, unknowns: null,
+    dir: ".", format: "text", top: null, unknowns: null, annotations: null,
     noCache: false, strict: false,
   };
   const rest = argv.slice(2);
@@ -30,6 +31,7 @@ function parseArgs(argv: string[]): CliArgs {
       args.top = Number.isFinite(n) && n > 0 ? n : null;
     }
     else if (a === "--unknowns") args.unknowns = rest[++i]!;
+    else if (a === "--annotations") args.annotations = rest[++i]!;
     else if (a === "--no-cache") args.noCache = true;
     else if (a === "--strict") args.strict = true;
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
@@ -47,6 +49,7 @@ function printHelp(): void {
   --format text|json   输出格式（默认 text）
   --top N              只显示前 N 条
   --unknowns <file>    导出未解析符号清单（按影响面排序，含 id 锚点，供 AI 标注）
+  --annotations <file> 回读 AI 标注（[{id, verdict:"PURE"|"IMPURE"}]，按 chunk.id 匹配，减少未知）
   --no-cache           禁用增量缓存
   --strict             存在 IMPURE chunk 时退出码为 1
   -h, --help           显示帮助
@@ -69,9 +72,29 @@ function fmtEffects(v: Verdict): string {
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
   const root = resolve(args.dir);
+
+  let annotations: ReadonlyMap<string, "PURE" | "IMPURE"> | undefined;
+  if (args.annotations) {
+    try {
+      const list = JSON.parse(readFileSync(args.annotations, "utf8")) as Array<{ id?: unknown; verdict?: unknown }>;
+      const m = new Map<string, "PURE" | "IMPURE">();
+      for (const item of list) {
+        if (item && typeof item.id === "string" && (item.verdict === "PURE" || item.verdict === "IMPURE")) {
+          m.set(item.id, item.verdict);
+        }
+      }
+      annotations = m;
+      console.error(`annotations -> ${args.annotations} (${m.size} 条生效)`);
+    } catch {
+      console.error("codeaudit: 无法读取标注文件 " + args.annotations);
+      process.exit(2);
+    }
+  }
+
   const report = await scanProject(root, {
     useCache: !args.noCache,
     cacheDir: resolve(root, ".codeaudit"),
+    annotations,
   });
 
   if (report.stats.invariantViolations > 0 || report.stats.staleEdges > 0) {

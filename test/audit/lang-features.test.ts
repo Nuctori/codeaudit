@@ -299,3 +299,29 @@ describe("HOF 回调边（map/filter 吞回调效应修复）", () => {
     expect(b.get("hof.ts::run4")!.purity).toBe(Purity.IMPURE);
   });
 });
+
+describe("标注回读（AI 标注闭环注入端）", () => {
+  it("PURE 标注移除 chunk 自身 `?`，下游随之翻案", async () => {
+    const root = project("ann1", {
+      "a.py": "import weirdlib\ndef source():\n    weirdlib.run()\ndef caller():\n    source()\n",
+    });
+    const r0 = await scanProject(root);
+    const src = r0.verdicts.find((v) => v.chunk.name === "source")!;
+    expect(src.purity).toBe(Purity.UNKNOWN);
+    expect(r0.verdicts.find((v) => v.chunk.name === "caller")!.purity).toBe(Purity.UNKNOWN);
+    const r1 = await scanProject(root, { annotations: new Map([[src.chunk.id, "PURE"]]) });
+    expect(r1.verdicts.find((v) => v.chunk.name === "source")!.purity).toBe(Purity.PURE);
+    expect(r1.verdicts.find((v) => v.chunk.name === "caller")!.purity).toBe(Purity.PURE);
+  });
+
+  it("IMPURE 标注加直接效应并传播", async () => {
+    const root = project("ann2", {
+      "a.py": "import weirdlib\ndef source():\n    weirdlib.run()\ndef caller():\n    source()\n",
+    });
+    const r0 = await scanProject(root);
+    const src = r0.verdicts.find((v) => v.chunk.name === "source")!;
+    const r1 = await scanProject(root, { annotations: new Map([[src.chunk.id, "IMPURE"]]) });
+    expect(r1.verdicts.find((v) => v.chunk.name === "source")!.purity).toBe(Purity.IMPURE);
+    expect(r1.verdicts.find((v) => v.chunk.name === "caller")!.purity).toBe(Purity.IMPURE);
+  });
+});

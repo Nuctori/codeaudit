@@ -6,7 +6,7 @@ import type { LangPack, RawFileFacts, TreeSitterLanguage } from "../lang/pack";
 import { Extractor } from "../lang/extractor";
 import { link } from "./link";
 import { analyze } from "../core/analyze";
-import { Purity, type ScanReport } from "../core/types";
+import { Purity, type ScanReport, UNKNOWN_TARGET } from "../core/types";
 
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", "build", "out", ".venv", "venv",
@@ -21,6 +21,8 @@ export interface ScanOptions {
   readonly packs: readonly LangPack[];
   readonly loadLanguage: (pack: LangPack) => Promise<TreeSitterLanguage>;
   readonly ParserCtor: typeof Parser;
+  /** 人工/AI 标注回读：chunk.id → 判定。PURE 移除该 chunk 自身 `?`；IMPURE 加直接 io 效应。 */
+  readonly annotations?: ReadonlyMap<string, "PURE" | "IMPURE">;
 }
 
 const CACHE_VERSION = 2;
@@ -127,7 +129,25 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 
   const packsByName = new Map(opts.packs.map((p) => [p.name, p]));
   const { chunks } = link(facts, packsByName);
-  const { verdicts, cycleCount, staleEdges, invariantViolations } = analyze(chunks);
+  // 标注回读：证据注入源头（公理3 闭环）。PURE → 移除该 chunk 自己的 `?`；
+  // IMPURE → 加直接 io 效应。id 不匹配（内容已变）的条目静默忽略。
+  const ann = opts.annotations;
+  const analyzedChunks =
+    ann && ann.size > 0
+      ? chunks.map((c) => {
+          const v = ann.get(c.id);
+          if (v === undefined) return c;
+          if (v === "IMPURE") {
+            if (c.direct.has("io")) return c;
+            return { ...c, direct: new Set([...c.direct, "io"]) };
+          }
+          if (!c.calls.has(UNKNOWN_TARGET)) return c;
+          const calls = new Set(c.calls);
+          calls.delete(UNKNOWN_TARGET);
+          return { ...c, calls };
+        })
+      : chunks;
+  const { verdicts, cycleCount, staleEdges, invariantViolations } = analyze(analyzedChunks);
 
   const impure = verdicts.filter((v) => v.purity === Purity.IMPURE).length;
   const unknown = verdicts.filter((v) => v.purity === Purity.UNKNOWN).length;

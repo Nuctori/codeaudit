@@ -10,7 +10,12 @@ export const defaultPacks = [pythonPack, typescriptPack, tsxPack, javascriptPack
 /** 编程式 API：一行扫描。 */
 export async function scanProject(
   root: string,
-  opts?: { useCache?: boolean; cacheDir?: string },
+  opts?: {
+    useCache?: boolean;
+    cacheDir?: string;
+    /** 标注回读：chunk.id → PURE/IMPURE（AI 标注闭环的注入端）。 */
+    annotations?: ReadonlyMap<string, "PURE" | "IMPURE">;
+  },
 ): Promise<ScanReport> {
   const ParserCtor = await initParser();
   const options: ScanOptions = {
@@ -20,6 +25,7 @@ export async function scanProject(
     packs: defaultPacks,
     loadLanguage,
     ParserCtor,
+    annotations: opts?.annotations,
   };
   return scan(options);
 }

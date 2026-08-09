@@ -106,4 +106,19 @@ describe("维度32: unknowns 导出（AI 标注闭环）", () => {
     const f = r.verdicts.find((v) => v.chunk.name === "f")!;
     expect(f.chunk.id).toMatch(/^[0-9a-f]{16}/);
   });
+
+  it("--annotations 回读减少 UNKNOWN（CLI 端到端）", async () => {
+    const root = project("anncli", { "a.py": "import weirdlib\ndef f():\n    weirdlib.run()\n" });
+    const before = JSON.parse(
+      execFileSync("node", [CLI, "scan", root, "--no-cache", "--json"], { encoding: "utf8" }),
+    );
+    const f0 = before.verdicts.find((v: any) => v.chunk.name === "f")!;
+    expect(f0.purity).toBe(1);
+    const annFile = join(root, "ann.json");
+    writeFileSync(annFile, JSON.stringify([{ id: f0.chunk.id, verdict: "PURE" }]));
+    const after = JSON.parse(
+      execFileSync("node", [CLI, "scan", root, "--no-cache", "--annotations", annFile, "--json"], { encoding: "utf8" }),
+    );
+    expect(after.verdicts.find((v: any) => v.chunk.name === "f")!.purity).toBe(0);
+  });
 });
