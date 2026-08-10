@@ -253,7 +253,7 @@
 | --- | --- | --- |
 | lambda 归属 | d7155b5 | 赋值 RHS lambda → 命名 chunk（module 不再假 IMPURE）；实参 lambda 归外层（正确语义） |
 | Promise executor / nesting 差一 / :p 纯成员 | 736e05b | new Promise(executor) 回调边；箭头/function 同 nest；json.dumps/crypto.createHash 等 → PURE |
-| os/time 拆表 | f731285 + c06868f | os: 88 项 io 成员 + os.path 纯子模块（:p）+ 别名表；time 时钟 io + mktime/strptime 纯 |
+| os/time 拆表 | f731285 + c06868f | os: 99 项 io 成员 + os.path 纯子模块（:p 15 项）+ 别名表（12 项）；time 时钟 io（11）+ mktime/strptime 纯（2） |
 | corpus v2 cell 维度 | f731285 | (attr, root) 真格计数——priorFor n/LOO 精确化，root 桶虚高根治；v1 拒收幂等重建 |
 
 ## 审计结论
