@@ -28,12 +28,14 @@ const impureModules: Record<string, "*" | readonly string[]> = {
   sqlite3: "*", urllib: "*", http: "*", smtplib: "*", ftplib: "*",
   requests: "*", httpx: "*", aiohttp: "*", psycopg2: "*", pymysql: "*",
   pymongo: "*", redis: "*", boto3: "*", paramiko: "*",
-  pickle: ["load", "dump"], json: ["load", "dump"], csv: "*",
+  pickle: ["load", "dump"], json: ["load", "dump", "dumps:p", "loads:p"], csv: "*",
   logging: "*", time: ["sleep", "time", "monotonic"], random: "*",
   tempfile: "*", glob: "*", pathlib: "*", multiprocessing: "*",
   threading: "*", asyncio: "*", select: "*", signal: "*",
   // 时钟读取（与 time.time 判 io 同源）：datetime.now/utcnow/today/fromtimestamp/utcfromtimestamp
-  datetime: ["now", "today", "utcnow", "fromtimestamp", "utcfromtimestamp"],
+  datetime: ["now", "today", "utcnow", "fromtimestamp", "utcfromtimestamp",
+    // ":p" = 纯转换成员（不触时钟/io）
+    "combine:p", "fromisoformat:p", "strftime:p", "strptime:p", "isoformat:p", "timestamp:p"],
   // 写 stderr：warnings.warn、traceback.print_exc/print_tb
   warnings: ["warn"], traceback: ["print_exc", "print_tb"],
   // 熵读取（os.urandom 之上，与 random/TS crypto 判 io 同源）
@@ -111,6 +113,8 @@ export const pythonPack: LangPack = {
   chunkNodes: ["function_definition", "class_definition"],
   classNodes: ["class_definition"],
   callNodes: ["call"],
+  // ponytail: lambda 体调用归属最近 chunk（模块级 lambda 体 io 归 module 伪 chunk → 保守假 IMPURE 噪音，
+  // py 独有形态；升级路径 = lambda 作独立 chunk 或归属最近函数边，等真实误报出现再修）
   nestingNodes: [
     "if_statement", "for_statement", "while_statement", "try_statement",
     "with_statement", "match_statement", "function_definition",

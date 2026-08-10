@@ -174,6 +174,8 @@ export function link(
           direct.add("io");
           return true;
         }
+        // 显式纯成员（"member:p" 标记）：拆表模块中可证的纯计算（json.dumps、crypto.createHash…）
+        if (Array.isArray(rule) && member !== null && rule.includes(member + ":p")) return true;
         if (fi.pack.pureModules.has(module)) return true;
         return false;
       };

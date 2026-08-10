@@ -150,7 +150,12 @@ export class Extractor {
       if (d > max) max = d;
       for (const c of n.children) walk(c, d);
     };
-    for (const c of root.children) walk(c, 0);
+    // variable_declarator chunk（const f = () => …）：箭头函数值是"chunk 自身"（与 function_declaration
+    // 同地位）→ 不计层；否则箭头函数比同语义 function 声明多计 1 层（nesting 差一，迭代3 已知限制）
+    const body = root.type === "variable_declarator"
+      ? (root.childForFieldName("value") ?? root.children[0])
+      : root;
+    if (body) for (const c of body.children) walk(c, 0);
     return max;
   }
 

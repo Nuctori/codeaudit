@@ -152,9 +152,12 @@ const impureModules: Record<string, "*" | readonly string[]> = {
   // 熵读取（与 Python random 判 io 同源）：crypto.randomBytes 等同步阻塞读系统熵
   crypto: ["randomBytes", "randomFill", "randomFillSync", "randomInt",
     "generateKey", "generateKeySync", "generateKeyPair", "generateKeyPairSync",
-    "getRandomValues", "webcrypto"],
-  // uuid.v4/v1 底层调 randomBytes/getRandomValues
-  uuid: ["v4", "v1", "v7"],
+    "getRandomValues", "webcrypto",
+    // ":p" = 显式纯计算成员（无 io 的密码学纯函数/构造器）
+    "createHash:p", "createHmac:p", "createCipheriv:p", "createDecipheriv:p",
+    "createSign:p", "createVerify:p", "hash:p", "timingSafeEqual:p", "pbkdf2:p", "pbkdf2Sync:p"],
+  // uuid.v4/v1 底层调 randomBytes/getRandomValues；parse/stringify/validate 为纯转换
+  uuid: ["v4", "v1", "v7", "parse:p", "stringify:p", "validate:p"],
 };
 
 const pureModules = new Set([
@@ -232,7 +235,7 @@ export const typescriptPack: LangPack = {
   pureModules,
   impureGlobals,
   pureGlobals,
-  hofCallsArgs: new Set(["from"]), // Array.from(xs, cb) 会调用 cb
+  hofCallsArgs: new Set(["from", "Promise"]), // Array.from(xs, cb) 与 new Promise(executor) 会调用函数实参
   // 数组方法中无条件调用实参的子集（Array.from 的 cb 可选 → 不入）；实参未解析时记未知
   hofAlwaysArgs: new Set(["map", "filter", "forEach", "reduce", "reduceRight", "some", "every", "find", "findIndex", "flatMap"]),
   assignmentTargets: ["variable_declarator", "assignment_expression", "for_in_statement", "for_of_statement"],

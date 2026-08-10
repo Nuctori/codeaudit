@@ -700,6 +700,38 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     const v = r.verdicts.find((x) => x.chunk.name === "f")!;
     expect(v.purity).toBe(Purity.IMPURE); // 保守方向标注仍生效（迭代4 放宽）
   });
+  it("混合模块纯成员（继续做：:p 标记）：json.dumps/crypto.createHash/uuid.parse/datetime.combine → PURE；io 成员保持 IMPURE", async () => {
+    const root = project("puremembers", {
+      "a.py": "import json\nfrom datetime import datetime\ndef dumps(x):\n    return json.dumps(x)\ndef dumpfile(x):\n    json.dump(x, open('f', 'w'))\ndef combine(a, b):\n    return datetime.combine(a, b)\ndef now():\n    return datetime.now()\n",
+      "b.ts": "import { createHash, randomBytes } from 'crypto';\nimport { parse } from 'uuid';\nexport function h() { return createHash('sha256'); }\nexport function r() { return randomBytes(16); }\nexport function up(s: string) { return parse(s); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::dumps")!.purity).toBe(Purity.PURE);
+    expect(b.get("a.py::dumpfile")!.purity).toBe(Purity.IMPURE); // json.dump 写文件
+    expect(b.get("a.py::combine")!.purity).toBe(Purity.PURE);
+    expect(b.get("a.py::now")!.purity).toBe(Purity.IMPURE); // 时钟读取保持
+    expect(b.get("b.ts::h")!.purity).toBe(Purity.PURE);
+    expect(b.get("b.ts::r")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("b.ts::up")!.purity).toBe(Purity.PURE);
+  });
+
+  it("Promise executor 回调边（F4）：new Promise(executor) 命名实参 io 传播 → IMPURE", async () => {
+    const root = project("promexec", {
+      "a.ts": "import { writeFileSync } from 'fs';\nfunction executor(res: any) { writeFileSync('x', 'y'); res(); }\nexport function run() { return new Promise(executor); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.ts::run")!.purity).toBe(Purity.IMPURE); // executor 的 io 经回调边
+  });
+
+  it("nesting 差一修复（继续做）：箭头函数与 function 声明同语义 nest 相等", async () => {
+    const root = project("nestfix", {
+      "a.ts": "export const g = () => { if (1) return 2; };\nexport function f() { if (1) return 2; }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.ts::g")!.chunk.nesting).toBe(b.get("a.ts::f")!.chunk.nesting);
+    expect(b.get("a.ts::g")!.chunk.nesting).toBe(1); // if 一层，箭头函数值不计自身
+  });
+
 });
 
 describe("定义性事实族（用户覆写会议否决后实施）", () => {
