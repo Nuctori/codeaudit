@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scanProject } from "../../src/index";
+import { scanProject, analyzeChange } from "../../src/index";
 import { influenceAnalysis } from "../../src/core/influence";
 import { annotationBudget, annotationCurve } from "../../src/core/influence";
 import { Purity, type Verdict } from "../../src/core/types";
@@ -765,6 +765,29 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(b.get("a.py::mk")!.purity).toBe(Purity.PURE); // mktime 必须传参，纯转换
     expect(b.get("a.py::sp")!.purity).toBe(Purity.PURE); // strptime 必须传参
     expect(b.get("a.py::now")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("analyzeChange 库 API（diff 影响面）：改动文件的反向可达闭包含 via 证据", async () => {
+    const root = project("changeapi", {
+      "lib.ts": "export function base() { return 1; }\nexport function helper() { return base(); }\n",
+      "mid.ts": "import { helper } from './lib';\nexport function mid() { return helper(); }\n",
+      "top.ts": "import { mid } from './mid';\nexport function top() { return mid(); }\nexport function unrelated() { return 2; }\n",
+    });
+    const impact = await analyzeChange(root, ["lib.ts"], { useCache: false });
+    expect(impact.summary.changedFiles).toBe(1);
+    expect(impact.summary.changedChunks).toBe(3); // base + helper + <module> 伪 chunk
+    // 传递影响：mid.ts::mid (depth1 via helper) → top.ts::top (depth2 via mid)
+    const affected = impact.affected.map((x) => x.name);
+    expect(affected).toContain("mid");
+    expect(affected).toContain("top");
+    expect(affected).not.toContain("unrelated"); // 不调用改动链 → 不受影响
+    const mid = impact.affected.find((x) => x.name === "mid")!;
+    expect(mid.depth).toBe(1);
+    expect(mid.via).toMatch(/^lib\.ts::/); // 影响路径证据：mid 直接调 lib.ts 的 helper
+    const top = impact.affected.find((x) => x.name === "top")!;
+    expect(top.depth).toBe(2);
+    expect(top.via).toMatch(/^mid\.ts::/); // 经 mid 传递
+    expect(impact.summary.maxDepth).toBe(2);
   });
 });
 

@@ -100,6 +100,83 @@ export function influenceAnalysis(chunks: readonly Chunk[]): Map<string, number>
   return annotationBudget(chunks).influence;
 }
 
+/** diff 影响面中的单个 chunk 条目。 */
+export interface ImpactedChunk {
+  /** 图内唯一键 file::id。 */
+  readonly key: string;
+  readonly file: string;
+  /** 展示名（含 ownerClass 前缀，如 "Svc.save"）。 */
+  readonly name: string;
+  readonly line: number;
+  /** 到最近改动 chunk 的调用层数（0 = 改动文件自身）。 */
+  readonly depth: number;
+  /** 影响路径首跳：直接调用者 key（depth ≥ 1 时非空；"为什么受影响的证据"）。 */
+  readonly via: string | null;
+}
+
+/** diff 影响面结果：改动文件的反向可达闭包（谁直接/传递调用了它们）。 */
+export interface ChangeImpact {
+  /** 改动文件直接包含的 chunk（depth 0）。 */
+  readonly changed: readonly ImpactedChunk[];
+  /** 受影响调用者（depth ≥ 1，按 depth 升序、key 字典序）。 */
+  readonly affected: readonly ImpactedChunk[];
+  readonly summary: {
+    readonly changedFiles: number;
+    readonly changedChunks: number;
+    readonly affectedChunks: number;
+    readonly maxDepth: number;
+  };
+}
+
+/**
+ * diff 影响面：给定改动文件集，返回其 chunk 的**反向可达闭包**（谁直接/传递调用了它们）。
+ * depth = 到最近改动 chunk 的调用层数；via = 到达该 chunk 的直接调用者（影响路径证据）。
+ * 与标注影响面（influence）同一反向闭包数学，方向互补——「改动 N 个函数，影响哪些调用者」。
+ */
+export function changedImpact(
+  verdicts: readonly { chunk: Chunk }[],
+  changedFiles: ReadonlySet<string>,
+): ChangeImpact {
+  const callers = new Map<string, string[]>(); // callee key → caller keys
+  for (const v of verdicts) {
+    for (const t of v.chunk.calls) {
+      if (t === UNKNOWN_TARGET) continue;
+      const arr = callers.get(t);
+      if (arr) arr.push(v.chunk.key);
+      else callers.set(t, [v.chunk.key]);
+    }
+  }
+  const byKey = new Map(verdicts.map((v) => [v.chunk.key, v.chunk]));
+  const seeds = verdicts.filter((v) => changedFiles.has(v.chunk.file)).map((v) => v.chunk.key);
+  const seen = new Set<string>(seeds);
+  const queue: Array<[string, number, string | null]> = seeds.map((k) => [k, 0, null]);
+  const out: ImpactedChunk[] = [];
+  for (let i = 0; i < queue.length; i++) {
+    const [k, d, via] = queue[i]!;
+    const c = byKey.get(k);
+    if (c) out.push({ key: k, file: c.file, name: c.name, line: c.line, depth: d, via });
+    for (const caller of callers.get(k) ?? []) {
+      if (!seen.has(caller)) {
+        seen.add(caller);
+        queue.push([caller, d + 1, k]);
+      }
+    }
+  }
+  out.sort((a, b) => a.depth - b.depth || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+  const changed = out.filter((x) => x.depth === 0);
+  const affected = out.filter((x) => x.depth > 0);
+  return {
+    changed,
+    affected,
+    summary: {
+      changedFiles: [...changedFiles].filter((f) => verdicts.some((v) => v.chunk.file === f)).length,
+      changedChunks: changed.length,
+      affectedChunks: affected.length,
+      maxDepth: affected.length > 0 ? affected[affected.length - 1]!.depth : 0,
+    },
+  };
+}
+
 /**
  * 标注曲线：按给定顺序（源 key 列表）逐条标注，返回每个前缀后的剩余 UNKNOWN chunk 数。
  * 精确（非估计）：chunk w 在 S(w) ⊆ 已标注集时被释放；曲线[0] = 初始剩余，
