@@ -36,6 +36,8 @@ export interface Chunk {
   readonly calls: ReadonlySet<string>;
   /** 未解析调用点数（calls 中 `?` 是集合去重后的单哨兵；此处保留多重性，标注需全部确证）。 */
   readonly unknownSites: number;
+  /** 未解析调用点的站点明细（标注语料：attr/obj + 接收者根类别）。 */
+  readonly unknownCalls: ReadonlyArray<{ readonly attr: string; readonly obj: string | null; readonly root: string }>;
 }
 
 export interface Verdict {

@@ -1,0 +1,88 @@
+import { describe, it, expect } from "vitest";
+import {
+  emptyCorpus, updateCorpus, mergeCorpus, priorFor, summarize,
+  MIN_TOTAL, MIN_CELL, PRIOR_THRESHOLD,
+} from "../../src/core/corpus";
+import type { Chunk } from "../../src/core/types";
+
+function chunk(id: string, sites: Array<{ attr: string; obj: string | null; root: string }>): Chunk {
+  return {
+    id, key: id, name: "f", file: "a.py", line: 1, endLine: 2, nesting: 0,
+    direct: new Set(), calls: new Set(["?"]), unknownSites: sites.length,
+    unknownCalls: sites,
+  } as unknown as Chunk;
+}
+
+describe("标注语料（corpus）", () => {
+  it("updateCorpus 按 chunk.id 去重且按站点计数（幂等）", () => {
+    const c1 = chunk("id1", [{ attr: "get", obj: "req", root: "variable" }, { attr: "save", obj: null, root: "bare" }]);
+    const c2 = chunk("id2", [{ attr: "get", obj: "req", root: "variable" }]);
+    const ann = new Map<string, "PURE" | "IMPURE">([
+      ["id1", "PURE"],   // 2 站点 → method.get+1, method.save+1
+      ["id2", "IMPURE"], // 1 站点 → method.get+1 impure
+    ]);
+    const c = updateCorpus(emptyCorpus(), [c1, c2], ann);
+    expect(c.method.get).toEqual({ pure: 1, impure: 1 });
+    expect(c.method.save).toEqual({ pure: 1, impure: 0 });
+    expect(c.root.variable).toEqual({ pure: 1, impure: 1 });
+    expect(c.seen).toEqual({ id1: true, id2: true });
+    // 幂等：同一标注再跑不重复计数
+    const c2x = updateCorpus(c, [c1, c2], ann);
+    expect(c2x.method.get).toEqual({ pure: 1, impure: 1 });
+  });
+
+  it("mergeCorpus 计数求和、seen 并集", () => {
+    const a = updateCorpus(emptyCorpus(), [chunk("a", [{ attr: "get", obj: null, root: "bare" }])],
+      new Map([["a", "PURE"]]));
+    const b = updateCorpus(emptyCorpus(), [chunk("b", [{ attr: "get", obj: null, root: "bare" }])],
+      new Map([["b", "IMPURE"]]));
+    const m = mergeCorpus(a, b);
+    expect(m.method.get).toEqual({ pure: 1, impure: 1 });
+    expect(m.seen).toEqual({ a: true, b: true });
+  });
+
+  it("冷启动：总样本 < MIN_TOTAL 不提供先验", () => {
+    const c = updateCorpus(emptyCorpus(), [chunk("a", [{ attr: "get", obj: null, root: "bare" }])],
+      new Map([["a", "PURE"]]));
+    expect(summarize(c).total).toBe(1);
+    expect(priorFor(c, { attr: "get", obj: null, root: "bare" })).toBeNull();
+  });
+
+  it("样本充分时按两层收缩给先验（PURE 侧）", () => {
+    // 构造 40 个同形态 PURE 标注（method.get / root.bare）
+    const chunks: Chunk[] = [];
+    const ann = new Map<string, "PURE" | "IMPURE">();
+    for (let i = 0; i < 40; i++) {
+      chunks.push(chunk("id" + i, [{ attr: "get", obj: null, root: "bare" }]));
+      ann.set("id" + i, "PURE");
+    }
+    const c = updateCorpus(emptyCorpus(), chunks, ann);
+    const p = priorFor(c, { attr: "get", obj: null, root: "bare" })!;
+    expect(p.n).toBe(40);
+    expect(p.pPure).toBeGreaterThan(PRIOR_THRESHOLD); // 全 PURE → 建议 PURE
+  });
+
+  it("分歧形态（近 50/50）不提供建议", () => {
+    const chunks: Chunk[] = [];
+    const ann = new Map<string, "PURE" | "IMPURE">();
+    for (let i = 0; i < 40; i++) {
+      chunks.push(chunk("id" + i, [{ attr: "mixed", obj: null, root: "bare" }]));
+      ann.set("id" + i, i % 2 === 0 ? "PURE" : "IMPURE");
+    }
+    const c = updateCorpus(emptyCorpus(), chunks, ann);
+    expect(priorFor(c, { attr: "mixed", obj: null, root: "bare" })).toBeNull();
+  });
+
+  it("单格样本 < MIN_CELL 不提供建议", () => {
+    // 总量足（40 条 get）但目标格（save）样本少
+    const chunks: Chunk[] = [];
+    const ann = new Map<string, "PURE" | "IMPURE">();
+    for (let i = 0; i < 40; i++) {
+      chunks.push(chunk("id" + i, [{ attr: i < 35 ? "get" : "save", obj: null, root: "bare" }]));
+      ann.set("id" + i, "PURE");
+    }
+    const c = updateCorpus(emptyCorpus(), chunks, ann);
+    expect(priorFor(c, { attr: "get", obj: null, root: "bare" })).not.toBeNull();
+    expect(priorFor(c, { attr: "save", obj: null, root: "bare" })).toBeNull(); // n=5 < 10
+  });
+});

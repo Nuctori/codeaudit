@@ -139,6 +139,16 @@ export function link(
       const direct = new Set<string>();
       const calls = new Set<string>();
       let unknownSites = 0; // `?` 多重性：calls 是 Set 只记一个 `?`，此处记未解析调用点数
+      const unknownCalls: Array<{ attr: string; obj: string | null; root: string }> = [];
+
+      // 接收者根类别（标注语料的条件维度）：字面量 / 裸名 / self / 框架命名空间 / 变量
+      const rootOf = (call: RawCall): string => {
+        if (call.receiver !== null) return `literal:${call.receiver}`;
+        if (call.obj === null) return "bare";
+        if (fi.pack.selfNames.includes(call.obj)) return "self";
+        if (call.obj in fi.pack.frameworkIo) return `frame:${call.obj}`;
+        return "variable";
+      };
 
       const effectFromModule = (rawModule: string, member: string | null): boolean => {
         const module = rawModule.replace(/^node:/, ""); // node:fs ≡ fs
@@ -157,6 +167,7 @@ export function link(
           addEffect: (e) => direct.add(e),
           markUnknown: () => { unknownSites++; calls.add(UNKNOWN_TARGET); },
           markDynamic: () => { dynamicCalls++; unknownSites++; calls.add(UNKNOWN_TARGET); },
+          addUnknownCall: (call) => unknownCalls.push({ attr: call.attr, obj: call.obj, root: rootOf(call) }),
           addArgEdges: (names) => {
             for (const n of names) {
               // 成员形回调：this.log / self.render → 当前类的同名方法（HOF 成员形假纯修复）
@@ -199,6 +210,7 @@ export function link(
         direct,
         calls,
         unknownSites,
+        unknownCalls,
       });
     }
   }
@@ -211,6 +223,7 @@ interface Sink {
   addEffect(effect: string): void;
   markUnknown(): void;
   markDynamic(): void;
+  addUnknownCall(call: RawCall): void;
   addArgEdges(names: readonly string[]): void;
   effectFromModule(module: string, member: string | null): boolean;
 }
@@ -234,6 +247,7 @@ function resolveCall(
     const rule = pack.builtinTypeEffects[call.receiver]?.[call.attr];
     if (rule === "hof") { sink.addArgEdges(call.argFns); return; } // [1,2,3].map(cb) / sort(key=cb)
     if (rule === "pure") return;
+    sink.addUnknownCall(call);
     sink.markUnknown();
     return;
   }
@@ -247,6 +261,7 @@ function resolveCall(
         if (key) { sink.addEdge(key); return; }
       }
     }
+    sink.addUnknownCall(call);
     sink.markUnknown(); // 继承/混入/冲突：诚实标记
     return;
   }
@@ -293,6 +308,7 @@ function resolveCall(
             }
           }
         }
+        sink.addUnknownCall(call);
         sink.markUnknown();
         return;
       }
@@ -301,6 +317,7 @@ function resolveCall(
         return;
       }
       if (sink.effectFromModule(imp.module, null)) return;
+      sink.addUnknownCall(call);
       sink.markUnknown();
       return;
     }
@@ -313,10 +330,12 @@ function resolveCall(
           : imp.imported;
         const hit = resolveSymbol(target, name, 0);
         if (hit !== null) { sink.addEdge(hit); return; }
+        sink.addUnknownCall(call);
         sink.markUnknown();
         return;
       }
       if (sink.effectFromModule(imp.module, imp.imported)) return;
+      sink.addUnknownCall(call);
       sink.markUnknown();
       return;
     }
@@ -349,6 +368,7 @@ function resolveCall(
         return;
       }
     }
+    sink.addUnknownCall(call);
     sink.markDynamic();
     return;
   }
@@ -379,9 +399,11 @@ function resolveCall(
       const hit = resolveSymbol(wf, call.attr, 1);
       if (hit !== null) { sink.addEdge(hit); return; }
     }
+    sink.addUnknownCall(call);
     sink.markUnknown();
     return;
   }
 
+  sink.addUnknownCall(call);
   sink.markDynamic();
 }

@@ -121,4 +121,28 @@ describe("维度32: unknowns 导出（AI 标注闭环）", () => {
     );
     expect(after.verdicts.find((v: any) => v.chunk.name === "f")!.purity).toBe(0);
   });
+
+  it("标注闭环：标注 → 语料累积 → 幂等（CLI 端到端）", async () => {
+    const root = project("corpus-e2e", {
+      "a.py": "import weirdlib\ndef f():\n    weirdlib.get()\n    weirdlib.get()\n",
+    });
+    const corpus = join(root, "corpus.json");
+    const u1 = join(root, "u1.json");
+    // 冷启动：导出含 calls 站点明细，prompt 无先验提示
+    execFileSync("node", [CLI, "scan", root, "--no-cache", "--unknowns", u1, "--corpus", corpus], { encoding: "utf8" });
+    const l1 = JSON.parse(readFileSync(u1, "utf8"));
+    expect(l1[0]!.calls.length).toBe(2); // 2 个未知站点
+    expect(l1[0]!.suggested_prompt).not.toContain("语料先验");
+    // 标注 PURE → 回读 → 语料累积（按 chunk.id 去重，2 站点同方法只计 1 次）
+    const ann = join(root, "ann.json");
+    writeFileSync(ann, JSON.stringify([{ id: l1[0]!.id, verdict: "PURE" }]));
+    execFileSync("node", [CLI, "scan", root, "--no-cache", "--annotations", ann, "--corpus", corpus], { encoding: "utf8" });
+    const cf = JSON.parse(readFileSync(corpus, "utf8"));
+    expect(cf.seen[l1[0]!.id]).toBe(true);
+    expect(cf.method.get).toEqual({ pure: 1, impure: 0 });
+    // 幂等：同一标注重放不重复计数
+    execFileSync("node", [CLI, "scan", root, "--no-cache", "--annotations", ann, "--corpus", corpus], { encoding: "utf8" });
+    const cf2 = JSON.parse(readFileSync(corpus, "utf8"));
+    expect(cf2.method.get).toEqual({ pure: 1, impure: 0 });
+  });
 });

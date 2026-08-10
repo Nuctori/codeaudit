@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { scanProject } from "./index";
-import { Purity, UNKNOWN_TARGET, type Verdict } from "./core/types";
+import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
 import { annotationBudget, annotationCurve } from "./core/influence";
+import { emptyCorpus, updateCorpus, priorFor, summarize, type CorpusFile } from "./core/corpus";
 
 interface CliArgs {
   dir: string;
@@ -11,13 +12,14 @@ interface CliArgs {
   top: number | null;
   unknowns: string | null;
   annotations: string | null;
+  corpus: string | null;
   noCache: boolean;
   strict: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
-    dir: ".", format: "text", top: null, unknowns: null, annotations: null,
+    dir: ".", format: "text", top: null, unknowns: null, annotations: null, corpus: null,
     noCache: false, strict: false,
   };
   const rest = argv.slice(2);
@@ -32,6 +34,7 @@ function parseArgs(argv: string[]): CliArgs {
     }
     else if (a === "--unknowns") args.unknowns = rest[++i]!;
     else if (a === "--annotations") args.annotations = rest[++i]!;
+    else if (a === "--corpus") args.corpus = rest[++i]!;
     else if (a === "--no-cache") args.noCache = true;
     else if (a === "--strict") args.strict = true;
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
@@ -53,6 +56,7 @@ function printHelp(): void {
   --top N              只显示前 N 条
   --unknowns <file>    导出未解析符号清单（按影响面排序，含 id 锚点，供 AI 标注）
   --annotations <file> 回读 AI 标注（[{id, verdict:"PURE"|"IMPURE"}]，按 chunk.id 匹配，减少未知）
+  --corpus <file>      标注语料文件（默认 .codeaudit/corpus.json；累积先验供 suggested_prompt）
   --no-cache           禁用增量缓存
   --strict             存在 IMPURE chunk 时退出码为 1
   -h, --help           显示帮助
@@ -83,6 +87,20 @@ function trimRootPath(msg: string): string {
   return msg.slice(0, i) + "." + msg.slice(i + cliRoot.length);
 }
 
+/** 语料先验提示（建议置信度，非纯度判定；n 不足/分歧大时不提示）。 */
+function priorHint(corpus: CorpusFile, sites: Chunk["unknownCalls"]): string {
+  const hints: string[] = [];
+  for (const site of sites) {
+    const p = priorFor(corpus, site);
+    if (!p) continue;
+    if (p.pPure >= 0.65) hints.push(`「${site.attr}」形态历史 ≈${(p.pPure * 10).toFixed(0)} 成被标 PURE（n=${p.n}）`);
+    else if (p.pPure <= 0.35) hints.push(`「${site.attr}」形态历史 ≈${((1 - p.pPure) * 10).toFixed(0)} 成被标 IMPURE（n=${p.n}）`);
+  }
+  return hints.length > 0
+    ? " | " + hints.join("；") + " —— 语料先验为建议置信度，非纯度判定，请以函数体为准"
+    : "";
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
   const root = resolve(args.dir);
@@ -111,6 +129,32 @@ async function main(): Promise<void> {
     cacheDir: resolve(root, ".codeaudit"),
     annotations,
   });
+
+  // 标注语料：加载（--corpus 或项目默认）→ 标注回读累积 → 保存（幂等去重）
+  let corpus: CorpusFile = emptyCorpus();
+  const corpusPath = args.corpus ?? (args.noCache ? null : join(resolve(root, ".codeaudit"), "corpus.json"));
+  if (corpusPath) {
+    try {
+      corpus = JSON.parse(readFileSync(corpusPath, "utf8")) as CorpusFile;
+      if (!corpus || corpus.version !== 1) corpus = emptyCorpus();
+    } catch {
+      corpus = emptyCorpus();
+    }
+    if (annotations && annotations.size > 0) {
+      const before = summarize(corpus);
+      corpus = updateCorpus(corpus, report.verdicts.map((v) => v.chunk), annotations);
+      const after = summarize(corpus);
+      if (after.total > before.total) {
+        try {
+          mkdirSync(dirname(corpusPath), { recursive: true });
+          writeFileSync(corpusPath, JSON.stringify(corpus, null, 2));
+          console.error(`语料 -> ${corpusPath}（累计 ${after.pure} pure / ${after.impure} impure）`);
+        } catch {
+          // 语料写失败不影响扫描结果
+        }
+      }
+    }
+  }
 
   if (report.stats.invariantViolations > 0 || report.stats.staleEdges > 0) {
     console.error(
@@ -161,9 +205,11 @@ async function main(): Promise<void> {
         line: v.chunk.line,
         influence: budget.influence.get(v.chunk.key) ?? 0,
         unknownSites: v.chunk.unknownSites,
+        calls: v.chunk.unknownCalls,
         suggested_prompt:
           `函数 \`${v.chunk.name}\`（${v.chunk.file}:${v.chunk.line}）有 ${v.chunk.unknownSites} 个无法静态解析的调用点。` +
-          `请判断它是否执行 I/O 或副作用，回答 PURE / IMPURE / UNKNOWN 并给出一句话理由（PURE 需全部调用点确证）。`,
+          `请判断它是否执行 I/O 或副作用，回答 PURE / IMPURE / UNKNOWN 并给出一句话理由（PURE 需全部调用点确证）。` +
+          priorHint(corpus, v.chunk.unknownCalls),
       }))
       .sort((a, b) => b.influence - a.influence);
     writeFileSync(args.unknowns, JSON.stringify(unknowns, null, 2));
