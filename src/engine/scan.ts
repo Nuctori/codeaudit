@@ -62,12 +62,19 @@ interface CacheFile {
 }
 
 /** 投毒防护：facts 形状下探到 chunk/import 字段（chunks:[{}] 可穿透仅数组校验）。 */
+const MAX_CACHE_CHUNKS = 50_000; // 单文件 50k 函数（10MB 上限内实际不可达，纯预算护栏）
+const MAX_CACHE_CALLS = 200_000;
 function validFacts(f: RawFileFacts | undefined): f is RawFileFacts {
   if (!f || typeof f.lang !== "string" || !Array.isArray(f.chunks) || !Array.isArray(f.imports)) return false;
   if (f.moduleBindings !== undefined && (typeof f.moduleBindings !== "object" || f.moduleBindings === null)) return false;
+  if (f.chunks.length > MAX_CACHE_CHUNKS) return false; // 超预算整包拒绝 → 全量重扫（防 316MB 缓存放大 DoS）
+  if (!f.chunks.some((c) => c?.name === "<module>")) return false; // 真文件必有 <module> 伪块：chunks:[] 空包穿透防护
+  let totalCalls = 0;
   for (const c of f.chunks) {
     if (!c || typeof c.name !== "string" || typeof c.normText !== "string" ||
         typeof c.line !== "number" || !Array.isArray(c.calls) || !Array.isArray(c.assigned)) return false;
+    totalCalls += c.calls.length;
+    if (totalCalls > MAX_CACHE_CALLS) return false;
   }
   for (const i of f.imports) {
     if (!i || typeof i.local !== "string" || typeof i.module !== "string") return false;
@@ -113,7 +120,8 @@ export function discoverFiles(root: string, packs: readonly LangPack[]): Map<str
 }
 
 export async function scan(opts: ScanOptions): Promise<ScanReport> {
-  const root = normalize(opts.root);
+  // 正斜杠统一（与 chunk.file/discoverFiles 一致）：Windows 上 root 不混用反斜杠
+  const root = normalize(opts.root).split(sep).join("/");
   const fileMap = discoverFiles(root, opts.packs);
   const fingerprint = opts.useCache ? computeFingerprint() : "";
 
@@ -137,6 +145,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 
   const extractors = new Map<string, Extractor>();
   const facts: RawFileFacts[] = [];
+  const parseErrFiles = new Set<string>();
 
   const sortedFiles = [...fileMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   for (const [file, pack] of sortedFiles) {
@@ -163,7 +172,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
     // 缓存命中需内容 + 字段级结构双重校验（投毒防护：facts 形状必须完整）
     if (
       opts.useCache && hit && hit.contentHash === contentHash &&
-      validFacts(hit.facts) &&
+      validFacts(hit.facts) && hit.facts.file === file && // 键即身份：缓存条目不得伪造 facts.file 指向兄弟文件
       opts.packs.some((p) => p.name === hit.facts!.lang)
     ) {
       facts.push(hit.facts);
@@ -190,7 +199,8 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
     }
     facts.push(f);
     // parseError 占位不写缓存（瞬时失败不得永久化——下次扫描重试）
-    if (!f.parseError) nextCache.files[file] = { contentHash, facts: f };
+    if (f.parseError) parseErrFiles.add(file);
+    else nextCache.files[file] = { contentHash, facts: f };
   }
 
   if (opts.useCache && cachePath && opts.cacheDir) {
@@ -206,12 +216,19 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 
   const packsByName = new Map(opts.packs.map((p) => [p.name, p]));
   const { chunks } = link(facts, packsByName);
+  // H1：parseError 文件（hasError 或 extract 异常）chunk 内容不可信——tree-sitter 错误恢复可能吞掉
+  // 真实调用（未闭合字符串把后续 import/调用吸进字符串节点）→ 整体降级 UNKNOWN（"?" 经 eff 集传导给调用者）
+  const chunks2 = parseErrFiles.size === 0 ? chunks : chunks.map((c) =>
+    parseErrFiles.has(c.file) && !c.calls.has(UNKNOWN_TARGET)
+      ? { ...c, calls: new Set([...c.calls, UNKNOWN_TARGET]) }
+      : c,
+  );
   // 标注回读：证据注入源头（公理3 闭环）。PURE → 移除该 chunk 自己的 `?`；
   // IMPURE → 加直接 io 效应。id 不匹配（内容已变）的条目静默忽略。
   const ann = opts.annotations;
   const analyzedChunks =
     ann && ann.size > 0
-      ? chunks.map((c) => {
+      ? chunks2.map((c) => {
           // 标注匹配：优先 (file, id) 实例锚定（防同内容跨文件误放行）；无 file 则内容寻址
           const v = ann.get(c.id) ?? ann.get(`${c.file}\u0000${c.id}`);
           if (v === undefined) return c;
@@ -224,7 +241,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
           calls.delete(UNKNOWN_TARGET);
           return { ...c, calls };
         })
-      : chunks;
+      : chunks2;
   const { verdicts, cycleCount, staleEdges, invariantViolations } = analyze(analyzedChunks);
 
   const impure = verdicts.filter((v) => v.purity === Purity.IMPURE).length;

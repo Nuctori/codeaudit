@@ -33,6 +33,8 @@ const impureModules: Record<string, "*" | readonly string[]> = {
   datetime: ["now", "today", "utcnow", "fromtimestamp", "utcfromtimestamp"],
   // 写 stderr：warnings.warn、traceback.print_exc/print_tb
   warnings: ["warn"], traceback: ["print_exc", "print_tb"],
+  // 熵读取（os.urandom 之上，与 random/TS crypto 判 io 同源）
+  secrets: "*",
 };
 
 const pureModules = new Set([
@@ -131,12 +133,12 @@ export const pythonPack: LangPack = {
         for (const c of n.children) {
           if (c.type === "dotted_name") {
             // import a.b 绑定的名字是首段 a
-            out.push({ local: c.text.split(".")[0]!, module: c.text, imported: null, reexport: false });
+            out.push({ local: c.text.split(".")[0]!, module: c.text, imported: null });
           } else if (c.type === "aliased_import") {
             const mod = c.childForFieldName("name") ?? c.children[0];
             const alias = c.childForFieldName("alias") ?? c.children[c.children.length - 1];
             if (mod && alias) {
-              out.push({ local: alias.text, module: mod.text, imported: null, reexport: false });
+              out.push({ local: alias.text, module: mod.text, imported: null });
             }
           }
         }
@@ -154,15 +156,15 @@ export const pythonPack: LangPack = {
             continue;
           }
           if (c.type === "dotted_name") {
-            out.push({ local: c.text, module, imported: c.text, reexport: false });
+            out.push({ local: c.text, module, imported: c.text });
           } else if (c.type === "aliased_import") {
             const name = c.childForFieldName("name") ?? c.children[0];
             const alias = c.childForFieldName("alias") ?? c.children[c.children.length - 1];
             if (name && alias) {
-              out.push({ local: alias.text, module, imported: name.text, reexport: false });
+              out.push({ local: alias.text, module, imported: name.text });
             }
           } else if (c.type === "wildcard_import" || c.text === "*") {
-            out.push({ local: "*", module, imported: "*", reexport: false });
+            out.push({ local: "*", module, imported: "*" });
           }
         }
       }

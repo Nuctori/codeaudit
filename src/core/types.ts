@@ -30,7 +30,7 @@ export interface Chunk {
   readonly endLine: number;
   /** 最大嵌套深度（空函数 = 0）。 */
   readonly nesting: number;
-  /** 自身直接效应，如 {"io"} / {"state"}；空集 = 无直接效应。 */
+  /** 自身直接效应（仅 io；state 已被用户否决，见 docs/math-loop.md step 4）；空集 = 无直接效应。 */
   readonly direct: ReadonlySet<string>;
   /** 已解析 callee 的 key 集合；含 UNKNOWN_TARGET 表示存在未解析调用。 */
   readonly calls: ReadonlySet<string>;

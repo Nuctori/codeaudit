@@ -572,15 +572,17 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(b.get("a.py::Conn")!.purity).toBe(Purity.IMPURE); // 类 chunk 含构造器效应
   });
 
-  it("熵/时钟读取判 io（跨语言一致）：crypto.randomBytes / datetime.now / Date.now", async () => {
+  it("熵/时钟/PRNG 判 io（跨语言一致）：crypto.randomBytes / datetime.now / Date.now / Math.random / secrets", async () => {
     const root = project("io-tables", {
-      "a.ts": "import { randomBytes } from 'crypto';\nexport function f() { return randomBytes(16); }\nexport function g() { return Date.now(); }\n",
-      "b.py": "from datetime import datetime\ndef h():\n    return datetime.now()\n",
+      "a.ts": "import { randomBytes } from 'crypto';\nexport function f() { return randomBytes(16); }\nexport function g() { return Date.now(); }\nexport function r() { return Math.random(); }\n",
+      "b.py": "from datetime import datetime\nimport secrets\ndef h():\n    return datetime.now()\ndef s():\n    return secrets.token_hex()\n",
     });
     const b = by(await scanProject(root));
     expect(b.get("a.ts::f")!.purity).toBe(Purity.IMPURE);
     expect(b.get("a.ts::g")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("a.ts::r")!.purity).toBe(Purity.IMPURE); // Math.random 与 random.random 同源判 io
     expect(b.get("b.py::h")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("b.py::s")!.purity).toBe(Purity.IMPURE); // secrets = os.urandom 熵读取
   });
 
   it("协议内建判未知：hash(x) → UNKNOWN（与 builtinTypeEffects 协议表外纪律一致）", async () => {
@@ -589,6 +591,34 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     });
     const b = by(await scanProject(root));
     expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN);
+  });
+
+  it("原型链键不崩溃（迭代2 B1）：hasOwnProperty/toString 作接收者不再 TypeError", async () => {
+    const root = project("protochain", {
+      "a.ts": "export function safeGet(obj: any, key: string) {\n  if (!hasOwnProperty.call(obj, key)) return null;\n  return obj[key];\n}\n",
+    });
+    const r = await scanProject(root); // 修复前此调用 TypeError（frameworkIo 继承查找）→ 整扫崩溃
+    expect(r.verdicts.some((v) => v.chunk.name === "safeGet")).toBe(true);
+    const b = by(r);
+    expect(b.get("a.ts::safeGet")!.purity).toBe(Purity.UNKNOWN); // 未解析接收者 → 诚实未知
+  });
+
+  it("parseError 文件 chunk 降级 UNKNOWN（迭代2 H1）：未闭合字符串吞调用不再假纯", async () => {
+    const root = project("parsedeck", {
+      "a.py": "def f():\n    return \"unterminated\nimport os\nos.system(\"ls\")\n",
+    });
+    const r = await scanProject(root);
+    expect(r.stats.parseErrors).toBe(1);
+    const b = by(r);
+    expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN); // 修复前 PURE（调用被吞）
+  });
+
+  it("from-import HOF 回调边（迭代2 维护）：from functools import reduce; reduce(write, xs) → IMPURE", async () => {
+    const root = project("hoffrom", {
+      "a.py": "from functools import reduce\ndef write(x):\n    print(x)\ndef f(xs):\n    return reduce(write, xs)\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::f")!.purity).toBe(Purity.IMPURE); // write 的 io 经回调边保留
   });
 });
 

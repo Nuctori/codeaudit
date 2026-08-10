@@ -7,39 +7,39 @@ export function extractEsmImports(root: SyntaxNode): RawImport[] {
   const out: RawImport[] = [];
   const strip = (s: string): string => s.replace(/^['"]|['"]$/g, "");
 
-  const readSpecifier = (spec: SyntaxNode, module: string, reexport: boolean): void => {
+  const readSpecifier = (spec: SyntaxNode, module: string): void => {
     const ids = spec.children.filter(
       (x) => x.type === "identifier" || x.type === "property_identifier",
     );
     if (ids.length === 1) {
-      out.push({ local: ids[0]!.text, module, imported: ids[0]!.text, reexport });
+      out.push({ local: ids[0]!.text, module, imported: ids[0]!.text });
     } else if (ids.length >= 2) {
-      out.push({ local: ids[ids.length - 1]!.text, module, imported: ids[0]!.text, reexport });
+      out.push({ local: ids[ids.length - 1]!.text, module, imported: ids[0]!.text });
     }
   };
 
-  const readClause = (clause: SyntaxNode | null, module: string, reexport: boolean): void => {
+  const readClause = (clause: SyntaxNode | null, module: string): void => {
     if (!clause) return;
     for (const c of clause.children) {
       if (c.type === "identifier") {
         // 默认导入: import X from "m"
-        out.push({ local: c.text, module, imported: "default", reexport });
+        out.push({ local: c.text, module, imported: "default" });
       } else if (c.type === "namespace_import") {
         // import * as ns from "m"
         const id = c.children[c.children.length - 1];
         if (id && id.type === "identifier") {
-          out.push({ local: id.text, module, imported: null, reexport });
+          out.push({ local: id.text, module, imported: null });
         }
       } else if (c.type === "named_imports" || c.type === "export_clause") {
         // 容器节点（import 侧多包一层 named_imports）
         for (const spec of c.children) {
           if (spec.type === "import_specifier" || spec.type === "export_specifier") {
-            readSpecifier(spec, module, reexport);
+            readSpecifier(spec, module);
           }
         }
       } else if (c.type === "import_specifier" || c.type === "export_specifier") {
         // export_clause 的说明符是直接子节点
-        readSpecifier(c, module, reexport);
+        readSpecifier(c, module);
       }
     }
   };
@@ -49,7 +49,7 @@ export function extractEsmImports(root: SyntaxNode): RawImport[] {
       const src = n.childForFieldName("source");
       if (src) {
         const module = strip(src.text);
-        readClause(findChild(n, "import_clause"), module, false);
+        readClause(findChild(n, "import_clause"), module);
       }
     } else if (n.type === "export_statement") {
       const src = n.childForFieldName("source");
@@ -59,12 +59,12 @@ export function extractEsmImports(root: SyntaxNode): RawImport[] {
         const nsexp = n.children.find((c) => c.type === "namespace_export");
         if (nsexp) {
           const nsNode = nsexp.children.find((c) => c.type === "identifier" || c.type === "property_identifier");
-          if (nsNode) out.push({ local: nsNode.text, module, imported: null, reexport: true });
+          if (nsNode) out.push({ local: nsNode.text, module, imported: null });
         } else if (n.children.some((c) => c.type === "*")) {
-          out.push({ local: "*", module, imported: "*", reexport: true });
+          out.push({ local: "*", module, imported: "*" });
         }
         // export { a, b as c } from "./x"
-        readClause(findChild(n, "export_clause"), module, true);
+        readClause(findChild(n, "export_clause"), module);
       }
     } else if (n.type === "variable_declarator") {
       // CommonJS: const x = require("./m") / const { go, run: renamed } = require("./m")
@@ -78,17 +78,17 @@ export function extractEsmImports(root: SyntaxNode): RawImport[] {
           if (str) {
             const module = strip(str.text);
             if (nameNode.type === "identifier") {
-              out.push({ local: nameNode.text, module, imported: null, reexport: false });
+              out.push({ local: nameNode.text, module, imported: null });
             } else if (nameNode.type === "object_pattern") {
               // 解构绑定：{go} → from-import 语义（local=go, imported=go）；{go: run} 重命名同源
               for (const prop of nameNode.children) {
                 if (prop.type === "shorthand_property_identifier_pattern") {
-                  out.push({ local: prop.text, module, imported: prop.text, reexport: false });
+                  out.push({ local: prop.text, module, imported: prop.text });
                 } else if (prop.type === "pair_pattern") {
                   const key = prop.childForFieldName("key") ?? prop.children[0];
                   const val = prop.childForFieldName("value") ?? prop.children[1];
                   if (key && val && (val.type === "identifier" || val.type === "property_identifier")) {
-                    out.push({ local: val.text, module, imported: key.text, reexport: false });
+                    out.push({ local: val.text, module, imported: key.text });
                   }
                 }
               }
@@ -171,6 +171,8 @@ const impureGlobals: Record<string, "*" | readonly string[]> = {
   navigator: "*",
   // 时钟读取（与 Python time.time 判 io 同源）
   Date: ["now"],
+  // PRNG（与 Python random 判 io 同源——跨语言一致）：Math.random 结果可观测且种子不可控
+  Math: ["random"],
 };
 
 const pureGlobals = new Set([

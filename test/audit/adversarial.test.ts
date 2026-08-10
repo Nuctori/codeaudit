@@ -212,9 +212,8 @@ describe("维度18: 星号导入地狱", () => {
     });
     const r = await scanProject(root);
     const use = r.verdicts.find((v) => v.chunk.name === "use")!;
-    // top 的 wildcard 目标只有 mid；origin 定义在 base —— mid 的星号再导出不在解析范围
-    // 诚实结果：UNKNOWN 或解析成功，二者取其一，但绝不能崩
-    expect([Purity.PURE, Purity.UNKNOWN]).toContain(use.purity);
+    // 实测确定性：top 的 wildcard 目标 mid 内，星号再导出链把 origin 带入 → 真边 → PURE（QA 迭代2 收紧）
+    expect(use.purity).toBe(Purity.PURE);
   });
 });
 

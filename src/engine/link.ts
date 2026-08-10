@@ -32,7 +32,6 @@ interface FileIndex {
 
 export interface LinkOutput {
   readonly chunks: Chunk[];
-  readonly dynamicCalls: number;
 }
 
 export function link(
@@ -153,7 +152,7 @@ export function link(
         if (call.receiver !== null) return `literal:${call.receiver}`;
         if (call.obj === null) return "bare";
         if (fi.pack.selfNames.includes(call.obj)) return "self";
-        if (call.obj in fi.pack.frameworkIo) return `frame:${call.obj}`;
+        if (Object.hasOwn(fi.pack.frameworkIo, call.obj)) return `frame:${call.obj}`;
         return "variable";
       };
 
@@ -173,7 +172,7 @@ export function link(
           addEdge: (k) => calls.add(k),
           addEffect: (e) => direct.add(e),
           markUnknown: () => { unknownSites++; calls.add(UNKNOWN_TARGET); },
-          markDynamic: () => { dynamicCalls++; unknownSites++; calls.add(UNKNOWN_TARGET); },
+          markDynamic: () => { unknownSites++; calls.add(UNKNOWN_TARGET); },
           addUnknownCall: (call) => unknownCalls.push({ attr: call.attr, obj: call.obj, root: rootOf(call) }),
           addArgEdges: (names, hof) => {
             for (const n of names) {
@@ -234,7 +233,7 @@ export function link(
     }
   }
 
-  return { chunks: out, dynamicCalls };
+  return { chunks: out };
 }
 
 interface Sink {
@@ -323,7 +322,9 @@ function resolveCall(
 
   // 2.5 框架命名空间（egg ctx.model.* / ctx.service.* → io 边界；遮蔽/参数同名则跳过判定）
   if (call.obj !== null && !caller.assigned.includes(call.obj)) {
-    const prefixes = pack.frameworkIo[call.obj];
+    // Object.hasOwn 守卫：frameworkIo 是普通对象字面量，裸下标/`in` 会命中继承的
+    // Object.prototype 键（hasOwnProperty/toString/constructor…）→ truthy → for...of 函数崩溃（DoS）
+    const prefixes = Object.hasOwn(pack.frameworkIo, call.obj) ? pack.frameworkIo[call.obj] : undefined;
     if (prefixes) {
       for (const p of prefixes) {
         if (call.attr === p || call.attr.startsWith(p + ".")) {
@@ -383,7 +384,11 @@ function resolveCall(
         sink.markUnknown();
         return;
       }
-      if (sink.effectFromModule(imp.module, imp.imported)) return;
+      if (sink.effectFromModule(imp.module, imp.imported)) {
+        // HOF 实参回调边（与命名空间分支对称）：from functools import reduce; reduce(write, xs) → write 效应保留
+        if (pack.hofCallsArgs.has(imp.imported)) sink.addArgEdges(call.argFns, imp.imported);
+        return;
+      }
       sink.addUnknownCall(call);
       sink.markUnknown();
       return;

@@ -33,7 +33,12 @@ describe("标注语料（corpus）", () => {
     const ann = new Map<string, "PURE" | "IMPURE">([["a.py\u0000idX", "PURE"]]);
     const corpus = updateCorpus(emptyCorpus(), [c1, c2], ann);
     expect(corpus.method.get).toEqual({ pure: 1, impure: 0 }); // 只有 a.py 实例入账
-    expect(corpus.seen).toEqual({ "a.py\u0000idX": true });
+    // 双键 seen（裸 id + file\0id）——换标注格式不重复入账（统计评审迭代2 #2）
+    expect(corpus.seen).toEqual({ "a.py\u0000idX": true, idX: true });
+    // 后续以裸 id 重标同 chunk → 已入账跳过（幂等跨格式）
+    const ann2 = new Map<string, "PURE" | "IMPURE">([["idX", "IMPURE"]]);
+    const again = updateCorpus(corpus, [c1], ann2);
+    expect(again.method.get).toEqual({ pure: 1, impure: 0 }); // 不再入账
   });
 
   it("siteShapeInfo：shape 取最大先验样本站点；batchable 要求全部站点高置信", () => {

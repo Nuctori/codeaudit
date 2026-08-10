@@ -35,8 +35,6 @@ export interface RawImport {
   readonly module: string;
   /** 从模块导入的名字；命名空间/整模块导入为 null。 */
   readonly imported: string | null;
-  /** 是否为再导出（export ... from / export * from）。 */
-  readonly reexport: boolean;
 }
 
 /** 提取阶段的原始 chunk（尚未链接）。 */

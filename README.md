@@ -21,7 +21,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 114 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 132 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -96,8 +96,8 @@ src/
 
 工具不内置 LLM（零密钥、零网络）。闭环三环：
 
-1. **导出**：`--unknowns out.json` 按**影响面**排序的未知符号清单——每条含 `id`（内容寻址锚点）、`symbol`、`file/line`、`influence`（反向可达闭包内 chunk 数）、`unknownSites`（需全部确证的调用点数）、`calls`（站点明细）与 `suggested_prompt`；只含自身触发未知的源符号。
-2. **回读**：`--annotations ann.json`（`[{id, verdict:"PURE"|"IMPURE"}]`，按 chunk.id 匹配）——PURE 移除该 chunk 自身的 `?`（下游随之翻案），IMPURE 加直接 io 效应。`--corpus`（默认 `.codeaudit/corpus.json`）把标注结果**幂等累积**为语料（方法名 × 接收者根类别的纯/不纯计数），随后 `suggested_prompt` 携带语料先验提示（「形态历史 ≈8 成被标 PURE（n=37）」——建议置信度，非纯度判定，以函数体为准）。
+1. **导出**：`--unknowns out.json` 按**UNKNOWN 影响面**排序（反向可达闭包内 UNKNOWN chunk 数，总影响面作平手——解除未知优先）的未知符号清单——每条含 `id`（内容寻址锚点，可与可选 `file` 字段组合成 `file\0id` 实例锚定）、`symbol`、`file/line`、`influence`（反向可达闭包内 chunk 数）、`unknownSites`（需全部确证的调用点数）、`calls`（站点明细）、`shape`（代表性形态 `方法名·根类别`）、`prior`（语料先验建议 `{pPure, n}`，证据不足为 null）与 `batchable`（形态证据足够时的人工批量分组提示）、`suggested_prompt`；只含自身触发未知的源符号。
+2. **回读**：`--annotations ann.json`（`[{id, verdict:"PURE"|"IMPURE"}]`，按 chunk.id 匹配；可选 `file` 字段做 `(file, id)` 实例锚定，防同内容跨文件误放行）——PURE 移除该 chunk 自身的 `?`（下游随之翻案），IMPURE 加直接 io 效应。`--corpus`（默认 `.codeaudit/corpus.json`）把标注结果**幂等累积**为语料（方法名 × 接收者根类别的纯/不纯计数），随后 `suggested_prompt` 携带语料先验提示（「形态历史 ≈8 成被标 PURE（n=37）」——建议置信度，非纯度判定，以函数体为准）。
 3. **预算**：CLI 输出**标注曲线**（按影响面贪心序的精确剩余 UNKNOWN）——「标 0 条→428 (53.6%) | 标 102 条→306 | 标 204 条→204 (25.6%) | 标 408 条→0」，直接回答「标多少个到 X%」。
 
 ## 已知限制（有意为之）
@@ -110,7 +110,7 @@ src/
 
 ## 测试
 
-114 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
+132 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。

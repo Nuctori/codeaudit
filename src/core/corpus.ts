@@ -94,11 +94,12 @@ export function updateCorpus(
     // 标注键解析与 scan.ts 回读同构：优先裸 id（内容寻址），再 (file, id) 实例锚定
     const annKey = annotations.has(c.id) ? c.id : `${c.file}\u0000${c.id}`;
     const v = annotations.get(annKey);
-    if (v === undefined || annKey in out.seen) continue;
+    // 幂等去重按双键（裸 id 与 file\0id 任一已入账即跳过）——防标注文件换格式后同 chunk 重复入账（统计评审迭代2 #2）
+    if (v === undefined || out.seen[c.id] === true || out.seen[annKey] === true) continue;
     if (c.unknownCalls.length === 0) continue;
     out = {
       version: 1,
-      seen: { ...out.seen, [annKey]: true },
+      seen: { ...out.seen, [annKey]: true, [c.id]: true },
       method: bump(out.method, new Set(c.unknownCalls.map((s) => s.attr)), v),
       root: bump(out.root, new Set(c.unknownCalls.map((s) => s.root)), v),
     };
@@ -114,8 +115,13 @@ function bump(
 ): Record<string, { pure: number; impure: number }> {
   const out = { ...table };
   for (const k of keys) {
-    const e = out[k] ?? { pure: 0, impure: 0 };
-    out[k] = verdict === "PURE" ? { pure: e.pure + 1, impure: e.impure } : { pure: e.pure, impure: e.impure + 1 };
+    // hasOwn + defineProperty：k 可为 "__proto__"/"constructor"（x.__proto__() 调用点已实证可达），
+    // 裸 `out[k] =` 会改原型而非建键 → 计数丢失 + 原型污染
+    const e = Object.hasOwn(out, k) ? out[k] : undefined;
+    const fresh = verdict === "PURE"
+      ? { pure: (e?.pure ?? 0) + 1, impure: e?.impure ?? 0 }
+      : { pure: e?.pure ?? 0, impure: (e?.impure ?? 0) + 1 };
+    Object.defineProperty(out, k, { value: fresh, enumerable: true, writable: true, configurable: true });
   }
   return out;
 }
@@ -141,18 +147,23 @@ export interface Prior {
  */
 export function priorFor(corpus: CorpusFile, site: CorpusSite): Prior | null {
   if (total(corpus) < MIN_TOTAL) return null; // 冷启动：不编数字
-  const m = corpus.method[site.attr];
-  const r = corpus.root[site.root];
-  if (!m && !r) return null;
+  // hasOwn 守卫：method/root 是普通对象，裸下标命中继承的 Object.prototype 键（toString 等）→ NaN 先验
+  const m = Object.hasOwn(corpus.method, site.attr) ? corpus.method[site.attr] : undefined;
+  const r = Object.hasOwn(corpus.root, site.root) ? corpus.root[site.root] : undefined;
+  // 冷 attr（方法级零证据）不提示：其 p̂ 完全来自 root 异质池借力（GLOBAL_THETA0 + 池频率），
+  // 显示的 n 会误导为"该形态的实证"——宁缺毋滥（统计评审迭代2 #4）
+  if (!m) return null;
   // 两层收缩：先方法级，再接收者格；任一维样本不足都拒绝（宁缺毋滥）
-  if (m && m.pure + m.impure < MIN_CELL) return null;
+  if (m.pure + m.impure < MIN_CELL) return null;
   const nCell = (r?.pure ?? 0) + (r?.impure ?? 0);
   if (nCell < MIN_CELL) return null;
-  const thetaM = m
-    ? (m.impure + GLOBAL_THETA0 * KAPPA1) / (m.pure + m.impure + KAPPA1)
-    : GLOBAL_THETA0;
-  const kImp = r?.impure ?? 0;
-  const thetaCell = (kImp + thetaM * KAPPA2) / (nCell + KAPPA2);
+  const kCell = r?.impure ?? 0;
+  // 方法级 θ̂ 用 leave-one-out（剔除本 cell 计数，防双重计数——cell ⊆ method 同源入账）：
+  // 方法内只有本 cell 时 LOO 分子分母归零 → 退回 GLOBAL_THETA0（无其他方法证据）
+  const mImpureLOO = m.impure - kCell;
+  const mTotalLOO = m.pure + m.impure - nCell;
+  const thetaM = (mImpureLOO + GLOBAL_THETA0 * KAPPA1) / (mTotalLOO + KAPPA1);
+  const thetaCell = (kCell + thetaM * KAPPA2) / (nCell + KAPPA2);
   const pPure = 1 - thetaCell;
   if (pPure < PRIOR_THRESHOLD && pPure > 1 - PRIOR_THRESHOLD) return null; // 分歧大，无建议
   return { pPure, n: nCell, projects: 1 };
@@ -192,8 +203,9 @@ export function siteShapeInfo(corpus: CorpusFile, sites: readonly CorpusSite[]):
     }
     if (best.shape === "") best = { shape, prior: null };
     // 批量标记（仅供人工分组提示）：要求方法级（attr 专属）证据——root 是垃圾箱类目（variable 塌缩
-    // 一切变量接收者），root 兜底先验 = 异质池频率，不足以支持批量；p̂≥0.9、n≥30 且全部站点满足。
-    const m = corpus.method[s.attr];
+    // 一切变量接收者），root 兜底先验 = 异质池频率，不足以支持批量；p̂≥0.9、方法 n≥30 且全部站点满足
+    // （cell 侧沿用 priorFor 的 MIN_CELL=10，不额外设限）
+    const m = Object.hasOwn(corpus.method, s.attr) ? corpus.method[s.attr] : undefined;
     if (!m || m.pure + m.impure < 30 || !p || p.pPure < 0.9) allBatchable = false;
   }
   return { shape: best.shape, prior: best.prior, batchable: allBatchable };
