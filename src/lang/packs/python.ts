@@ -1,13 +1,14 @@
 import type { SyntaxNode } from "../pack";
 import type { LangPack, RawImport } from "../pack";
+import type { Effect } from "../../core/types";
 import { dirname, join, normalize } from "node:path";
 
 /** 统一 / 分隔（projectFiles 在 discoverFiles 已是 / 分隔；Windows 候选路径需同款）。 */
 const posix = (p: string): string => p.replace(/\\/g, "/");
 
-const impureBuiltins = new Set([
-  "open", "print", "input", "exec", "eval", "__import__", "breakpoint",
-]);
+const impureBuiltins: Record<string, Effect> = {
+  open: "fs", print: "io", input: "io", exec: "io", eval: "io", __import__: "io", breakpoint: "io",
+};
 
 const pureBuiltins = new Set([
   "len", "str", "int", "float", "bool", "list", "dict", "set", "tuple",
@@ -23,19 +24,19 @@ const pureBuiltins = new Set([
   // 工具不可用；风险方向为假纯但频率-风险比低，与实例状态写同列已知限制）
 ]);
 
-const impureModules: Record<string, "*" | readonly string[]> = {
+const impureModules: Record<string, Effect | readonly string[]> = {
   // os 拆表：io 成员全集（保守列举，宁可多列）+ os.path 纯计算子模块（:p）；未列成员落 UNKNOWN（方向安全）
   os: ["system", "popen", "spawnv", "spawnve", "spawnl", "spawnle", "spawnlp", "spawnlpe",
     "spawnvp", "spawnvpe", "fork", "forkpty", "execv", "execve", "execvp", "execl", "execlp",
-    "execle", "execvpe", "kill", "killpg", "remove", "unlink", "rename", "renames", "replace",
-    "rmdir", "removedirs", "mkdir", "makedirs", "chdir", "fchdir", "chmod", "chown", "lchown",
-    "link", "symlink", "readlink", "listdir", "scandir", "walk", "stat", "lstat", "fstat",
-    "statvfs", "pathconf", "fpathconf", "getcwd", "getcwdb", "chroot", "getpid", "getppid",
+    "execle", "execvpe", "kill", "killpg", "remove:fs", "unlink:fs", "rename:fs", "renames:fs", "replace:fs",
+    "rmdir:fs", "removedirs:fs", "mkdir:fs", "makedirs:fs", "chdir:fs", "fchdir:fs", "chmod:fs", "chown:fs", "lchown:fs",
+    "link:fs", "symlink:fs", "readlink:fs", "listdir:fs", "scandir:fs", "walk:fs", "stat:fs", "lstat:fs", "fstat:fs",
+    "statvfs:fs", "pathconf:fs", "fpathconf:fs", "getcwd:fs", "getcwdb:fs", "chroot:fs", "getpid", "getppid",
     "getuid", "geteuid", "getgid", "getegid", "getgroups", "getlogin", "getenv", "putenv",
     "unsetenv", "setuid", "seteuid", "setgid", "setegid", "setgroups", "umask", "getumask",
-    "urandom", "getrandom", "open", "fdopen", "pipe", "dup", "dup2", "close", "closerange",
-    "read", "write", "fsync", "fdatasync", "truncate", "ftruncate", "mknod", "mkfifo",
-    "utime", "access", "openpty", "getloadavg", "ttyname", "isatty", "nice", "abort",
+    "urandom:random", "getrandom:random", "open:fs", "fdopen:fs", "pipe:fs", "dup:fs", "dup2:fs", "close:fs", "closerange:fs",
+    "read:fs", "write:fs", "fsync:fs", "fdatasync:fs", "truncate:fs", "ftruncate:fs", "mknod:fs", "mkfifo:fs",
+    "utime:fs", "access:fs", "openpty:fs", "getloadavg", "ttyname:fs", "isatty:fs", "nice", "abort",
     "environ", "get_terminal_size", "register_at_fork", "get_exec_path", "confstr", "sysconf",
     // os.path 纯计算（join/basename 等）；读 fs 状态的（getsize/exists/isdir…）不在列 → UNKNOWN
     "path.join:p", "path.basename:p", "path.dirname:p", "path.split:p", "path.splitext:p",
@@ -44,30 +45,30 @@ const impureModules: Record<string, "*" | readonly string[]> = {
   // from os.path import join 的别名表（与 os 表的 path: 项一致）
   "os.path": ["join:p", "basename:p", "dirname:p", "split:p", "splitext:p", "normpath:p",
     "normcase:p", "isabs:p", "commonpath:p", "commonprefix:p", "splitdrive:p", "splitunc:p"],
-  sys: "*", io: "*", socket: "*", subprocess: "*", shutil: "*",
-  sqlite3: "*", urllib: "*", http: "*", smtplib: "*", ftplib: "*",
-  requests: "*", httpx: "*", aiohttp: "*", psycopg2: "*", pymysql: "*",
-  pymongo: "*", redis: "*", boto3: "*", paramiko: "*",
-  pickle: ["load", "dump"], json: ["load", "dump", "dumps:p", "loads:p"], csv: "*",
-  logging: "*",
-  // time：时钟读取（io）+ 纯转换（:p，仅限必须传参的 mktime/strptime）。
+  sys: "io", io: "fs", socket: "net", subprocess: "io", shutil: "fs",
+  sqlite3: "db", urllib: "net", http: "net", smtplib: "net", ftplib: "net",
+  requests: "net", httpx: "net", aiohttp: "net", psycopg2: "db", pymysql: "db",
+  pymongo: "db", redis: "db", boto3: "db", paramiko: "io",
+  pickle: ["load:fs", "dump:fs"], json: ["load:fs", "dump:fs", "dumps:p", "loads:p"], csv: "fs",
+  logging: "io",
+  // time：时钟读取（clock 类）+ 纯转换（:p，仅限必须传参的 mktime/strptime）。
   // localtime/gmtime/ctime/asctime/strftime 的 :p 已移除——无参形式读当前时钟（迭代6 B1，假纯）
-  time: ["sleep", "time", "monotonic", "perf_counter", "process_time", "thread_time", "monotonic_ns",
-    "time_ns", "perf_counter_ns", "process_time_ns", "thread_time_ns",
-    "mktime:p", "strptime:p"],
-  random: "*",
-  tempfile: "*", glob: "*", pathlib: "*", multiprocessing: "*",
-  threading: "*", asyncio: "*", select: "*", signal: "*",
-  // 时钟读取（与 time.time 判 io 同源）：datetime.now/utcnow/today/fromtimestamp/utcfromtimestamp
-  datetime: ["now", "today", "utcnow", "fromtimestamp", "utcfromtimestamp",
+  time: ["sleep:clock", "time:clock", "monotonic:clock", "perf_counter:clock", "process_time:clock",
+    "thread_time:clock", "monotonic_ns:clock", "time_ns:clock", "perf_counter_ns:clock",
+    "process_time_ns:clock", "thread_time_ns:clock", "mktime:p", "strptime:p"],
+  random: "random",
+  tempfile: "fs", glob: "fs", pathlib: "fs", multiprocessing: "io",
+  threading: "io", asyncio: "io", select: "io", signal: "io",
+  // 时钟读取（clock 类，与 time.time 判 io 同源）：datetime.now/utcnow/today/fromtimestamp/utcfromtimestamp
+  datetime: ["now:clock", "today:clock", "utcnow:clock", "fromtimestamp:clock", "utcfromtimestamp:clock",
     // ":p" = 纯转换成员（不触时钟/io）
     "combine:p", "fromisoformat:p", "strftime:p", "strptime:p", "isoformat:p", "timestamp:p"],
   // 写 stderr：warnings.warn、traceback.print_exc/print_tb
   warnings: ["warn"], traceback: ["print_exc", "print_tb"],
   // 熵读取（os.urandom 之上，与 random/TS crypto 判 io 同源）
-  secrets: "*",
+  secrets: "random",
   // uuid4/uuid1 底层 os.urandom（与 TS uuid.v4 判 io 同源——跨语言一致）
-  uuid: ["uuid1", "uuid4"],
+  uuid: ["uuid1:random", "uuid4:random"],
 };
 
 const pureModules = new Set([

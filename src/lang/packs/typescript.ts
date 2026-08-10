@@ -1,5 +1,6 @@
 import type { SyntaxNode } from "../pack";
 import type { LangPack, RawImport } from "../pack";
+import type { Effect } from "../../core/types";
 import { dirname, join, normalize } from "node:path";
 
 /** TS/JS 共享的 import 提取行为（含再导出与 require）。 */
@@ -127,9 +128,11 @@ export function resolveEsmModule(
   return null;
 }
 
-const impureBuiltins = new Set(["fetch", "eval", "require", "alert", "prompt", "XMLHttpRequest",
+const impureBuiltins: Record<string, Effect> = {
+  fetch: "net", eval: "io", require: "io", alert: "io", prompt: "io", XMLHttpRequest: "net",
   // 调度/定时（与 Python time.sleep 判 io 同源——阻塞/调度可观测）；queueMicrotask 同上
-  "setTimeout", "setInterval", "clearTimeout", "clearInterval", "queueMicrotask"]);
+  setTimeout: "io", setInterval: "io", clearTimeout: "io", clearInterval: "io", queueMicrotask: "io",
+};
 
 const pureBuiltins = new Set([
   "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURIComponent",
@@ -141,23 +144,24 @@ const pureBuiltins = new Set([
   // Date.parse/UTC 等静态纯方法经 pureGlobals（obj=Date）仍判纯
 ]);
 
-const impureModules: Record<string, "*" | readonly string[]> = {
-  fs: "*", "fs/promises": "*", http: "*", https: "*", net: "*",
-  child_process: "*", cluster: "*", dgram: "*", dns: "*", readline: "*",
-  axios: "*", got: "*", undici: "*", "node-fetch": "*", superagent: "*",
-  pg: "*", mysql: "*", mysql2: "*", redis: "*", ioredis: "*", mongodb: "*",
-  mongoose: "*", typeorm: "*", sequelize: "*", knex: "*",
-  "@prisma/client": "*", ws: "*", "socket.io": "*",
-  winston: "*", pino: "*", bunyan: "*",
-  // 熵读取（与 Python random 判 io 同源）：crypto.randomBytes 等同步阻塞读系统熵
-  crypto: ["randomBytes", "randomFill", "randomFillSync", "randomInt",
-    "generateKey", "generateKeySync", "generateKeyPair", "generateKeyPairSync",
-    "getRandomValues", "webcrypto",
-    // ":p" = 显式纯计算成员（无 io 的密码学纯函数/构造器）
+const impureModules: Record<string, Effect | readonly string[]> = {
+  fs: "fs", "fs/promises": "fs", "fs-extra": "fs",
+  http: "net", https: "net", net: "net", dgram: "net", dns: "net",
+  axios: "net", got: "net", undici: "net", "node-fetch": "net", superagent: "net",
+  nodemailer: "net", ws: "net", "socket.io": "net", multer: "io",
+  pg: "db", mysql: "db", mysql2: "db", redis: "db", ioredis: "db", mongodb: "db",
+  mongoose: "db", typeorm: "db", sequelize: "db", knex: "db",
+  "@prisma/client": "db",
+  child_process: "io", cluster: "io", readline: "io",
+  winston: "io", pino: "io", bunyan: "io",
+  // 熵读取（random 类）：crypto.randomBytes 等同步阻塞读系统熵；纯计算成员 :p 保持
+  crypto: ["randomBytes:random", "randomFill:random", "randomFillSync:random", "randomInt:random",
+    "generateKey:random", "generateKeySync:random", "generateKeyPair:random", "generateKeyPairSync:random",
+    "getRandomValues:random", "webcrypto:random",
     "createHash:p", "createHmac:p", "createCipheriv:p", "createDecipheriv:p",
     "createSign:p", "createVerify:p", "hash:p", "timingSafeEqual:p", "pbkdf2:p", "pbkdf2Sync:p"],
-  // uuid.v4/v1 底层调 randomBytes/getRandomValues；parse/stringify/validate 为纯转换
-  uuid: ["v4", "v1", "v7", "parse:p", "stringify:p", "validate:p"],
+  // uuid.v4/v1 底层调 randomBytes（random 类）；parse/stringify/validate 为纯转换
+  uuid: ["v4:random", "v1:random", "v7:random", "parse:p", "stringify:p", "validate:p"],
 };
 
 const pureModules = new Set([
@@ -168,19 +172,19 @@ const pureModules = new Set([
   // 已移出（熵读取/io 成员）：crypto/uuid → impureModules 成员表
 ]);
 
-const impureGlobals: Record<string, "*" | readonly string[]> = {
-  console: "*",
-  process: "*",
-  localStorage: "*",
-  sessionStorage: "*",
-  document: "*",
-  window: "*",
-  navigator: "*",
-  // 时钟读取（与 Python time.time 判 io 同源）
-  Date: ["now"],
-  performance: ["now"],
-  // PRNG（与 Python random 判 io 同源——跨语言一致）：Math.random 结果可观测且种子不可控
-  Math: ["random"],
+const impureGlobals: Record<string, Effect | readonly string[]> = {
+  console: "io",
+  process: "io",
+  localStorage: "io",
+  sessionStorage: "io",
+  document: "io",
+  window: "io",
+  navigator: "io",
+  // 时钟读取（clock 类）：Date.now / performance.now
+  Date: ["now:clock"],
+  performance: ["now:clock"],
+  // PRNG（random 类）：Math.random 结果可观测且种子不可控
+  Math: ["random:random"],
 };
 
 const pureGlobals = new Set([

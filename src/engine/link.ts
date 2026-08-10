@@ -1,5 +1,5 @@
 import type { LangPack, RawCall, RawChunk, RawFileFacts, RawImport } from "../lang/pack";
-import { type Chunk, UNKNOWN_TARGET } from "../core/types";
+import { type Chunk, UNKNOWN_TARGET, type Effect } from "../core/types";
 import { chunkId } from "../core/hash";
 
 /**
@@ -153,7 +153,7 @@ export function link(
 
   for (const [file, fi] of files) {
     for (const [key, rc] of fi.chunkByKey) {
-      const direct = new Set<string>();
+      const direct = new Set<Effect>();
       const calls = new Set<string>();
       let unknownSites = 0; // `?` 多重性：calls 是 Set 只记一个 `?`，此处记未解析调用点数
       const unknownCalls: Array<{ attr: string; obj: string | null; root: string }> = [];
@@ -170,12 +170,25 @@ export function link(
       const effectFromModule = (rawModule: string, member: string | null): boolean => {
         const module = rawModule.replace(/^node:/, ""); // node:fs ≡ fs
         const rule = fi.pack.impureModules[module];
-        if (rule === "*" || (Array.isArray(rule) && member !== null && rule.includes(member))) {
-          direct.add("io");
+        if (typeof rule === "string") {
+          // 模块整体效应类（fs: "fs"、http: "net"、sqlite3: "db"…）
+          direct.add(rule);
           return true;
         }
-        // 显式纯成员（"member:p" 标记）：拆表模块中可证的纯计算（json.dumps、crypto.createHash…）
-        if (Array.isArray(rule) && member !== null && rule.includes(member + ":p")) return true;
+        if (Array.isArray(rule) && member !== null) {
+          if (rule.includes(member)) {
+            direct.add("io");
+            return true;
+          }
+          // 成员带效应类后缀（"randomBytes:random" / "now:clock"）或纯标记（"member:p"）
+          const tagged = rule.find((r) => r.startsWith(member + ":"));
+          if (tagged) {
+            const cls = tagged.slice(member.length + 1);
+            if (cls === "p") return true;
+            direct.add(cls as Effect);
+            return true;
+          }
+        }
         if (fi.pack.pureModules.has(module)) return true;
         return false;
       };
@@ -251,7 +264,7 @@ export function link(
 
 interface Sink {
   addEdge(key: string): void;
-  addEffect(effect: string): void;
+  addEffect(effect: Effect): void;
   markUnknown(): void;
   markDynamic(): void;
   addUnknownCall(call: RawCall): void;
@@ -465,7 +478,8 @@ function resolveCall(
 
   // 4. 效应表
   if (call.obj === null) {
-    if (pack.impureBuiltins.has(call.attr)) { sink.addEffect("io"); return; }
+    const b = Object.hasOwn(pack.impureBuiltins, call.attr) ? pack.impureBuiltins[call.attr] : undefined;
+    if (b) { sink.addEffect(b); return; }
     if (pack.pureBuiltins.has(call.attr)) {
       // HOF（map/filter/sorted…）会调用函数实参：回调效应必须保留，否则假纯
       if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr);
@@ -474,9 +488,18 @@ function resolveCall(
   } else {
     // hasOwn 守卫：impureGlobals 普通对象字面量，继承键（constructor 等）→ undefined（纪律与 B1 同源）
     const rule = Object.hasOwn(pack.impureGlobals, call.obj) ? pack.impureGlobals[call.obj] : undefined;
-    if (rule === "*" || (Array.isArray(rule) && rule.includes(call.attr))) {
-      sink.addEffect("io");
+    if (typeof rule === "string") {
+      sink.addEffect(rule); // 模块/全局整体效应类（console: "io"）
       return;
+    }
+    if (Array.isArray(rule)) {
+      if (rule.includes(call.attr)) { sink.addEffect("io"); return; }
+      const tagged = rule.find((r) => r.startsWith(call.attr + ":"));
+      if (tagged) {
+        const cls = tagged.slice(call.attr.length + 1);
+        sink.addEffect(cls); // "now:clock" / "random:random"
+        return;
+      }
     }
     if (pack.pureGlobals.has(call.obj)) {
       if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr); // Array.from(xs, cb)

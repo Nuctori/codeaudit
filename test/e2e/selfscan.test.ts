@@ -11,9 +11,9 @@ describe("E2E: 自扫描", () => {
     expect(report.stats.files).toBeGreaterThanOrEqual(8);
     expect(report.stats.parseErrors).toBe(0);
 
-    // scan.ts 里 writeFileSync/mkdirSync 经 node:fs 命名空间导入
+    // scan.ts 里 writeFileSync/mkdirSync 经 node:fs 命名空间导入 → fs 效应类
     const fsUsers = report.verdicts.filter(
-      (v) => v.effects.has("io") && v.chunk.file.endsWith("scan.ts"),
+      (v) => v.effects.has("fs") && v.chunk.file.endsWith("scan.ts"),
     );
     expect(fsUsers.length).toBeGreaterThanOrEqual(1);
 

@@ -1,4 +1,5 @@
 import type Parser from "web-tree-sitter";
+import type { Effect } from "../core/types";
 
 export type SyntaxNode = Parser.SyntaxNode;
 export type TreeSitterLanguage = Parser.Language;
@@ -85,16 +86,16 @@ export interface LangPack {
   readonly nestingNodes: readonly string[];
   /** 自引用名（方法内对象调用的接收者）。 */
   readonly selfNames: readonly string[];
-  /** 不纯内置函数（直接效应 io）。 */
-  readonly impureBuiltins: ReadonlySet<string>;
+  /** 不纯内置函数：函数名 -> 效应类（fetch: "net"、print: "io"）。 */
+  readonly impureBuiltins: Readonly<Record<string, Effect>>;
   /** 已知纯内置函数（直接丢弃，不计未知）。 */
   readonly pureBuiltins: ReadonlySet<string>;
-  /** 不纯模块：模块名 -> "*" 或方法名列表。 */
-  readonly impureModules: Readonly<Record<string, "*" | readonly string[]>>;
+  /** 不纯模块：模块名 -> 效应类（fs: "fs"）或成员列表（元素可带 ":类" 后缀或 ":p" 纯标记）。 */
+  readonly impureModules: Readonly<Record<string, Effect | readonly string[]>>;
   /** 已知纯模块（导入名解析到这些模块时丢弃调用）。 */
   readonly pureModules: ReadonlySet<string>;
-  /** 不纯全局对象（如 console、process），无需 import。 */
-  readonly impureGlobals: Readonly<Record<string, "*" | readonly string[]>>;
+  /** 不纯全局对象（console/process…）：对象名 -> 效应类或成员列表（同 impureModules 元素语义）。 */
+  readonly impureGlobals: Readonly<Record<string, Effect | readonly string[]>>;
   /** 已知纯全局对象。 */
   readonly pureGlobals: ReadonlySet<string>;
   /** 高阶函数名：会调用其函数实参的内建/模块成员（map/filter/sorted/Array.from…），用于回调实参边。 */

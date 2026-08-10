@@ -18,6 +18,14 @@ export enum Purity {
 }
 
 /** 链接完成后的图节点（不可变）。 */
+/**
+ * 效应原子集（A7：Σ 有限效应原子集，LangPack 表声明；`?` 是知识标记非效应）。
+ * 判定安全序不变：任何效应（含 state）→ IMPURE。
+ * io = 未细分（console/process/环境/子进程…）；net = 网络；fs = 文件系统；db = 数据库；
+ * random = 随机/熵；clock = 时钟读取；state = 状态写（self.x=/global/nonlocal，用户需求 2026-08-11）。
+ */
+export type Effect = "io" | "net" | "fs" | "db" | "random" | "clock" | "state";
+
 export interface Chunk {
   /** 内容寻址身份：规范化源码文本的哈希。公理4。 */
   readonly id: string;
@@ -30,8 +38,8 @@ export interface Chunk {
   readonly endLine: number;
   /** 最大嵌套深度（空函数 = 0）。 */
   readonly nesting: number;
-  /** 自身直接效应（仅 io；state 已被用户否决，见 docs/math-loop.md step 4）；空集 = 无直接效应。 */
-  readonly direct: ReadonlySet<string>;
+  /** 自身直接效应（Effect 原子集）；空集 = 无直接效应。 */
+  readonly direct: ReadonlySet<Effect>;
   /** 已解析 callee 的 key 集合；含 UNKNOWN_TARGET 表示存在未解析调用。 */
   readonly calls: ReadonlySet<string>;
   /** 未解析调用点数（calls 中 `?` 是集合去重后的单哨兵；此处保留多重性，标注需全部确证）。 */

@@ -18,11 +18,11 @@ describe("E2E: pyshop（Python）", () => {
     const report = await scanProject(join(FIX, "pyshop"));
     const by = index(report);
 
-    // 种子：connect 直接触 sqlite3 → chain 0
+    // 种子：connect 直接触 sqlite3 → chain 0（db 效应类，用户需求效应分化）
     const connect = by.get("db.py::connect")!;
     expect(connect.purity).toBe(Purity.IMPURE);
     expect(connect.chain).toBe(0);
-    expect(connect.effects.has("io")).toBe(true);
+    expect(connect.effects.has("db")).toBe(true);
 
     // conn.execute 是局部对象方法 → 记 `?`：audit 悲观链=0（未知视为潜在效应源），dev 链=1，区间非零
     expect(by.get("db.py::save_user")!.chain).toBe(0);

@@ -6,7 +6,7 @@ import type { LangPack, RawFileFacts, TreeSitterLanguage } from "../lang/pack";
 import { Extractor } from "../lang/extractor";
 import { link } from "./link";
 import { analyze } from "../core/analyze";
-import { Purity, type ScanReport, UNKNOWN_TARGET } from "../core/types";
+import { Purity, type ScanReport, UNKNOWN_TARGET, type Effect } from "../core/types";
 
 const SKIP_DIRS = new Set([
   "node_modules", ".git", "dist", "build", "out", ".venv", "venv",
@@ -239,7 +239,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
           if (v === undefined) return c;
           if (v === "IMPURE") {
             if (c.direct.has("io")) return c;
-            return { ...c, direct: new Set([...c.direct, "io"]) };
+            return { ...c, direct: new Set([...c.direct, "io" as Effect]) };
           }
           // H1 守卫（迭代3 #1，迭代4 F2 放宽）：parseError chunk 的 `?` 是内容信任标记（body 可能被
           // 错误恢复吞边），标注协议以函数体为准——而 body 本身不可信 → PURE 标注不可撤销降级；
