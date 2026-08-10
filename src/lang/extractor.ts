@@ -48,6 +48,7 @@ export class Extractor {
           );
           mc.nesting = this.maxNesting(node);
           mc.assigned = this.assignedNames(node);
+          mc.params = this.paramNames(node);
           chunks.push(mc as RawChunk);
           stack.push(mc);
           pushed = true;
@@ -56,9 +57,10 @@ export class Extractor {
       if (this.pack.callNodes.includes(node.type)) {
         stack[stack.length - 1]!.calls.push(this.callOf(node));
       }
-      // 状态写检测（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 → state 效应。
+      // 状态写检测（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 /
+      // 任意外部对象属性写（user.status = "banned"，obj 非局部新建）→ state 效应。
       // 归 stack 顶层 chunk（嵌套函数内赋值归内层 chunk）；class 内方法赋值归方法（构造器边传播）。
-      if (this.isStateWrite(node)) stack[stack.length - 1]!.stateWrites = true;
+      if (this.isStateWrite(node, stack[stack.length - 1]!)) stack[stack.length - 1]!.stateWrites = true;
       for (const child of node.children) visit(child);
       if (pushed) stack.pop();
     };
@@ -120,32 +122,59 @@ export class Extractor {
   }
 
   /** 状态写检测（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 → state 效应。 */
-  private isStateWrite(node: SyntaxNode): boolean {
+  private isStateWrite(node: SyntaxNode, chunk: MutableChunk): boolean {
     if (node.type === "global_statement" || node.type === "nonlocal_statement") return true;
     if (node.type === "assignment" || node.type === "augmented_assignment" || node.type === "assignment_expression") {
       const left = node.childForFieldName("left") ?? node.children[0];
-      return this.isSelfTarget(left);
+      return this.isExternalWrite(left, chunk);
     }
     if (node.type === "update_expression") {
       // TS：this.x++ / this.x--
       const arg = node.childForFieldName("argument") ?? node.children[0];
-      return this.isSelfTarget(arg);
+      return this.isExternalWrite(arg, chunk);
     }
     return false;
   }
 
-  /** 赋值目标是 self./cls./this. 属性（实例/外部状态写）。 */
-  private isSelfTarget(left: SyntaxNode | null | undefined): boolean {
+  /** chunk 自身参数名（不进入嵌套函数——只取本 chunk 的 parameters 字段直接子节点）。 */
+  private paramNames(root: SyntaxNode): string[] {
+    const out: string[] = [];
+    const params = root.childForFieldName("parameters");
+    if (!params) return out;
+    const push = (n: SyntaxNode): void => {
+      const named = n.childForFieldName("name") ?? n.childForFieldName("pattern");
+      if (named && (named.type === "identifier" || named.type === "property_identifier")) {
+        out.push(named.text);
+      } else if (n.type === "identifier" || n.type === "property_identifier") {
+        out.push(n.text);
+      }
+    };
+    for (const c of params.children) push(c);
+    return out;
+  }
+
+  /**
+   * 外部状态写判定：赋值目标是 self./cls./this. 属性，或任意对象属性且对象名**不在本 chunk 的
+   * 局部赋值**（assigned）中——参数（params 含）/模块级对象属性写（user.status = "banned"）算外部
+   * 状态写；局部新建对象初始化（const o = {}; o.x = 1）不算（obj 在 assigned 且非参数）。
+   */
+  private isExternalWrite(left: SyntaxNode | null | undefined, chunk: MutableChunk): boolean {
     if (!left) return false;
     if (left.type === "attribute") {
-      // Python：self.x / cls.y
+      // Python：self.x / cls.y / user.status
       const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
-      return obj !== null && (obj.text === "self" || obj.text === "cls");
+      if (!obj) return false;
+      if (obj.text === "self" || obj.text === "cls") return true;
+      return obj.type === "identifier" &&
+        (chunk.params.includes(obj.text) || !chunk.assigned.includes(obj.text));
     }
     if (left.type === "member_expression") {
-      // TS：this.x
+      // TS：this.x / config.x
       const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
-      return obj !== null && obj.text === "this";
+      if (!obj) return false;
+      if (obj.text === "this") return true;
+      return obj.type === "identifier" &&
+        (chunk.params.includes(obj.text) || !chunk.assigned.includes(obj.text));
     }
     return false;
   }
@@ -327,6 +356,8 @@ interface MutableChunk {
   kind: "class" | "function" | "module";
   calls: RawCall[];
   assigned: string[];
+  /** 函数参数名（与 assigned 分离：参数是外部传入对象，对其属性写 = 外部状态写；局部赋值不算）。 */
+  params: string[];
   stateWrites: boolean;
   ownerClass: string | null;
 }
@@ -358,7 +389,7 @@ function fresh(
   ownerClass: string | null = null,
   kind: "class" | "function" | "module" = "function",
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], stateWrites: false, ownerClass };
+  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], stateWrites: false, ownerClass };
 }
 
 /** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */

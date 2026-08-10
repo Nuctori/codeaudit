@@ -840,6 +840,19 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(b.get("b.ts::Store.get")!.purity).toBe(Purity.PURE);
   });
 
+  it("外部对象属性写（盲区3 数据流）：user.status='banned' / cfg.timeout= → state；局部新建对象不算", async () => {
+    const root = project("mutwrite", {
+      "a.py": "def validate_user(user):\n    user.status = 'banned'\n    return True\ndef build_local():\n    o = {}\n    o.x = 1\n    return o\n",
+      "b.ts": "export function mutate(cfg: any) { cfg.timeout = 5000; }\nexport function local() { const o = { a: 1 }; o.b = 2; return o; }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::validate_user")!.purity).toBe(Purity.IMPURE); // 参数对象属性写
+    expect(b.get("a.py::validate_user")!.effects.has("state")).toBe(true);
+    expect(b.get("a.py::build_local")!.purity).toBe(Purity.PURE); // 局部新建不算
+    expect(b.get("b.ts::mutate")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("b.ts::local")!.purity).toBe(Purity.PURE);
+  });
+
   it("analyzeChange 边界：环/自环终止、空/不匹配文件标记 unmatchedFiles、反斜杠路径归一化", async () => {
     const root = project("changeedge", {
       "a.ts": "export function a() { return b(); }\nexport function b() { return a(); }\nexport function s() { return s(); }\nexport function leaf() { return 1; }\n",
