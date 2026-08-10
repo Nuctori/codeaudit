@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  emptyCorpus, updateCorpus, mergeCorpus, priorFor, summarize, siteShapeInfo,
+  emptyCorpus, updateCorpus, mergeCorpus, priorFor, summarize, siteShapeInfo, isCorpus,
   MIN_TOTAL, MIN_CELL, PRIOR_THRESHOLD,
 } from "../../src/core/corpus";
 import type { Chunk } from "../../src/core/types";
@@ -14,6 +14,18 @@ function chunk(id: string, sites: Array<{ attr: string; obj: string | null; root
 }
 
 describe("标注语料（corpus）", () => {
+  it("isCorpus 守卫：畸形语料（负计数/NaN/缺字段/字符串计数）全拒", () => {
+    expect(isCorpus({ version: 1, seen: {}, method: {}, root: {} })).toBe(true);
+    expect(isCorpus({ version: 1, seen: {}, method: { get: { pure: 40, impure: 0 } }, root: {} })).toBe(true);
+    expect(isCorpus({ version: 1, seen: {}, method: { get: { pure: 100, impure: -70 } }, root: {} })).toBe(false);
+    expect(isCorpus({ version: 1, seen: {}, method: { get: { pure: "40", impure: 0 } }, root: {} })).toBe(false);
+    expect(isCorpus({ version: 1, seen: {}, method: { get: { pure: NaN, impure: 0 } }, root: {} })).toBe(false);
+    expect(isCorpus({ version: 1, seen: {}, method: null, root: {} })).toBe(false);
+    expect(isCorpus({ version: 1, seen: {}, method: {}, root: undefined })).toBe(false);
+    expect(isCorpus(null)).toBe(false);
+    expect(isCorpus({ version: 2, seen: {}, method: {}, root: {} })).toBe(false);
+  });
+
   it("file 锚定标注计入语料（F1 修复：updateCorpus 与 scan 回读同构）", () => {
     const c1 = chunk("idX", [{ attr: "get", obj: "req", root: "variable" }]);
     const c2 = chunk("idX", [{ attr: "get", obj: "req", root: "variable" }]);

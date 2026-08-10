@@ -12,11 +12,12 @@ const impureBuiltins = new Set([
 const pureBuiltins = new Set([
   "len", "str", "int", "float", "bool", "list", "dict", "set", "tuple",
   "frozenset", "range", "enumerate", "zip", "map", "filter", "sorted",
-  "reversed", "isinstance", "issubclass", "hasattr", "getattr", "setattr",
-  "sum", "min", "max", "abs", "round", "repr", "format", "type", "id",
-  "hash", "iter", "next", "any", "all", "super", "property", "staticmethod",
+  "reversed", "isinstance", "issubclass", "sum", "min", "max", "abs", "round",
+  "type", "id", "any", "all", "super", "property", "staticmethod",
   "classmethod", "ord", "chr", "hex", "bin", "oct", "pow", "divmod",
-  "callable", "vars", "dir", "bytes", "bytearray", "slice", "object",
+  "callable", "bytes", "bytearray", "slice", "object",
+  // 协议分派内建（对任意对象调 __repr__/__format__/__hash__/__getattr__/__iter__ 等，可带 io）已移除：
+  // repr/format/hash/iter/next/getattr/setattr/hasattr/vars/dir → 落未知（与 builtinTypeEffects 协议表外纪律一致）
 ]);
 
 const impureModules: Record<string, "*" | readonly string[]> = {
@@ -28,14 +29,19 @@ const impureModules: Record<string, "*" | readonly string[]> = {
   logging: "*", time: ["sleep", "time", "monotonic"], random: "*",
   tempfile: "*", glob: "*", pathlib: "*", multiprocessing: "*",
   threading: "*", asyncio: "*", select: "*", signal: "*",
+  // 时钟读取（与 time.time 判 io 同源）：datetime.now/utcnow/today/fromtimestamp/utcfromtimestamp
+  datetime: ["now", "today", "utcnow", "fromtimestamp", "utcfromtimestamp"],
+  // 写 stderr：warnings.warn、traceback.print_exc/print_tb
+  warnings: ["warn"], traceback: ["print_exc", "print_tb"],
 };
 
 const pureModules = new Set([
   "math", "re", "functools", "itertools", "typing", "dataclasses",
   "collections", "abc", "enum", "string", "textwrap", "copy", "operator",
   "numbers", "decimal", "fractions", "statistics", "heapq", "bisect",
-  "array", "struct", "codecs", "unicodedata", "datetime", "calendar",
-  "contextlib", "warnings", "traceback", "types", "weakref",
+  "array", "struct", "codecs", "unicodedata", "calendar",
+  "contextlib", "types", "weakref",
+  // 已移出（时钟读取/写 stderr/状态读写）：datetime → impureModules 成员表、warnings/traceback 同上
 ]);
 
 // 会调用其函数实参的内建/模块成员：map/filter/sorted/max/min（key=）、functools.reduce
@@ -78,17 +84,16 @@ const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
   set: { copy: "pure", clear: "pure" },
 };
 
-// 内建方法返回类型（链式接收者解析）：只放非空固定返回（语言事实）；返回 None/可变 → 链断
+// 内建方法返回类型（链式接收者解析）：只放非空固定返回（语言事实）；返回 None/bool/可变 → 链断
 const builtinMethodReturns: Record<string, Record<string, string>> = {
   str: { strip: "str", lstrip: "str", rstrip: "str", lower: "str", upper: "str", title: "str", capitalize: "str",
     casefold: "str", swapcase: "str", split: "list", rsplit: "list", splitlines: "list", removeprefix: "str",
-    removesuffix: "str", replace: "str", isalpha: "str", isdigit: "str", isalnum: "str", isspace: "str",
-    isupper: "str", islower: "str", istitle: "str", isnumeric: "str" },
-  list: { reverse: "list", copy: "list", clear: "list" },
+    removesuffix: "str", replace: "str" }, // is* 系列返回 bool → 不设（链断）
+  list: { copy: "list" }, // reverse/clear 返回 None → 不设（链断）
   bytes: { decode: "str", hex: "str", lower: "bytes", upper: "bytes" },
   int: { to_bytes: "bytes" },
   float: { as_integer_ratio: "tuple" },
-  set: { copy: "set", clear: "set" },
+  set: { copy: "set" }, // clear 返回 None → 不设（链断）
 };
 
 export const pythonPack: LangPack = {

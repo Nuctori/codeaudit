@@ -562,6 +562,34 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     const b = by(await scanProject(root));
     expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN); // math 是参数 → 遮蔽 import
   });
+
+  it("构造器体 io 并入 class chunk（S1 修复）：def f(): return Conn() → IMPURE", async () => {
+    const root = project("ctorio", {
+      "a.py": "class Conn:\n    def __init__(self):\n        print('io')\ndef f():\n    return Conn()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::f")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("a.py::Conn")!.purity).toBe(Purity.IMPURE); // 类 chunk 含构造器效应
+  });
+
+  it("熵/时钟读取判 io（跨语言一致）：crypto.randomBytes / datetime.now / Date.now", async () => {
+    const root = project("io-tables", {
+      "a.ts": "import { randomBytes } from 'crypto';\nexport function f() { return randomBytes(16); }\nexport function g() { return Date.now(); }\n",
+      "b.py": "from datetime import datetime\ndef h():\n    return datetime.now()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.ts::f")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("a.ts::g")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("b.py::h")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("协议内建判未知：hash(x) → UNKNOWN（与 builtinTypeEffects 协议表外纪律一致）", async () => {
+    const root = project("proto", {
+      "a.py": "def f(x):\n    return hash(x)\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN);
+  });
 });
 
 describe("定义性事实族（用户覆写会议否决后实施）", () => {

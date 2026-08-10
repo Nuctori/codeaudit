@@ -64,6 +64,7 @@ interface CacheFile {
 /** 投毒防护：facts 形状下探到 chunk/import 字段（chunks:[{}] 可穿透仅数组校验）。 */
 function validFacts(f: RawFileFacts | undefined): f is RawFileFacts {
   if (!f || typeof f.lang !== "string" || !Array.isArray(f.chunks) || !Array.isArray(f.imports)) return false;
+  if (f.moduleBindings !== undefined && (typeof f.moduleBindings !== "object" || f.moduleBindings === null)) return false;
   for (const c of f.chunks) {
     if (!c || typeof c.name !== "string" || typeof c.normText !== "string" ||
         typeof c.line !== "number" || !Array.isArray(c.calls) || !Array.isArray(c.assigned)) return false;

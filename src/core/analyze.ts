@@ -26,7 +26,7 @@ function runOnce(
     for (const t of c.calls) {
       if (t === UNKNOWN_TARGET) hasUnknown.add(c.key);
       else if (byKey.has(t)) s.add(t);
-      else staleEdges++; // 陈旧边：目标不在图中（缓存漂移/幽灵条目）
+      else { staleEdges++; hasUnknown.add(c.key); } // 悬垂目标（图中不存在）：按未知处理（S4 诚实），仍计数
     }
     edges.set(c.key, s);
   }

@@ -27,7 +27,7 @@ export class Extractor {
     const root = tree.rootNode;
     const chunks: RawChunk[] = [];
     // 伪 chunk 收容模块级调用（公理1）
-    const moduleChunk = fresh("<module>", 1, source.split("\n").length, "", "", null, "module");
+    const moduleChunk = fresh("<module>", 1, source.split("\n").length, "", null, "module");
     const stack: MutableChunk[] = [moduleChunk];
 
     const visit = (node: SyntaxNode): void => {
@@ -40,7 +40,6 @@ export class Extractor {
             name,
             node.startPosition.row + 1,
             node.endPosition.row + 1,
-            node.text,
             normalizeCode(node),
             this.ownerClass(node),
             this.pack.classNodes.includes(node.type) ? "class" : "function",
@@ -268,7 +267,6 @@ interface MutableChunk {
   line: number;
   endLine: number;
   nesting: number;
-  sourceText: string;
   normText: string;
   kind: "class" | "function" | "module";
   calls: RawCall[];
@@ -299,12 +297,11 @@ function fresh(
   name: string,
   line: number,
   endLine: number,
-  sourceText: string,
   normText: string,
   ownerClass: string | null = null,
   kind: "class" | "function" | "module" = "function",
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, sourceText, normText, kind, calls: [], assigned: [], ownerClass };
+  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], ownerClass };
 }
 
 /** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */

@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { scanProject } from "./index";
 import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
 import { annotationBudget, annotationCurve } from "./core/influence";
-import { emptyCorpus, updateCorpus, priorFor, summarize, siteShapeInfo, type CorpusFile } from "./core/corpus";
+import { emptyCorpus, updateCorpus, priorFor, summarize, siteShapeInfo, isCorpus, type CorpusFile } from "./core/corpus";
 
 interface CliArgs {
   dir: string;
@@ -146,8 +146,9 @@ async function main(): Promise<void> {
   const corpusPath = args.corpus ?? (args.noCache ? null : join(resolve(root, ".codeaudit"), "corpus.json"));
   if (corpusPath) {
     try {
-      corpus = JSON.parse(readFileSync(corpusPath, "utf8")) as CorpusFile;
-      if (!corpus || corpus.version !== 1) corpus = emptyCorpus();
+      const parsed = JSON.parse(readFileSync(corpusPath, "utf8")) as unknown;
+      if (!isCorpus(parsed)) corpus = emptyCorpus();
+      else corpus = parsed;
     } catch {
       corpus = emptyCorpus();
     }
@@ -158,7 +159,9 @@ async function main(): Promise<void> {
       if (after.total > before.total) {
         try {
           mkdirSync(dirname(corpusPath), { recursive: true });
-          writeFileSync(corpusPath, JSON.stringify(corpus, null, 2));
+          const tmp = corpusPath + ".tmp";
+          writeFileSync(tmp, JSON.stringify(corpus, null, 2));
+          renameSync(tmp, corpusPath); // 原子替换：防符号链接写穿/半写
           console.error(`语料 -> ${corpusPath}（累计 ${after.pure} pure / ${after.impure} impure）`);
         } catch {
           // 语料写失败不影响扫描结果

@@ -145,13 +145,20 @@ const impureModules: Record<string, "*" | readonly string[]> = {
   mongoose: "*", typeorm: "*", sequelize: "*", knex: "*",
   "@prisma/client": "*", ws: "*", "socket.io": "*",
   winston: "*", pino: "*", bunyan: "*",
+  // 熵读取（与 Python random 判 io 同源）：crypto.randomBytes 等同步阻塞读系统熵
+  crypto: ["randomBytes", "randomFill", "randomFillSync", "randomInt",
+    "generateKey", "generateKeySync", "generateKeyPair", "generateKeyPairSync",
+    "getRandomValues", "webcrypto"],
+  // uuid.v4/v1 底层调 randomBytes/getRandomValues
+  uuid: ["v4", "v1", "v7"],
 };
 
 const pureModules = new Set([
   "path", "url", "querystring", "util", "events", "buffer", "stream",
-  "crypto", "zlib", "assert", "lodash", "lodash-es", "ramda", "date-fns",
-  "dayjs", "moment", "uuid", "zod", "yup", "joi", "immutable", "rxjs",
+  "assert", "lodash", "lodash-es", "ramda", "date-fns",
+  "dayjs", "moment", "zod", "yup", "joi", "immutable", "rxjs",
   "reselect", "classnames", "prop-types",
+  // 已移出（熵读取/io 成员）：crypto/uuid → impureModules 成员表
 ]);
 
 const impureGlobals: Record<string, "*" | readonly string[]> = {
@@ -162,6 +169,8 @@ const impureGlobals: Record<string, "*" | readonly string[]> = {
   document: "*",
   window: "*",
   navigator: "*",
+  // 时钟读取（与 Python time.time 判 io 同源）
+  Date: ["now"],
 };
 
 const pureGlobals = new Set([

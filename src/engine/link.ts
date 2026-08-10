@@ -41,10 +41,13 @@ export function link(
 ): LinkOutput {
   const projectFiles = new Set(allFacts.map((f) => f.file));
 
-  // resolveModule 调用内 memo（纯函数：projectFiles 本次 link 恒定；键含 pack 名防跨语言串味；null 也缓存）
+  // resolveModule 调用内 memo（纯函数：projectFiles 本次 link 恒定；键含 pack 名防跨语言串味；null 也缓存）。
+  // 绝对导入（非 ./ 相对）解析结果与 fromFile 无关——键去 fromFile，防 Python 绝对导入 O(F×P) 退化（10k 文件 × 10k 次全扫）
   const resMemo = new Map<string, string | null>();
   const resolveMod = (pack: LangPack, module: string, fromFile: string): string | null => {
-    const k = pack.name + "\u0000" + module + "\u0000" + fromFile;
+    const k = module.startsWith(".")
+      ? pack.name + "\u0000" + module + "\u0000" + fromFile
+      : pack.name + "\u0000" + module;
     const hit = resMemo.get(k);
     if (hit !== undefined) return hit;
     const v = pack.resolveModule(module, fromFile, projectFiles);
@@ -202,6 +205,16 @@ export function link(
           },
           effectFromModule,
         });
+      }
+
+      // 构造器体效应并入 class chunk（S1 修复）：class C 的 __init__/constructor 在实例化时执行，
+      // 其 io 必须传播到 class chunk（否则 `def f(): return C()` 判纯但运行时构造器写 io → 假纯）
+      if (rc.kind === "class") {
+        for (const [k, c2] of fi.chunkByKey) {
+          if (c2.ownerClass === rc.name && (c2.name === "__init__" || c2.name === "constructor")) {
+            calls.add(k);
+          }
+        }
       }
 
       out.push({

@@ -34,6 +34,25 @@ export function emptyCorpus(): CorpusFile {
   return { version: 1, seen: {}, method: {}, root: {} };
 }
 
+/** 语料结构守卫（投毒/畸形防护）：版本 + 结构 + 计数非负有限数。 */
+export function isCorpus(x: unknown): x is CorpusFile {
+  if (!x || typeof x !== "object") return false;
+  const c = x as Partial<CorpusFile>;
+  if (c.version !== 1) return false;
+  if (!c.seen || typeof c.seen !== "object") return false;
+  if (!c.method || typeof c.method !== "object") return false;
+  if (!c.root || typeof c.root !== "object") return false;
+  const validCount = (v: unknown): boolean => {
+    if (!v || typeof v !== "object") return false;
+    const o = v as { pure?: unknown; impure?: unknown };
+    return typeof o.pure === "number" && Number.isFinite(o.pure as number) && (o.pure as number) >= 0 &&
+      typeof o.impure === "number" && Number.isFinite(o.impure as number) && (o.impure as number) >= 0;
+  };
+  for (const v of Object.values(c.method)) if (!validCount(v)) return false;
+  for (const v of Object.values(c.root)) if (!validCount(v)) return false;
+  return true;
+}
+
 const GLOBAL_THETA0 = 0.25; // 实证基率：来自 swagger-ui/src/core 标注模拟（65 条中 51 条 PURE → impure≈0.22，取 0.25 保守）。
 // 注意：这是单项目标签分布泄漏为全局常数（跨项目污染通道）——冷单元格 θ̂≈θ₀ 会被 swagger 基率拉动；
 // 改进方向：项目级基率分层（项目随机效应）或可配置（见 docs/axioms.md 四·五）。
