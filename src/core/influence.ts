@@ -127,8 +127,21 @@ export function compareReports(a: readonly { chunk: Chunk; purity: number; chain
     x.size === y.size && [...x].every((e) => y.has(e));
   for (const va of a) {
     const vb = bm.get(va.chunk.key);
-    if (!vb) continue; // 被删除的 chunk（改动删了函数）
-    if (va.purity === vb.purity && va.chain === vb.chain && setsEqual(va.effects, vb.effects)) continue;
+    if (!vb) {
+      // 被删除的 chunk（改动删了函数 / 内容寻址 key 变化 = 编辑视为删+增）——镜像新增发 delta（迭代7 Med1）
+      out.push({
+        key: va.chunk.key,
+        file: va.chunk.file,
+        name: va.chunk.name,
+        purityFrom: va.purity,
+        purityTo: -1,
+        chainFrom: va.chain,
+        chainTo: -1,
+        effectsAdded: [],
+        effectsRemoved: [...va.effects].sort(),
+      });
+      continue;
+    }
     out.push({
       key: va.chunk.key,
       file: va.chunk.file,

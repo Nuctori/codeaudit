@@ -61,6 +61,10 @@ const impureModules: Record<string, Effect | readonly string[]> = {
   threading: "io", asyncio: "io", select: "io", signal: "io",
   // 时钟读取（clock 类，与 time.time 判 io 同源）：datetime.now/utcnow/today/fromtimestamp/utcfromtimestamp
   datetime: ["now:clock", "today:clock", "utcnow:clock", "fromtimestamp:clock", "utcfromtimestamp:clock",
+    // 点连形态（import datetime; datetime.datetime.now()）：全名命中前末段回退，此处点连变体补齐
+    "datetime.now:clock", "datetime.today:clock", "datetime.utcnow:clock", "datetime.utcfromtimestamp:clock",
+    "datetime.fromtimestamp:clock", "datetime.combine:p", "datetime.strptime:p", "datetime.strftime:p",
+    "date.today:clock", "date.fromtimestamp:clock", "date.fromordinal:p", "time.utcfromtimestamp:clock",
     // ":p" = 纯转换成员（不触时钟/io）
     "combine:p", "fromisoformat:p", "strftime:p", "strptime:p", "isoformat:p", "timestamp:p"],
   // 写 stderr：warnings.warn、traceback.print_exc/print_tb

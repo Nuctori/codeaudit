@@ -502,6 +502,7 @@ function resolveCall(
       const tagged = rule.find((r) => r.startsWith(call.attr + ":"));
       if (tagged) {
         const cls = tagged.slice(call.attr.length + 1);
+        if (cls === "p") return; // 纯标记（与 effectFromModule 同语义，A7 原子性守卫，迭代7 发现B）
         sink.addEffect(cls); // "now:clock" / "random:random"
         return;
       }

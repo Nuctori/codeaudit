@@ -812,7 +812,7 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
       "a.ts": "import { writeFileSync } from 'fs';\nexport function io() { writeFileSync('x', 'y'); }\nexport function caller() { return io(); }\n",
     });
     const before = await scanProject(root, { useCache: false });
-    // 改动：io 增加 console.log（保持 IMPURE）；新增函数 pure；删除 unused
+    // 改动：io 增加 console.log（内容变 → 内容寻址 key 变 → 编辑视为 deleted+added）；新增函数 fresh
     writeFileSync(join(root, "a.ts"), "import { writeFileSync } from 'fs';\nexport function io() { writeFileSync('x', 'y'); console.log('z'); }\nexport function caller() { return io(); }\nexport function fresh() { return 1; }\n");
     const after = await scanProject(root, { useCache: false });
     const deltas = compareReports(before.verdicts, after.verdicts);
@@ -820,9 +820,13 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(fresh).toBeDefined();
     expect(fresh!.purityFrom).toBe(-1); // 新增
     expect(fresh!.purityTo).toBe(Purity.PURE);
-    const io = deltas.find((d) => d.name === "io");
-    expect(io).toBeDefined();
-    expect(io!.effectsAdded).toContain("io"); // 新增 console.log 效应类
+    // 编辑的 io：旧 key deleted（purityTo=-1）+ 新 key added（purityFrom=-1）——内容寻址语义
+    expect(deltas.some((d) => d.name === "io" && d.purityTo === -1)).toBe(true); // 删侧
+    expect(deltas.some((d) => d.name === "io" && d.purityFrom === -1)).toBe(true); // 增侧
+    // 未编辑的 caller：key 稳定、判定链变化（io 新增 io 效应 → 传播）→ delta 含 effectsAdded=io
+    const callerDelta = deltas.find((d) => d.name === "caller");
+    expect(callerDelta).toBeDefined();
+    expect(callerDelta!.effectsAdded).toContain("io");
   });
 
   it("状态写建模（用户需求 2026-08-11）：self.x=/this.x=/global 声明 → state 效应，纯函数保持 PURE", async () => {

@@ -88,15 +88,17 @@ function runOnce(
   // 分量级路径 [源分量, ..., 本分量]（SCC 内同 chain 无跳），映射为 chunk key（分量取首个 chunk）
   const compKey = new Map<number, string>();
   sccs.forEach((s, k) => { for (const i of s) { compKey.set(k, i); break; } });
-  const pathOf = (k: number): string[] => {
+  const pathOf = (compIdx: number, chunkKey: string): string[] => {
     const keys: string[] = [];
-    let cur = k;
+    let cur = compIdx;
     const guard = new Set<number>();
     while (cur >= 0 && !guard.has(cur)) {
       const p = prevComp[cur];
       if (p === undefined || p === -1) break; // 纯/无路径
       guard.add(cur);
-      keys.unshift(compKey.get(cur)!);
+      // 本 chunk 所在分量末跳用真实 chunk key（SCC 内代表语义修正，迭代7 Med2）——
+      // 分量中间跳用代表 key（分量内无跳）；长度不变（|path|-1 == chain 保持）
+      keys.unshift(keys.length === 0 ? chunkKey : compKey.get(cur)!);
       if (p === cur) break; // 源分量
       cur = p;
     }
@@ -110,10 +112,10 @@ function runOnce(
     const purity: Purity =
       real.size > 0
         ? Purity.IMPURE
-        : eff[k]!.has(UNKNOWN_TARGET) || (audit && hasUnknown.has(c.key))
+        : eff[k]!.has(UNKNOWN_TARGET)
           ? Purity.UNKNOWN
           : Purity.PURE;
-    res.set(c.key, { effects: real, chain: chain[k]!, purity, chainPath: purity === Purity.PURE ? [] : pathOf(k), throwsTypes: [...throwsComp[comp.get(c.key)!]!].sort() });
+    res.set(c.key, { effects: real, chain: chain[k]!, purity, chainPath: purity === Purity.PURE ? [] : pathOf(k, c.key), throwsTypes: [...throwsComp[comp.get(c.key)!]!].sort() });
   }
   const cycleCount = sccs.filter((s) => s.length > 1).length;
   return { res, inDeg, cycleCount, staleEdges };
