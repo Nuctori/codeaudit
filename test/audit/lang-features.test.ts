@@ -753,6 +753,19 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(b.get("b.py::Svc.f")!.purity).toBe(Purity.IMPURE); // 方法内赋值 lambda 归属类成员
     expect(b.get("b.py::Svc.m")!.purity).toBe(Purity.IMPURE);
   });
+
+  it("time 无参时钟成员（迭代6 B1）：strftime/localtime/ctime 无参读当前时钟 → UNKNOWN 非 PURE", async () => {
+    const root = project("timeclock", {
+      "a.py": "import time\ndef fmt(): return time.strftime('%Y-%m-%d')\ndef lt(): return time.localtime()\ndef ct(): return time.ctime()\ndef mk(t): return time.mktime(t)\ndef sp(s, f): return time.strptime(s, f)\ndef now(): return time.time()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::fmt")!.purity).toBe(Purity.UNKNOWN); // 无参 strftime 读时钟
+    expect(b.get("a.py::lt")!.purity).toBe(Purity.UNKNOWN);
+    expect(b.get("a.py::ct")!.purity).toBe(Purity.UNKNOWN);
+    expect(b.get("a.py::mk")!.purity).toBe(Purity.PURE); // mktime 必须传参，纯转换
+    expect(b.get("a.py::sp")!.purity).toBe(Purity.PURE); // strptime 必须传参
+    expect(b.get("a.py::now")!.purity).toBe(Purity.IMPURE);
+  });
 });
 
 describe("定义性事实族（用户覆写会议否决后实施）", () => {

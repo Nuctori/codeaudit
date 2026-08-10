@@ -50,10 +50,11 @@ const impureModules: Record<string, "*" | readonly string[]> = {
   pymongo: "*", redis: "*", boto3: "*", paramiko: "*",
   pickle: ["load", "dump"], json: ["load", "dump", "dumps:p", "loads:p"], csv: "*",
   logging: "*",
-  // time：时钟读取（io）+ 纯转换（:p，不触时钟）
+  // time：时钟读取（io）+ 纯转换（:p，仅限必须传参的 mktime/strptime）。
+  // localtime/gmtime/ctime/asctime/strftime 的 :p 已移除——无参形式读当前时钟（迭代6 B1，假纯）
   time: ["sleep", "time", "monotonic", "perf_counter", "process_time", "thread_time", "monotonic_ns",
     "time_ns", "perf_counter_ns", "process_time_ns", "thread_time_ns",
-    "localtime:p", "gmtime:p", "mktime:p", "strftime:p", "strptime:p", "ctime:p", "asctime:p"],
+    "mktime:p", "strptime:p"],
   random: "*",
   tempfile: "*", glob: "*", pathlib: "*", multiprocessing: "*",
   threading: "*", asyncio: "*", select: "*", signal: "*",
