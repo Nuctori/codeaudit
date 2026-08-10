@@ -620,6 +620,65 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     const b = by(await scanProject(root));
     expect(b.get("a.py::f")!.purity).toBe(Purity.IMPURE); // write 的 io 经回调边保留
   });
+
+  it("TS 构造器效应（迭代3 B1）：new Conn() 构造器 io 传播 → IMPURE（与 Python S1 同构）", async () => {
+    const root = project("tsctor", {
+      "a.ts": "export class Conn {\n  constructor() { console.log('io'); }\n}\nexport function f() { return new Conn(); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.ts::Conn")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("a.ts::f")!.purity).toBe(Purity.IMPURE); // 修复前 PURE（new_expression 不是 call 节点）
+  });
+
+  it("时钟读取跨形态（迭代3 语言）：Date()/new Date() → UNKNOWN；Date.now → IMPURE；Date.parse → PURE", async () => {
+    const root = project("tsdate", {
+      "a.ts": "export function f() { return Date(); }\nexport function g() { return new Date(); }\nexport function h() { return Date.now(); }\nexport function k() { return Date.parse('2020-01-01'); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.ts::f")!.purity).toBe(Purity.UNKNOWN); // 裸 Date() 时钟读取
+    expect(b.get("a.ts::g")!.purity).toBe(Purity.UNKNOWN); // new Date() 时钟读取
+    expect(b.get("a.ts::h")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("a.ts::k")!.purity).toBe(Purity.PURE); // Date.parse 纯计算
+  });
+
+  it("Python uuid 熵读取（迭代3 跨语言一致）：uuid.uuid4() → IMPURE（与 TS uuid.v4 对齐）", async () => {
+    const root = project("pyuuid", {
+      "a.py": "import uuid\ndef f():\n    return uuid.uuid4()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::f")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("H1 降级不可被 PURE 标注撤销（迭代3 #1）：parseError chunk 保持 UNKNOWN/chainCertain=false", async () => {
+    const root = project("parsedeck-ann", {
+      "a.py": "def f():\n    return \"unterminated\nimport os\nos.system(\"ls\")\n",
+    });
+    const base = await scanProject(root);
+    const f = base.verdicts.find((v) => v.chunk.name === "f")!;
+    const ann = new Map<string, "PURE" | "IMPURE">([[f.chunk.id, "PURE"]]); // 标注者按可见函数体判 PURE
+    const r = await scanProject(root, { annotations: ann, useCache: false });
+    const v = r.verdicts.find((x) => x.chunk.name === "f")!;
+    expect(v.purity).toBe(Purity.UNKNOWN); // 降级不可撤销（body 不可信）
+    expect(v.chainCertain).toBe(false);
+  });
+
+  it("标注解析优先级（迭代3 #4）：file 锚定覆写裸 id", async () => {
+    const root = project("annprio", {
+      "a.py": "def f():\n    return x.unknown()\n",
+      "b.py": "def f():\n    return x.unknown()\n",
+    });
+    const base = await scanProject(root);
+    const bv = base.verdicts.find((v) => v.chunk.file === "b.py" && v.chunk.name === "f")!;
+    const ann = new Map<string, "PURE" | "IMPURE">([
+      [bv.chunk.id, "PURE"], // 裸 id：内容寻址 → 两实例都命中
+      [`b.py\u0000${bv.chunk.id}`, "IMPURE"], // 显式实例覆写
+    ]);
+    const r = await scanProject(root, { annotations: ann, useCache: false });
+    const a = r.verdicts.find((v) => v.chunk.file === "a.py" && v.chunk.name === "f")!;
+    const b = r.verdicts.find((v) => v.chunk.file === "b.py" && v.chunk.name === "f")!;
+    expect(b.purity).toBe(Purity.IMPURE); // 实例覆写生效
+    expect(a.purity).toBe(Purity.PURE); // 无覆写 → 裸 id 生效
+  });
 });
 
 describe("定义性事实族（用户覆写会议否决后实施）", () => {

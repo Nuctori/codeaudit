@@ -66,10 +66,10 @@ export const PRIOR_THRESHOLD = 0.65; // p 触发阈值（建议 PURE）
 export function mergeCorpus(a: CorpusFile, b: CorpusFile): CorpusFile {
   const out = emptyCorpus();
   const add = (target: Record<string, { pure: number; impure: number }>, key: string, p: number, i: number): void => {
-    const e = target[key] ?? { pure: 0, impure: 0 };
-    e.pure += p;
-    e.impure += i;
-    target[key] = e;
+    // 与 bump 同款 hasOwn+defineProperty：JSON.parse 语料可含 own __proto__ 键 → 裸赋值污染原型
+    const e = Object.hasOwn(target, key) ? target[key] : undefined;
+    const fresh = { pure: (e?.pure ?? 0) + p, impure: (e?.impure ?? 0) + i };
+    Object.defineProperty(target, key, { value: fresh, enumerable: true, writable: true, configurable: true });
   };
   for (const [k, v] of Object.entries(a.method)) add(out.method, k, v.pure, v.impure);
   for (const [k, v] of Object.entries(b.method)) add(out.method, k, v.pure, v.impure);
@@ -91,11 +91,14 @@ export function updateCorpus(
 ): CorpusFile {
   let out = corpus;
   for (const c of chunks) {
-    // 标注键解析与 scan.ts 回读同构：优先裸 id（内容寻址），再 (file, id) 实例锚定
-    const annKey = annotations.has(c.id) ? c.id : `${c.file}\u0000${c.id}`;
+    // 标注键解析与 scan.ts 回读同构：优先 (file, id) 实例锚定（显式实例覆写），无 file 锚定则裸 id
+    const fileKey = `${c.file}\u0000${c.id}`;
+    const annKey = annotations.has(fileKey) ? fileKey : (annotations.has(c.id) ? c.id : fileKey);
     const v = annotations.get(annKey);
-    // 幂等去重按双键（裸 id 与 file\0id 任一已入账即跳过）——防标注文件换格式后同 chunk 重复入账（统计评审迭代2 #2）
-    if (v === undefined || out.seen[c.id] === true || out.seen[annKey] === true) continue;
+    // 去重门：实例锚定按实例键（不同文件实例可获不同判定——异实例证据保留，迭代3 #3）；
+    // 裸 id（内容寻址）按裸 id 门（同内容同判定）。双键写入保跨格式幂等（迭代2 #2）。
+    const gate = annKey.includes("\u0000") ? out.seen[annKey] === true : out.seen[c.id] === true;
+    if (v === undefined || gate) continue;
     if (c.unknownCalls.length === 0) continue;
     out = {
       version: 1,
@@ -158,10 +161,11 @@ export function priorFor(corpus: CorpusFile, site: CorpusSite): Prior | null {
   const nCell = (r?.pure ?? 0) + (r?.impure ?? 0);
   if (nCell < MIN_CELL) return null;
   const kCell = r?.impure ?? 0;
-  // 方法级 θ̂ 用 leave-one-out（剔除本 cell 计数，防双重计数——cell ⊆ method 同源入账）：
-  // 方法内只有本 cell 时 LOO 分子分母归零 → 退回 GLOBAL_THETA0（无其他方法证据）
-  const mImpureLOO = m.impure - kCell;
-  const mTotalLOO = m.pure + m.impure - nCell;
+  // 方法级 θ̂ 用 leave-one-out（剔除本 cell 计数，防双重计数——cell ⊆ method 同源入账）。
+  // clamp：root 表边际可能 > 方法总数（多 attr 共享同一 root 桶），过度扣除 → 负/NaN 先验
+  // （迭代3 #2）；归零时退回 GLOBAL_THETA0（方法内无其他 cell 证据）
+  const mImpureLOO = Math.max(0, m.impure - kCell);
+  const mTotalLOO = Math.max(0, m.pure + m.impure - nCell);
   const thetaM = (mImpureLOO + GLOBAL_THETA0 * KAPPA1) / (mTotalLOO + KAPPA1);
   const thetaCell = (kCell + thetaM * KAPPA2) / (nCell + KAPPA2);
   const pPure = 1 - thetaCell;

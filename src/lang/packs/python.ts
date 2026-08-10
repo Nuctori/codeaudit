@@ -18,6 +18,9 @@ const pureBuiltins = new Set([
   "callable", "bytes", "bytearray", "slice", "object",
   // 协议分派内建（对任意对象调 __repr__/__format__/__hash__/__getattr__/__iter__ 等，可带 io）已移除：
   // repr/format/hash/iter/next/getattr/setattr/hasattr/vars/dir → 落未知（与 builtinTypeEffects 协议表外纪律一致）
+  // 边界声明（有意范围）：len/str/int/float/bool 等强制转换内建保留判纯——对内置容器/字面量安全；
+  // 对用户对象仍会分派 __len__/__str__/__int__（可带 io），接受此残余（若移除，高频内建使 unknown-rate 爆炸，
+  // 工具不可用；风险方向为假纯但频率-风险比低，与实例状态写同列已知限制）
 ]);
 
 const impureModules: Record<string, "*" | readonly string[]> = {
@@ -35,6 +38,8 @@ const impureModules: Record<string, "*" | readonly string[]> = {
   warnings: ["warn"], traceback: ["print_exc", "print_tb"],
   // 熵读取（os.urandom 之上，与 random/TS crypto 判 io 同源）
   secrets: "*",
+  // uuid4/uuid1 底层 os.urandom（与 TS uuid.v4 判 io 同源——跨语言一致）
+  uuid: ["uuid1", "uuid4"],
 };
 
 const pureModules = new Set([
@@ -71,7 +76,7 @@ const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
     isspace: "pure", isupper: "pure", islower: "pure", istitle: "pure", isnumeric: "pure",
   },
   list: {
-    append: "pure", pop: "pure", reverse: "pure", clear: "pure",
+    append: "pure", pop: "pure", reverse: "pure", clear: "pure", copy: "pure",
     sort: "hof", // key= 回调
   },
   dict: {
@@ -92,6 +97,7 @@ const builtinMethodReturns: Record<string, Record<string, string>> = {
     casefold: "str", swapcase: "str", split: "list", rsplit: "list", splitlines: "list", removeprefix: "str",
     removesuffix: "str", replace: "str" }, // is* 系列返回 bool → 不设（链断）
   list: { copy: "list" }, // reverse/clear 返回 None → 不设（链断）
+  dict: { copy: "dict" },
   bytes: { decode: "str", hex: "str", lower: "bytes", upper: "bytes" },
   int: { to_bytes: "bytes" },
   float: { as_integer_ratio: "tuple" },
@@ -178,6 +184,7 @@ export const pythonPack: LangPack = {
     module: string,
     fromFile: string,
     projectFiles: ReadonlySet<string>,
+    byLast?: ReadonlyMap<string, string[]>,
   ): string | null {
     let modPath: string;
     if (module.startsWith(".")) {
@@ -193,9 +200,16 @@ export const pythonPack: LangPack = {
     for (const suf of suffixes) {
       if (projectFiles.has(suf)) return suf;
     }
-    // 绝对导入：在项目中找以该模块路径结尾的文件（取最短者 = 最贴近根）
+    // 绝对导入：在项目中找以该模块路径结尾的文件（取最短者 = 最贴近根）。
+    // 走末段索引（byLast）：候选 = 末段与后缀末段相同的文件，再 endsWith 精筛——O(F) → O(候选数)
     const matches: string[] = [];
-    for (const f of projectFiles) {
+    const candidates: string[] = [];
+    for (const suf of suffixes) {
+      const last = suf.slice(suf.lastIndexOf("/") + 1);
+      const bySeg = byLast?.get(last);
+      if (bySeg) for (const f of bySeg) candidates.push(f);
+    }
+    for (const f of candidates) {
       for (const suf of suffixes) {
         if (f === suf || f.endsWith("/" + suf)) matches.push(f);
       }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { scanProject } from "./index";
 import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
@@ -146,6 +146,8 @@ async function main(): Promise<void> {
   const corpusPath = args.corpus ?? (args.noCache ? null : join(resolve(root, ".codeaudit"), "corpus.json"));
   if (corpusPath) {
     try {
+      // parse 前大小上限（与 cache.json 同款）：仓库自带 GB 级语料 → JSON.parse OOM
+      if (statSync(corpusPath).size > 64 * 1024 * 1024) throw new Error("corpus too large");
       const parsed = JSON.parse(readFileSync(corpusPath, "utf8")) as unknown;
       if (!isCorpus(parsed)) corpus = emptyCorpus();
       else corpus = parsed;
@@ -243,7 +245,16 @@ async function main(): Promise<void> {
             priorHint(corpus, v.chunk.unknownCalls),
         };
       });
-    writeFileSync(args.unknowns, JSON.stringify(unknowns, null, 2));
+    // 原子写（与语料/缓存同款 tmp+rename）：--unknowns 指向预置符号链接时不写穿
+    try {
+      mkdirSync(dirname(args.unknowns), { recursive: true });
+      const tmp = args.unknowns + ".tmp";
+      writeFileSync(tmp, JSON.stringify(unknowns, null, 2));
+      renameSync(tmp, args.unknowns);
+    } catch {
+      console.error("codeaudit: 无法写入 " + args.unknowns);
+      process.exit(2);
+    }
     // 标注曲线：按 UNKNOWN 密集影响面启发序的精确剩余 UNKNOWN（"标到多少就够"的预算数学）。
     // order = 导出源集（UNKNOWN 且含 `?`）；IMPURE 带未知的源不在清单、不参与释放计数。
     // 注：启发序非边际最优（共享源 chunk 的边际释放 < 桶大小）——给定顺序曲线精确，最优性留待改进

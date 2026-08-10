@@ -41,6 +41,29 @@ describe("标注语料（corpus）", () => {
     expect(again.method.get).toEqual({ pure: 1, impure: 0 }); // 不再入账
   });
 
+  it("实例级去重门（迭代3 #3）：同内容跨文件异判定都入账", () => {
+    const c1 = { ...chunk("idX", [{ attr: "get", obj: "req", root: "variable" }]), file: "f1.py" };
+    const c2 = { ...chunk("idX", [{ attr: "get", obj: "req", root: "variable" }]), file: "f2.py" };
+    const ann = new Map<string, "PURE" | "IMPURE">([
+      ["f1.py\u0000idX", "PURE"],
+      ["f2.py\u0000idX", "IMPURE"],
+    ]);
+    const corpus = updateCorpus(emptyCorpus(), [c1, c2], ann);
+    expect(corpus.method.get).toEqual({ pure: 1, impure: 1 }); // 异判定观测都保留（修复前 IMPURE 被裸 id 门吞掉）
+  });
+
+  it("LOO clamp（迭代3 #2）：root 边际 > 方法计数 → 无负值/NaN 先验", () => {
+    // 15 read/self PURE + 15 write/self IMPURE：root.self={15,15} 而 method.read={15,0}——root 边际 > 方法计数
+    const chunks: Chunk[] = [];
+    const ann = new Map<string, "PURE" | "IMPURE">();
+    for (let i = 0; i < 15; i++) { chunks.push(chunk("r" + i, [{ attr: "read", obj: "f", root: "self" }])); ann.set("r" + i, "PURE"); }
+    for (let i = 0; i < 15; i++) { chunks.push(chunk("w" + i, [{ attr: "write", obj: "f", root: "self" }])); ann.set("w" + i, "IMPURE"); }
+    const c = updateCorpus(emptyCorpus(), chunks, ann);
+    const p = priorFor(c, { attr: "read", obj: "f", root: "self" });
+    // 修复前 mImpureLOO=0-15 → 负值 → pPure 越界；clamp 后 θ 收缩为 0.25→0.447 → pPure≈0.55 分歧大 → null
+    expect(p).toBeNull();
+  });
+
   it("siteShapeInfo：shape 取最大先验样本站点；batchable 要求全部站点高置信", () => {
     // 构造 40 条 get·variable PURE 语料
     const chunks: Chunk[] = [];

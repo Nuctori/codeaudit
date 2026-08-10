@@ -123,5 +123,7 @@ export interface LangPack {
     module: string,
     fromFile: string,
     projectFiles: ReadonlySet<string>,
+    /** 可选：projectFiles 的末段路径索引（M2：绝对导入按末段查，免逐文件全扫）。 */
+    byLast?: ReadonlyMap<string, string[]>,
   ): string | null;
 }

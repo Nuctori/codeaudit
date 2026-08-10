@@ -127,14 +127,18 @@ export function resolveEsmModule(
   return null;
 }
 
-const impureBuiltins = new Set(["fetch", "eval", "require", "alert", "prompt", "XMLHttpRequest"]);
+const impureBuiltins = new Set(["fetch", "eval", "require", "alert", "prompt", "XMLHttpRequest",
+  // 调度/定时（与 Python time.sleep 判 io 同源——阻塞/调度可观测）；queueMicrotask 同上
+  "setTimeout", "setInterval", "clearTimeout", "clearInterval", "queueMicrotask"]);
 
 const pureBuiltins = new Set([
   "parseInt", "parseFloat", "isNaN", "isFinite", "encodeURIComponent",
   "decodeURIComponent", "encodeURI", "decodeURI", "String", "Number",
   "Boolean", "Array", "Object", "Symbol", "BigInt", "Error", "TypeError",
   "RangeError", "Promise", "Set", "Map", "WeakMap", "WeakSet", "Proxy",
-  "Reflect", "Date", "RegExp",
+  "Reflect", "RegExp",
+  // Date 已移出：裸 Date() 与 new Date() 是时钟读取（判 io 的 now 同源）→ 落 UNKNOWN；
+  // Date.parse/UTC 等静态纯方法经 pureGlobals（obj=Date）仍判纯
 ]);
 
 const impureModules: Record<string, "*" | readonly string[]> = {
@@ -171,6 +175,7 @@ const impureGlobals: Record<string, "*" | readonly string[]> = {
   navigator: "*",
   // 时钟读取（与 Python time.time 判 io 同源）
   Date: ["now"],
+  performance: ["now"],
   // PRNG（与 Python random 判 io 同源——跨语言一致）：Math.random 结果可观测且种子不可控
   Math: ["random"],
 };
@@ -178,14 +183,14 @@ const impureGlobals: Record<string, "*" | readonly string[]> = {
 const pureGlobals = new Set([
   "Math", "JSON", "Object", "Array", "Number", "String", "Boolean",
   "Reflect", "Promise", "Intl", "URL", "URLSearchParams", "TextEncoder",
-  "TextDecoder", "structuredClone", "queueMicrotask",
+  "TextDecoder", "structuredClone", "queueMicrotask", "Date",
 ]);
 
 const builtinTypeEffects = {
-    string: { trim: "pure", trimStart: "pure", trimEnd: "pure", toLowerCase: "pure", toUpperCase: "pure", toString: "pure", valueOf: "pure" },
+    string: { trim: "pure", trimStart: "pure", trimEnd: "pure", toLowerCase: "pure", toUpperCase: "pure", toString: "pure", valueOf: "pure", charCodeAt: "pure", charAt: "pure", codePointAt: "pure", startsWith: "pure", endsWith: "pure", includes: "pure", indexOf: "pure", lastIndexOf: "pure", replace: "pure", split: "pure", substring: "pure", slice: "pure", padStart: "pure", padEnd: "pure" },
     array: {
       push: "pure", pop: "pure", shift: "pure", unshift: "pure", reverse: "pure",
-      indexOf: "pure", includes: "pure",
+      indexOf: "pure", includes: "pure", slice: "pure", concat: "pure", join: "pure",
       map: "hof", filter: "hof", forEach: "hof", reduce: "hof", reduceRight: "hof",
       some: "hof", every: "hof", find: "hof", findIndex: "hof", sort: "hof", flatMap: "hof",
     },
@@ -213,7 +218,7 @@ export const typescriptPack: LangPack = {
     "method_definition", "class_declaration", "variable_declarator",
   ],
   classNodes: ["class_declaration"],
-  callNodes: ["call_expression"],
+  callNodes: ["call_expression", "new_expression"], // new_expression：构造器调用点（S1 TS 侧，迭代3 B1）
   nestingNodes: [
     "if_statement", "for_statement", "for_in_statement", "while_statement",
     "do_statement", "try_statement", "switch_statement",

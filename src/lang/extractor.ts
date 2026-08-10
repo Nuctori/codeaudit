@@ -22,12 +22,14 @@ export class Extractor {
     this.parser.setLanguage(language);
   }
 
-  extract(source: string, file: string): RawFileFacts {
+  extract(source: string, file: string, precomputedHash?: string): RawFileFacts {
     const tree = this.parser.parse(source);
     const root = tree.rootNode;
     const chunks: RawChunk[] = [];
-    // 伪 chunk 收容模块级调用（公理1）
-    const moduleChunk = fresh("<module>", 1, source.split("\n").length, "", null, "module");
+    // 伪 chunk 收容模块级调用（公理1）；行数计数循环（split 生成 10M 元素数组 ~300MB 瞬态）
+    let lineCount = 1;
+    for (let i = 0; i < source.length; i++) if (source.charCodeAt(i) === 10) lineCount++;
+    const moduleChunk = fresh("<module>", 1, lineCount, "", null, "module");
     const stack: MutableChunk[] = [moduleChunk];
 
     const visit = (node: SyntaxNode): void => {
@@ -66,7 +68,7 @@ export class Extractor {
     return {
       file,
       lang: this.pack.name,
-      contentHash: createHash("sha256").update(source, "utf8").digest("hex"),
+      contentHash: precomputedHash ?? createHash("sha256").update(source, "utf8").digest("hex"),
       chunks,
       imports: this.pack.extractImports(root),
       defaultExport: findDefaultExport(root, this.pack),
@@ -155,7 +157,9 @@ export class Extractor {
   /** 调用点提取：点连文本 + 首段对象 + 末段名。不可拍平（super().m()、factory()()、d[k]()）产哨兵走未知；字面量接收者（"x".strip、[].push）产 receiver 事实。 */
   private callOf(node: SyntaxNode): RawCall {
     const argFns = this.argFnsOf(node);
-    const fn = node.childForFieldName("function") ?? node.children[0];
+    const fn = node.type === "new_expression"
+      ? (node.childForFieldName("constructor") ?? node.children[0])
+      : (node.childForFieldName("function") ?? node.children[0]);
     if (!fn) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET, receiver: null, argFns };
     const flat = flattenCallTarget(fn);
     if (flat === null) {
@@ -360,6 +364,9 @@ function findDefaultExport(root: SyntaxNode, pack: LangPack): string | null {
           if (pack.chunkNodes.includes(c.type)) {
             const nameNode = c.childForFieldName("name");
             if (nameNode) found = nameNode.text;
+          } else if (c.type === "identifier" && c.text !== "default" && c.text !== "export") {
+            // export default foo（标识符引用：别名再导出解析依赖 defaultExport 登记）
+            found = c.text;
           }
         }
       }

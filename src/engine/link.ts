@@ -39,6 +39,16 @@ export function link(
   packs: ReadonlyMap<string, LangPack>,
 ): LinkOutput {
   const projectFiles = new Set(allFacts.map((f) => f.file));
+  const idOf = new WeakMap<RawChunk, string>(); // 公理4 id 每 chunk 只哈希一次（M2 性能：双算 sha256 浪费）
+
+  // 末段路径索引（M2）：绝对导入候选按最后一段查，免每 distinct 模块全扫 F 文件（O(F×M_distinct) → O(F+M)）
+  const byLast = new Map<string, string[]>();
+  for (const f of projectFiles) {
+    const seg = f.slice(f.lastIndexOf("/") + 1);
+    const arr = byLast.get(seg);
+    if (arr) arr.push(f);
+    else byLast.set(seg, [f]);
+  }
 
   // resolveModule 调用内 memo（纯函数：projectFiles 本次 link 恒定；键含 pack 名防跨语言串味；null 也缓存）。
   // 绝对导入（非 ./ 相对）解析结果与 fromFile 无关——键去 fromFile，防 Python 绝对导入 O(F×P) 退化（10k 文件 × 10k 次全扫）
@@ -49,7 +59,7 @@ export function link(
       : pack.name + "\u0000" + module;
     const hit = resMemo.get(k);
     if (hit !== undefined) return hit;
-    const v = pack.resolveModule(module, fromFile, projectFiles);
+    const v = pack.resolveModule(module, fromFile, projectFiles, byLast);
     resMemo.set(k, v);
     return v;
   };
@@ -72,6 +82,7 @@ export function link(
       // 公理4：id 永远是纯内容身份；唯一性后缀只加在图键 key 上。
       // module 伪 chunk 无源码，id 用文件限定（否则所有文件的 module chunk 共享 "module"，标注会泄漏）
       const baseId = rc.name === "<module>" ? `module@${facts.file}` : chunkId(rc.normText);
+      idOf.set(rc, baseId);
       const n = (seenIds.get(baseId) ?? 0) + 1;
       seenIds.set(baseId, n);
       const key = `${facts.file}::${n > 1 ? `${baseId}#${n}` : baseId}`;
@@ -218,7 +229,7 @@ export function link(
 
       out.push({
         // 公理4：id 由内容直接重算，与 key 的去重后缀无关（module 用文件限定 id）
-        id: rc.name === "<module>" ? `module@${file}` : chunkId(rc.normText),
+        id: idOf.get(rc) ?? (rc.name === "<module>" ? `module@${file}` : chunkId(rc.normText)),
         key,
         name: rc.ownerClass ? `${rc.ownerClass}.${rc.name}` : rc.name,
         file,
@@ -408,7 +419,7 @@ function resolveCall(
             if (hit) { sink.addEdge(hit); return; }
           }
           // 模块级值绑定：export const db = new Pool() → 绑定名解析到类 → 类成员真边
-          const boundCls = tf.facts.moduleBindings[name];
+          const boundCls = Object.hasOwn(tf.facts.moduleBindings, name) ? tf.facts.moduleBindings[name] : undefined;
           if (boundCls) {
             const clsKey = resolveSymbol(target, boundCls, 0);
             if (clsKey !== null) {
@@ -453,7 +464,8 @@ function resolveCall(
       return;
     }
   } else {
-    const rule = pack.impureGlobals[call.obj];
+    // hasOwn 守卫：impureGlobals 普通对象字面量，继承键（constructor 等）→ undefined（纪律与 B1 同源）
+    const rule = Object.hasOwn(pack.impureGlobals, call.obj) ? pack.impureGlobals[call.obj] : undefined;
     if (rule === "*" || (Array.isArray(rule) && rule.includes(call.attr))) {
       sink.addEffect("io");
       return;

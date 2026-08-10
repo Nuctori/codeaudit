@@ -64,6 +64,8 @@ interface CacheFile {
 /** 投毒防护：facts 形状下探到 chunk/import 字段（chunks:[{}] 可穿透仅数组校验）。 */
 const MAX_CACHE_CHUNKS = 50_000; // 单文件 50k 函数（10MB 上限内实际不可达，纯预算护栏）
 const MAX_CACHE_CALLS = 200_000;
+const MAX_CACHE_FILE_BYTES = 64 * 1024 * 1024; // cache.json 大小上限：parse 前检查（防 OOM DoS）
+const MAX_CACHE_NORMTEXT = 1024 * 1024; // 单 chunk normText 字节上限（数量预算之外的字节预算）
 function validFacts(f: RawFileFacts | undefined): f is RawFileFacts {
   if (!f || typeof f.lang !== "string" || !Array.isArray(f.chunks) || !Array.isArray(f.imports)) return false;
   if (f.moduleBindings !== undefined && (typeof f.moduleBindings !== "object" || f.moduleBindings === null)) return false;
@@ -73,6 +75,7 @@ function validFacts(f: RawFileFacts | undefined): f is RawFileFacts {
   for (const c of f.chunks) {
     if (!c || typeof c.name !== "string" || typeof c.normText !== "string" ||
         typeof c.line !== "number" || !Array.isArray(c.calls) || !Array.isArray(c.assigned)) return false;
+    if (c.normText.length > MAX_CACHE_NORMTEXT) return false; // 巨型 normText 被哈希+常驻内存（字节预算）
     totalCalls += c.calls.length;
     if (totalCalls > MAX_CACHE_CALLS) return false;
   }
@@ -129,6 +132,8 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
   const cachePath = opts.cacheDir ? join(opts.cacheDir, "cache.json") : null;
   if (opts.useCache && cachePath) {
     try {
+      // parse 前大小上限：恶意仓库自带 GB 级 cache.json → JSON.parse OOM（V8 堆耗尽不可捕获）
+      if (statSync(cachePath).size > MAX_CACHE_FILE_BYTES) throw new Error("cache too large");
       const parsed = JSON.parse(readFileSync(cachePath, "utf8")) as CacheFile;
       // 版本 + 行为指纹 + 结构三重校验（陈旧/畸形/投毒缓存 → 全量重扫）
       if (parsed && parsed.version === CACHE_VERSION && parsed.fingerprint === fingerprint &&
@@ -190,7 +195,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
     // 单文件失败（病态代码/深递归/语法损毁）不得中断整体扫描
     let f: RawFileFacts;
     try {
-      f = ex.extract(source, file);
+      f = ex.extract(source, file, contentHash); // 透传已算的 contentHash：免双 sha256（M2 性能）
     } catch {
       f = {
         file, lang: pack.name, contentHash,
@@ -229,9 +234,12 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
   const analyzedChunks =
     ann && ann.size > 0
       ? chunks2.map((c) => {
-          // 标注匹配：优先 (file, id) 实例锚定（防同内容跨文件误放行）；无 file 则内容寻址
-          const v = ann.get(c.id) ?? ann.get(`${c.file}\u0000${c.id}`);
+          // 标注匹配：优先 (file, id) 实例锚定（显式实例覆写胜过内容寻址）；无 file 锚定则裸 id（迭代3 #4）
+          const v = ann.get(`${c.file}\u0000${c.id}`) ?? ann.get(c.id);
           if (v === undefined) return c;
+          // H1 守卫（迭代3 #1）：parseError chunk 的 `?` 是内容信任标记（body 可能被错误恢复吞边），
+          // 标注协议以函数体为准——而 body 本身不可信 → 标注不可撤销降级，保持 UNKNOWN/chainCertain=false
+          if (parseErrFiles.has(c.file)) return c;
           if (v === "IMPURE") {
             if (c.direct.has("io")) return c;
             return { ...c, direct: new Set([...c.direct, "io"]) };

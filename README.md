@@ -21,7 +21,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 132 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 135 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -104,13 +104,15 @@ src/
 
 - **动态分派不追踪**：`obj.method()` 中 `obj` 是局部变量时，边不可知——记为 `?`（未知），audit 模式下降级为 UNKNOWN，不伪造边（诚实承认看不见）；不可拍平的调用形态（`super().m()`、`factory()()`、`d[k]()`）同样记 `?`。
 - **实例状态写未建模**：`self.x = ...` 暂不产生效应；Python 的 `global`/`nonlocal` 在同版本亦未开启。
+- **强制转换内建的协议残余**：`len(x)`/`str(x)`/`int(x)` 等判纯，但 x 是用户对象时会分派 `__len__`/`__str__`/`__int__`（可带 io）——接受为有意范围（移除则 unknown-rate 爆炸）；`hash/repr/format/getattr/setattr/iter/next/vars/dir` 已移出判未知。
+- **混合模块纯成员 → UNKNOWN**：拆表 schema 只表达"impure 成员 + 整模块 pure"，非 impure 成员（如 `json.dumps`、`crypto.createHash`、`datetime.combine`、`uuid.parse`）落 UNKNOWN——方向安全（假未知非假纯），恢复纯需 schema 扩展（延后）。
 - **第三方库无源码递归**：npm 包内部不展开，靠效应表 + AI 标注覆盖。
 - **链长语义**：SCC 内部视为同一距离（环上所有节点同 chain）。
 - **Python 超深缩进**：tree-sitter-python 缩进栈上限约 62 层；更深的文件降级为 parseError 占位，不影响其余文件。
 
 ## 测试
 
-132 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
+135 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。
