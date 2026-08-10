@@ -136,7 +136,9 @@ export class Extractor {
   /** 状态写检测（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 → state 效应。 */
   private isStateWrite(node: SyntaxNode, chunk: MutableChunk): boolean {
     if (node.type === "global_statement" || node.type === "nonlocal_statement") return true;
-    if (node.type === "assignment" || node.type === "augmented_assignment" || node.type === "assignment_expression") {
+    if (node.type === "assignment" || node.type === "augmented_assignment" ||
+        node.type === "assignment_expression" || node.type === "augmented_assignment_expression") {
+      // TS/JS：x = y → assignment_expression；x += y → augmented_assignment_expression（迭代8 F1）
       const left = node.childForFieldName("left") ?? node.children[0];
       return this.isExternalWrite(left, chunk);
     }

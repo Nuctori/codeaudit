@@ -120,7 +120,12 @@ function runOnce(
     res.set(c.key, {
       effects: real, chain: chain[k]!, purity,
       chainPath: purity === Purity.PURE ? [] : pathOf(k, c.key),
-      throwsTypes: [...throwsComp[comp.get(c.key)!]!].filter((t) => !coveredBy(t, c.catches)).sort(),
+      // F2（迭代8）：本 chunk 自身抛过异常（含 catch 体内重抛）→ catch 不可信为"吞掉"，全部保留
+      // （重抛使 callee 异常照样逃逸）；无自身 throw → 减 catch 覆盖（吞掉）
+      throwsTypes: (c.thrownTypes.length > 0
+        ? [...throwsComp[comp.get(c.key)!]!]
+        : [...throwsComp[comp.get(c.key)!]!].filter((t) => !coveredBy(t, c.catches))
+      ).sort(),
     });
   }
   const cycleCount = sccs.filter((s) => s.length > 1).length;

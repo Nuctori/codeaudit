@@ -883,6 +883,22 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(by2.get("b.ts::handled")!.throwsTypes).toEqual([]); // catch {} 吞一切
   });
 
+  it("迭代8 F1/F2：TS += 状态写检测、catch-and-rethrow 异常保留", async () => {
+    const root = project("f12", {
+      "b.ts": "export class C {\n  private count = 0;\n  bumpPlus() { this.count += 1; }\n  inc() { this.count++; }\n}\n",
+      "a.py": "def multi(n):\n    if n < 0: raise ValueError('neg')\n    raise TypeError('bad')\ndef rethrow(n):\n    try:\n        return multi(n)\n    except ValueError:\n        raise\ndef handled(n):\n    try:\n        return multi(n)\n    except ValueError:\n        return None\n",
+    });
+    const r = await scanProject(root);
+    const b = by(r);
+    expect(b.get("b.ts::C.bumpPlus")!.purity).toBe(Purity.IMPURE); // TS += 状态写（修复前 PURE）
+    expect(b.get("b.ts::C.inc")!.purity).toBe(Purity.IMPURE); // ++
+    const by2 = new Map(r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]));
+    expect(by2.get("a.py::rethrow")!.throwsTypes).toContain("ValueError"); // 重抛保留（修复前被吞）
+    expect(by2.get("a.py::rethrow")!.throwsTypes).toContain("TypeError");
+    expect(by2.get("a.py::handled")!.throwsTypes).toContain("TypeError"); // ValueError 被吞
+    expect(by2.get("a.py::handled")!.throwsTypes).not.toContain("ValueError");
+  });
+
   it("analyzeChange 边界：环/自环终止、空/不匹配文件标记 unmatchedFiles、反斜杠路径归一化", async () => {
     const root = project("changeedge", {
       "a.ts": "export function a() { return b(); }\nexport function b() { return a(); }\nexport function s() { return s(); }\nexport function leaf() { return 1; }\n",

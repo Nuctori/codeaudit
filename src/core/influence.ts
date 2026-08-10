@@ -142,6 +142,9 @@ export function compareReports(a: readonly { chunk: Chunk; purity: number; chain
       });
       continue;
     }
+    // 判定未变的 chunk（key 稳定且 purity/chain/effects 全同）不发 delta——输出契约是「变化的 chunk 清单」
+    // （d9f2869 重构删除分支时误删此守卫，导致同判定 chunk 发 no-op edit delta，迭代8 对拍回归发现）
+    if (va.purity === vb.purity && va.chain === vb.chain && setsEqual(va.effects, vb.effects)) continue;
     out.push({
       key: va.chunk.key,
       file: va.chunk.file,
