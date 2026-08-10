@@ -61,6 +61,8 @@ export interface Verdict {
 
 export interface ScanStats {
   readonly files: number;
+  /** 因大小超限/读取失败而跳过的文件数（用户知情，防静默欠报）。 */
+  readonly skippedFiles: number;
   readonly parseErrors: number;
   readonly chunks: number;
   readonly pure: number;

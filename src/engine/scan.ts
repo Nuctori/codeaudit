@@ -1,6 +1,6 @@
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { join, relative, normalize, extname } from "node:path";
+import { join, relative, normalize, extname, sep } from "node:path";
 import type Parser from "web-tree-sitter";
 import type { LangPack, RawFileFacts, TreeSitterLanguage } from "../lang/pack";
 import { Extractor } from "../lang/extractor";
@@ -25,33 +25,45 @@ export interface ScanOptions {
   readonly annotations?: ReadonlyMap<string, "PURE" | "IMPURE">;
 }
 
-const CACHE_VERSION = 3;
+const CACHE_VERSION = 4; // v4：文件路径统一 / 分隔（跨平台一致，旧缓存自动失效）
+
+/** 目录递归深度上限（8000 层目录会栈溢出；超限跳过）。 */
+const MAX_DEPTH = 512;
+/** 单文件大小上限（10MB：超限跳过，防 OOM）。 */
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 interface CacheFile {
   version: typeof CACHE_VERSION;
   files: Record<string, { contentHash: string; facts: RawFileFacts }>;
 }
 
-/** 递归发现源文件（稳定排序保证确定性）。 */
+/** 递归发现源文件（稳定排序保证确定性；路径统一 / 分隔——跨平台一致）。 */
 export function discoverFiles(root: string, packs: readonly LangPack[]): Map<string, LangPack> {
   const byExt = new Map<string, LangPack>();
   for (const p of packs) for (const e of p.extensions) byExt.set(e, p);
   const found = new Map<string, LangPack>();
 
-  const walk = (dir: string): void => {
-    const entries = readdirSync(dir, { withFileTypes: true })
-      .sort((a, b) => a.name.localeCompare(b.name));
+  const walk = (dir: string, depth: number): void => {
+    if (depth > MAX_DEPTH) return; // 深度上限：防栈溢出
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true })
+        .sort((a, b) => a.name.localeCompare(b.name));
+    } catch (err) {
+      if (depth === 0) throw err; // 根目录不存在/不可读 → 报错退出 2（main().catch）
+      return; // 子目录不可读（EACCES）：跳过，不中断扫描
+    }
     for (const ent of entries) {
       const full = join(dir, ent.name);
       if (ent.isDirectory()) {
-        if (!SKIP_DIRS.has(ent.name)) walk(full);
+        if (!SKIP_DIRS.has(ent.name)) walk(full, depth + 1);
       } else if (ent.isFile()) {
         const pack = byExt.get(extname(ent.name));
-        if (pack) found.set(normalize(relative(root, full)), pack);
+        if (pack) found.set(relative(root, full).split(sep).join("/"), pack);
       }
     }
   };
-  walk(root);
+  walk(root, 0);
   return found;
 }
 
@@ -64,32 +76,48 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
   if (opts.useCache && cachePath) {
     try {
       const parsed = JSON.parse(readFileSync(cachePath, "utf8")) as CacheFile;
-      // facts 结构随版本演进（normText 等）；版本不符即全量重扫，防陈旧复用
-      if (parsed && parsed.version === CACHE_VERSION) cache = parsed;
+      // 结构与版本双重校验（畸形/投毒缓存 → 全量重扫）
+      if (parsed && parsed.version === CACHE_VERSION && parsed.files && typeof parsed.files === "object") {
+        cache = parsed;
+      }
     } catch {
       cache = { version: CACHE_VERSION, files: {} };
     }
   }
   const nextCache: CacheFile = { version: CACHE_VERSION, files: {} };
   let cachedFiles = 0;
+  let skippedFiles = 0;
 
   const extractors = new Map<string, Extractor>();
   const facts: RawFileFacts[] = [];
 
   const sortedFiles = [...fileMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   for (const [file, pack] of sortedFiles) {
+    // 超限文件跳过（防 OOM）
+    try {
+      if (statSync(join(root, file)).size > MAX_FILE_SIZE) {
+        skippedFiles++;
+        continue;
+      }
+    } catch {
+      skippedFiles++;
+      continue;
+    }
     let source: string;
     try {
       source = readFileSync(join(root, file), "utf8");
     } catch {
-      continue; // 读取失败（权限/竞态删除）：跳过
+      skippedFiles++; // 读取失败（权限/竞态删除）：跳过并计数，用户知情
+      continue;
     }
     const contentHash = createHash("sha256").update(source, "utf8").digest("hex");
 
     const hit = cache.files[file];
-    // 缓存的 facts 必须来自当前已知的语言包（防版本漂移污染）
+    // 缓存命中需结构与内容双重校验（投毒防护：facts 形状必须完整）
     if (
       opts.useCache && hit && hit.contentHash === contentHash &&
+      hit.facts && Array.isArray(hit.facts.chunks) &&
+      typeof hit.facts.lang === "string" &&
       opts.packs.some((p) => p.name === hit.facts.lang)
     ) {
       facts.push(hit.facts);
@@ -115,13 +143,16 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
       };
     }
     facts.push(f);
-    nextCache.files[file] = { contentHash, facts: f };
+    // parseError 占位不写缓存（瞬时失败不得永久化——下次扫描重试）
+    if (!f.parseError) nextCache.files[file] = { contentHash, facts: f };
   }
 
   if (opts.useCache && cachePath && opts.cacheDir) {
     try {
       mkdirSync(opts.cacheDir, { recursive: true });
-      writeFileSync(cachePath, JSON.stringify(nextCache));
+      const tmp = cachePath + ".tmp";
+      writeFileSync(tmp, JSON.stringify(nextCache));
+      renameSync(tmp, cachePath); // 原子替换：防半写/符号链接劫持
     } catch {
       // 缓存写失败不影响扫描结果
     }
@@ -159,6 +190,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
     verdicts,
     stats: {
       files: facts.length,
+      skippedFiles,
       parseErrors: facts.filter((f) => f.parseError).length,
       chunks: verdicts.length,
       pure: verdicts.length - impure - unknown,

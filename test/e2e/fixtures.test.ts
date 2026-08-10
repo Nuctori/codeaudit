@@ -81,8 +81,9 @@ describe("E2E: tsapp（TypeScript）", () => {
     // 未知名词 some-lib → UNKNOWN
     expect(by.get("src/handler.ts::risky")!.purity).toBe(Purity.UNKNOWN);
 
-    // 纯工具
-    expect(by.get("src/util.ts::titleCase")!.purity).toBe(Purity.PURE);
+    // 纯工具：无成员调用 → 纯；titleCase 含参数方法调用（s.split/map/join）→ 诚实未知
+    expect(by.get("src/util.ts::isValid")!.purity).toBe(Purity.PURE);
+    expect(by.get("src/util.ts::titleCase")!.purity).toBe(Purity.UNKNOWN);
 
     // 环终止且纯
     expect(by.get("src/cycA.ts::stepA")!.purity).toBe(Purity.PURE);

@@ -103,10 +103,11 @@ export function resolveEsmModule(
   extensions: readonly string[],
 ): string | null {
   if (!module.startsWith(".")) return null; // 外部包
-  const base = normalize(join(dirname(fromFile), module));
-  const candidates: string[] = [];
+  const posix = (p: string): string => p.replace(/\\/g, "/");
+  const base = posix(normalize(join(dirname(fromFile), module)));
+  const candidates: string[] = [base]; // 带扩展名说明符：./b.js 直接命中（不再生成 b.js.js）
   for (const ext of extensions) candidates.push(base + ext);
-  for (const ext of extensions) candidates.push(normalize(join(base, "index" + ext)));
+  for (const ext of extensions) candidates.push(posix(normalize(join(base, "index" + ext))));
   for (const c of candidates) {
     if (projectFiles.has(c)) return c;
   }

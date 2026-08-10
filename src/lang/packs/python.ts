@@ -2,6 +2,9 @@ import type { SyntaxNode } from "../pack";
 import type { LangPack, RawImport } from "../pack";
 import { dirname, join, normalize } from "node:path";
 
+/** 统一 / 分隔（projectFiles 在 discoverFiles 已是 / 分隔；Windows 候选路径需同款）。 */
+const posix = (p: string): string => p.replace(/\\/g, "/");
+
 const impureBuiltins = new Set([
   "open", "print", "input", "exec", "eval", "__import__", "breakpoint",
 ]);
@@ -119,13 +122,13 @@ export const pythonPack: LangPack = {
     if (module.startsWith(".")) {
       const dots = module.match(/^\.+/)![0].length;
       const rest = module.slice(dots).replace(/\./g, "/");
-      let base = normalize(dirname(fromFile));
-      for (let i = 1; i < dots; i++) base = normalize(dirname(base));
-      modPath = rest ? join(base, rest) : base;
+      let base = posix(normalize(dirname(fromFile)));
+      for (let i = 1; i < dots; i++) base = posix(normalize(dirname(base)));
+      modPath = rest ? posix(join(base, rest)) : base;
     } else {
       modPath = module.replace(/\./g, "/");
     }
-    const suffixes = [normalize(modPath + ".py"), normalize(join(modPath, "__init__.py"))];
+    const suffixes = [posix(normalize(modPath + ".py")), posix(normalize(join(modPath, "__init__.py")))];
     for (const suf of suffixes) {
       if (projectFiles.has(suf)) return suf;
     }

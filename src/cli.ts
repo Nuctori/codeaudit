@@ -35,6 +35,9 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--no-cache") args.noCache = true;
     else if (a === "--strict") args.strict = true;
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
+    else if (a.startsWith("-")) {
+      throw new Error("未知选项 " + a); // main().catch → exitCode 2
+    }
     else if (!a.startsWith("-")) args.dir = a;
   }
   return args;
@@ -104,7 +107,9 @@ async function main(): Promise<void> {
   }
 
   if (args.format === "json") {
-    console.log(JSON.stringify(report, (k, v) =>
+    // --top 对 JSON 同样生效（只看前 N 条；schema 不变）
+    const out = args.top !== null ? { ...report, verdicts: report.verdicts.slice(0, args.top) } : report;
+    console.log(JSON.stringify(out, (k, v) =>
       v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v, 2));
   } else {
     const s = report.stats;
@@ -170,10 +175,10 @@ async function main(): Promise<void> {
     console.error(`标注曲线(贪心序): ${pts.join(" | ")}`);
   }
 
-  if (args.strict && report.stats.impure > 0) process.exit(1);
+  if (args.strict && report.stats.impure > 0) process.exitCode = 1;
 }
 
 main().catch((err) => {
   console.error("codeaudit: " + (err instanceof Error ? err.message : String(err)));
-  process.exit(2);
+  process.exitCode = 2; // 自然退出：process.exit 与 wasm 句柄关闭竞态会使退出码变 127
 });

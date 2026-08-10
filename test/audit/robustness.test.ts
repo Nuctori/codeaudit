@@ -94,10 +94,11 @@ describe("维度28: CLI 对抗", () => {
     expect(r.code).toBe(2);
   });
 
-  it("未知 flag 被忽略而非崩溃", () => {
+  it("未知 flag → 报错退出码 2（不再静默吞值当目录）", () => {
     const root = project("cli-flags", { "a.py": "def f():\n    return 1\n" });
-    const r = run(["scan", root, "--no-cache", "--frobnicate", "--top", "abc"]);
-    expect(r.code).toBe(0);
+    const r = run(["scan", root, "--no-cache", "--frobnicate"]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain("未知选项");
   });
 
   it("--top 2 只输出 2 条非纯记录", () => {
