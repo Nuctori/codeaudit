@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { scanProject, analyzeChange } from "../../src/index";
+import { scanProject, analyzeChange, compareReports } from "../../src/index";
 import { influenceAnalysis } from "../../src/core/influence";
 import { annotationBudget, annotationCurve } from "../../src/core/influence";
 import { Purity, type Verdict } from "../../src/core/types";
@@ -790,6 +790,39 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(top.via).toMatch(/^mid\.ts::/); // 经 mid 传递
     expect(top.viaName).toBe("mid");
     expect(impact.summary.maxDepth).toBe(2);
+  });
+
+  it("chainPath 传染路径（用户需求可解释性）：db→service→api 效应源到调用者路径", async () => {
+    const root = project("chainpath", {
+      "a.py": "import sqlite3\ndef db(): return sqlite3.connect('x')\ndef mid(): return db()\ndef top(): return mid()\n",
+    });
+    const b = by(await scanProject(root));
+    const top = b.get("a.py::top")!;
+    expect(top.purity).toBe(Purity.IMPURE);
+    expect(top.chain).toBe(2);
+    expect(top.chainPath.length).toBe(3); // db → mid → top
+    expect(top.chainPath[0]).toContain("a.py::"); // 源 chunk
+    expect(top.chainPath[top.chainPath.length - 1]).toBe(top.chunk.key); // 终点 = 本 chunk
+    const mid = b.get("a.py::mid")!;
+    expect(mid.chainPath.length).toBe(2);
+  });
+
+  it("compareReports 判定变化（用户需求可解释性）：diff 引入 fs → 相关 chunk 变化清单", async () => {
+    const root = project("cmp", {
+      "a.ts": "import { writeFileSync } from 'fs';\nexport function io() { writeFileSync('x', 'y'); }\nexport function caller() { return io(); }\n",
+    });
+    const before = await scanProject(root, { useCache: false });
+    // 改动：io 增加 console.log（保持 IMPURE）；新增函数 pure；删除 unused
+    writeFileSync(join(root, "a.ts"), "import { writeFileSync } from 'fs';\nexport function io() { writeFileSync('x', 'y'); console.log('z'); }\nexport function caller() { return io(); }\nexport function fresh() { return 1; }\n");
+    const after = await scanProject(root, { useCache: false });
+    const deltas = compareReports(before.verdicts, after.verdicts);
+    const fresh = deltas.find((d) => d.name === "fresh");
+    expect(fresh).toBeDefined();
+    expect(fresh!.purityFrom).toBe(-1); // 新增
+    expect(fresh!.purityTo).toBe(Purity.PURE);
+    const io = deltas.find((d) => d.name === "io");
+    expect(io).toBeDefined();
+    expect(io!.effectsAdded).toContain("io"); // 新增 console.log 效应类
   });
 
   it("状态写建模（用户需求 2026-08-11）：self.x=/this.x=/global 声明 → state 效应，纯函数保持 PURE", async () => {

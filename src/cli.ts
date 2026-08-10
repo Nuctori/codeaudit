@@ -203,6 +203,10 @@ async function main(): Promise<void> {
         `  chain=${fmtChain(v)}  ${fmtEffects(v).padEnd(10)} ` +
         `${v.chunk.name.padEnd(28)} ${v.chunk.file}:${v.chunk.line}`,
       );
+      // 传染路径（可解释性）：效应源 → ... → 本 chunk
+      if (v.chainPath.length > 1) {
+        console.log(`      传染: ${v.chainPath.join(" → ")}`);
+      }
     }
     console.log(
       `\nSTATS: pure ${s.pure}, impure ${s.impure}, unknown ${s.unknown}`,

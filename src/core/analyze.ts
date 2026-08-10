@@ -5,6 +5,8 @@ interface ModeResult {
   readonly effects: ReadonlySet<string>;
   readonly chain: number;
   readonly purity: Purity;
+  /** 到效应源的最短路径（chunk key 数组，源在前；PURE 为空；audit 模式）。 */
+  readonly chainPath: string[];
 }
 
 /**
@@ -49,6 +51,7 @@ function runOnce(
 
   const eff: Array<Set<string>> = [];
   const chain: number[] = [];
+  const prevComp: number[] = new Array(sccs.length).fill(-1); // 链上"上一跳"分量（-1 = 纯/无路径；自身 = 效应源）
   for (let k = 0; k < sccs.length; k++) {
     const e = new Set<string>();
     for (const i of sccs[k]!) {
@@ -59,11 +62,34 @@ function runOnce(
     let best = e.size > 0 ? 0 : Infinity;
     for (const k2 of succ[k]!) {
       for (const d of eff[k2]!) e.add(d);
-      if (eff[k2]!.size > 0 && 1 + chain[k2]! < best) best = 1 + chain[k2]!;
+      if (eff[k2]!.size > 0 && 1 + chain[k2]! < best) {
+        best = 1 + chain[k2]!;
+        prevComp[k] = k2; // 链路径记录：本分量的最近效应源经 k2
+      }
     }
     eff[k] = e;
     chain[k] = best;
+    if (e.size > 0 && prevComp[k] === -1) prevComp[k] = k; // 自身是效应源
   }
+
+  // chain 路径重构（audit 模式；用户需求可解释性 2026-08-11）：
+  // 分量级路径 [源分量, ..., 本分量]（SCC 内同 chain 无跳），映射为 chunk key（分量取首个 chunk）
+  const compKey = new Map<number, string>();
+  sccs.forEach((s, k) => { for (const i of s) { compKey.set(k, i); break; } });
+  const pathOf = (k: number): string[] => {
+    const keys: string[] = [];
+    let cur = k;
+    const guard = new Set<number>();
+    while (cur >= 0 && !guard.has(cur)) {
+      const p = prevComp[cur];
+      if (p === undefined || p === -1) break; // 纯/无路径
+      guard.add(cur);
+      keys.unshift(compKey.get(cur)!);
+      if (p === cur) break; // 源分量
+      cur = p;
+    }
+    return keys; // [源 chunk key, ..., 本 chunk key]
+  };
 
   const res = new Map<string, ModeResult>();
   for (const c of chunks) {
@@ -75,7 +101,7 @@ function runOnce(
         : eff[k]!.has(UNKNOWN_TARGET) || (audit && hasUnknown.has(c.key))
           ? Purity.UNKNOWN
           : Purity.PURE;
-    res.set(c.key, { effects: real, chain: chain[k]!, purity });
+    res.set(c.key, { effects: real, chain: chain[k]!, purity, chainPath: purity === Purity.PURE ? [] : pathOf(k) });
   }
   const cycleCount = sccs.filter((s) => s.length > 1).length;
   return { res, inDeg, cycleCount, staleEdges };
@@ -110,6 +136,7 @@ export function analyze(chunks: readonly Chunk[]): AnalyzeOutput {
       chainCertain: a.chain === d.chain,
       inDegree: audit.inDeg.get(c.key) ?? 0,
       outDegree: c.calls.size - (c.calls.has(UNKNOWN_TARGET) ? 1 : 0),
+      chainPath: a.chainPath,
     };
   });
 

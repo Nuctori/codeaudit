@@ -49,5 +49,5 @@ export { Purity, UNKNOWN_TARGET } from "./core/types";
 export type { Chunk, Verdict, ScanReport, ScanStats } from "./core/types";
 export type { LangPack, RawFileFacts, RawChunk, RawCall, RawImport } from "./lang/pack";
 export { pythonPack, typescriptPack, tsxPack, javascriptPack };
-export { changedImpact, annotationBudget, annotationCurve, influenceAnalysis } from "./core/influence";
-export type { ChangeImpact, ImpactedChunk, AnnotationBudget } from "./core/influence";
+export { changedImpact, annotationBudget, annotationCurve, influenceAnalysis, compareReports } from "./core/influence";
+export type { ChangeImpact, ImpactedChunk, AnnotationBudget, VerdictDelta } from "./core/influence";

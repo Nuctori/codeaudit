@@ -100,6 +100,68 @@ export function influenceAnalysis(chunks: readonly Chunk[]): Map<string, number>
   return annotationBudget(chunks).influence;
 }
 
+/** 两次扫描的判定变化（diff 后影响分析，库 API）。 */
+export interface VerdictDelta {
+  readonly key: string;
+  readonly file: string;
+  readonly name: string;
+  readonly purityFrom: number;
+  readonly purityTo: number;
+  readonly chainFrom: number;
+  readonly chainTo: number;
+  /** 新增效应类（如 diff 引入 fs）。 */
+  readonly effectsAdded: readonly string[];
+  /** 消失的效应类。 */
+  readonly effectsRemoved: readonly string[];
+}
+
+/**
+ * 对比两次扫描的判定（用户需求可解释性 2026-08-11）：purity/chain/effects 变化的 chunk 清单。
+ * 典型用法：改动前扫一次、改动后扫一次 → compareReports → 哪些函数判定翻转/链变深。
+ * 配合 analyzeChange（改动文件 → 受影响调用者）构成完整 diff 影响分析。
+ */
+export function compareReports(a: readonly { chunk: Chunk; purity: number; chain: number; effects: ReadonlySet<string> }[], b: readonly { chunk: Chunk; purity: number; chain: number; effects: ReadonlySet<string> }[]): VerdictDelta[] {
+  const bm = new Map(b.map((v) => [v.chunk.key, v]));
+  const out: VerdictDelta[] = [];
+  const setsEqual = (x: ReadonlySet<string>, y: ReadonlySet<string>): boolean =>
+    x.size === y.size && [...x].every((e) => y.has(e));
+  for (const va of a) {
+    const vb = bm.get(va.chunk.key);
+    if (!vb) continue; // 被删除的 chunk（改动删了函数）
+    if (va.purity === vb.purity && va.chain === vb.chain && setsEqual(va.effects, vb.effects)) continue;
+    out.push({
+      key: va.chunk.key,
+      file: va.chunk.file,
+      name: va.chunk.name,
+      purityFrom: va.purity,
+      purityTo: vb.purity,
+      chainFrom: va.chain,
+      chainTo: vb.chain,
+      effectsAdded: [...vb.effects].filter((e) => !va.effects.has(e)).sort(),
+      effectsRemoved: [...va.effects].filter((e) => !vb.effects.has(e)).sort(),
+    });
+  }
+  // b 新增的 chunk（改动新增函数，纯新判定）
+  const am = new Set(a.map((v) => v.chunk.key));
+  for (const vb of b) {
+    if (!am.has(vb.chunk.key)) {
+      out.push({
+        key: vb.chunk.key,
+        file: vb.chunk.file,
+        name: vb.chunk.name,
+        purityFrom: -1,
+        purityTo: vb.purity,
+        chainFrom: -1,
+        chainTo: vb.chain,
+        effectsAdded: [...vb.effects].sort(),
+        effectsRemoved: [],
+      });
+    }
+  }
+  out.sort((x, y) => (x.key < y.key ? -1 : x.key > y.key ? 1 : 0));
+  return out;
+}
+
 /** diff 影响面中的单个 chunk 条目。 */
 export interface ImpactedChunk {
   /** 图内唯一键 file::id。 */

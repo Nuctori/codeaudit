@@ -62,6 +62,8 @@ export interface Verdict {
   readonly chain: number;
   /** 链区间上界：dev（乐观）模式链（未知视为纯时算得）。区间 [chain, chainDev] 即未知翻案后的可能范围。 */
   readonly chainDev: number;
+  /** 到效应源的最短路径（chunk key 数组，源在前；PURE 为空；audit 模式）——可解释性（用户需求 2026-08-11）。 */
+  readonly chainPath: readonly string[];
   /**
    * chain 是否确定：dev（乐观）与 audit（悲观）两遍结果一致时为 true。
    * false 表示结论依赖未知符号，需要标注。
