@@ -110,11 +110,11 @@ export const pythonPack: LangPack = {
   name: "python",
   extensions: [".py", ".pyw"],
   wasm: "tree-sitter-python.wasm",
-  chunkNodes: ["function_definition", "class_definition"],
+  chunkNodes: ["function_definition", "class_definition", "lambda"],
   classNodes: ["class_definition"],
   callNodes: ["call"],
-  // ponytail: lambda 体调用归属最近 chunk（模块级 lambda 体 io 归 module 伪 chunk → 保守假 IMPURE 噪音，
-  // py 独有形态；升级路径 = lambda 作独立 chunk 或归属最近函数边，等真实误报出现再修）
+  // ponytail(已解决): 赋值 RHS 的 lambda 已提为命名 chunk（handler = lambda: ... 不再假 IMPURE module）；
+  // 实参/其他位置 lambda 不提 chunk（体调用归外层——map(lambda, ...) 模块级仍正确判 IMPURE）
   nestingNodes: [
     "if_statement", "for_statement", "while_statement", "try_statement",
     "with_statement", "match_statement", "function_definition",

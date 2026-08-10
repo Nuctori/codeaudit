@@ -106,7 +106,7 @@ src/
 - **实例状态写未建模**：`self.x = ...` 暂不产生效应；Python 的 `global`/`nonlocal` 在同版本亦未开启。
 - **强制转换内建的协议残余**：`len(x)`/`str(x)`/`int(x)` 等判纯，但 x 是用户对象时会分派 `__len__`/`__str__`/`__int__`（可带 io）——接受为有意范围（移除则 unknown-rate 爆炸）；`hash/repr/format/getattr/setattr/iter/next/vars/dir` 已移出判未知。
 - **混合模块非 impure 成员 → UNKNOWN**：拆表 schema 的成员表只列 io 成员 + `:p` 显式纯标记（已实现 json.dumps/crypto.createHash 等）；未标记成员（如 `time.strftime`）仍落 UNKNOWN——方向安全（假未知非假纯），继续标记按需扩展。
-- **Python lambda 体调用归属**：lambda 体 io 归最近 chunk（模块级 lambda 归 module 伪 chunk → 保守假 IMPURE 噪音，py 独有形态）；升级路径见 `ponytail:` 注释（python.ts callNodes 处）。
+- **Python lambda 归属**：赋值 RHS 的 lambda 提为命名 chunk（`handler = lambda: io` → handler 独立判定，module 不误报）；实参 lambda（`map(lambda: …)`）体调用归外层——模块级执行路径正确判 io。残余：实参 lambda 的体 io 无独立判定单元（方向安全）。
 - **第三方库无源码递归**：npm 包内部不展开，靠效应表 + AI 标注覆盖。
 - **链长语义**：SCC 内部视为同一距离（环上所有节点同 chain）。
 - **Python 超深缩进**：tree-sitter-python 缩进栈上限约 62 层；更深的文件降级为 parseError 占位，不影响其余文件。

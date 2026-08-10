@@ -116,8 +116,19 @@ export class Extractor {
     return bindings;
   }
 
-  /** chunk 展示名：优先 name 字段；变量声明的箭头函数取变量名。 */
+  /** chunk 展示名：优先 name 字段；变量声明的箭头函数取变量名；赋值 RHS 的 Python lambda 取变量名。 */
   private chunkName(node: SyntaxNode): string | null {
+    if (node.type === "lambda") {
+      // handler = lambda: ... → 提为命名 chunk（体调用归它，模块级赋值不再假 IMPURE）；
+      // 实参/其他位置 lambda（map(lambda…)）→ 不提 chunk，体调用归外层（map 执行时确实调用）
+      let p = node.parent;
+      while (p !== null && p.type === "parenthesized_expression") p = p.parent;
+      if (p !== null && p.type === "assignment") {
+        const left = p.childForFieldName("left") ?? p.children[0] ?? null;
+        if (left !== null && left.type === "identifier") return left.text;
+      }
+      return null;
+    }
     if (node.type === "variable_declarator") {
       // 仅当值是函数字面量时才是 chunk：const f = () => {...}
       const value = node.childForFieldName("value");

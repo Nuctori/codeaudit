@@ -732,6 +732,27 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(b.get("a.ts::g")!.chunk.nesting).toBe(1); // if 一层，箭头函数值不计自身
   });
 
+  it("Python 赋值 lambda 提为命名 chunk（继续做）：模块级 handler = lambda: os.system() 不再假 IMPURE module", async () => {
+    const root = project("py-lambda", {
+      "a.py": "import os\nhandler = lambda msg: os.system(msg)\nPRICE = lambda x: x * 2\n",
+    });
+    const b = by(await scanProject(root));
+    const mod = b.get("a.py::<module>")!;
+    expect(mod.purity).toBe(Purity.PURE); // 修复前 module IMPURE（lambda 定义不执行体）
+    expect(b.get("a.py::handler")!.purity).toBe(Purity.IMPURE); // lambda 自己的判定单元
+    expect(b.get("a.py::PRICE")!.purity).toBe(Purity.PURE);
+  });
+
+  it("实参 lambda 保持归外层（继续做）：模块级 map(lambda: io) → module IMPURE；方法内赋值 lambda → 类成员 chunk", async () => {
+    const root = project("py-lambda2", {
+      "a.py": "import os\nresults = list(map(lambda x: os.system(x), ['a']))\n",
+      "b.py": "class Svc:\n    def m(self, xs):\n        f = lambda x: self.log(x)\n        return sorted(xs, key=f)\n    def log(self, x):\n        print(x)\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::<module>")!.purity).toBe(Purity.IMPURE); // map 执行时调用 lambda → io 在模块加载路径
+    expect(b.get("b.py::Svc.f")!.purity).toBe(Purity.IMPURE); // 方法内赋值 lambda 归属类成员
+    expect(b.get("b.py::Svc.m")!.purity).toBe(Purity.IMPURE);
+  });
 });
 
 describe("定义性事实族（用户覆写会议否决后实施）", () => {
