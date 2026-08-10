@@ -853,6 +853,20 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(b.get("b.ts::local")!.purity).toBe(Purity.PURE);
   });
 
+  it("异常传播（盲区1）：raise ValueError / throw new RangeError → throwsTypes 沿调用链传播", async () => {
+    const root = project("throws", {
+      "a.py": "def parse(x):\n    raise ValueError('bad')\ndef caller():\n    return parse(x)\ndef safe():\n    return 1\n",
+      "b.ts": "export function parse(s: string): number { throw new RangeError('x'); }\nexport function caller() { return parse('a'); }\n",
+    });
+    const r = await scanProject(root);
+    const by2 = new Map(r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]));
+    expect(by2.get("a.py::parse")!.throwsTypes).toContain("ValueError");
+    expect(by2.get("a.py::caller")!.throwsTypes).toContain("ValueError"); // 未捕获向上传播
+    expect(by2.get("a.py::safe")!.throwsTypes).toEqual([]);
+    expect(by2.get("b.ts::parse")!.throwsTypes).toContain("RangeError");
+    expect(by2.get("b.ts::caller")!.throwsTypes).toContain("RangeError");
+  });
+
   it("analyzeChange 边界：环/自环终止、空/不匹配文件标记 unmatchedFiles、反斜杠路径归一化", async () => {
     const root = project("changeedge", {
       "a.ts": "export function a() { return b(); }\nexport function b() { return a(); }\nexport function s() { return s(); }\nexport function leaf() { return 1; }\n",

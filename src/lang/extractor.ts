@@ -61,6 +61,12 @@ export class Extractor {
       // 任意外部对象属性写（user.status = "banned"，obj 非局部新建）→ state 效应。
       // 归 stack 顶层 chunk（嵌套函数内赋值归内层 chunk）；class 内方法赋值归方法（构造器边传播）。
       if (this.isStateWrite(node, stack[stack.length - 1]!)) stack[stack.length - 1]!.stateWrites = true;
+      // 异常抛出提取（盲区1）：raise/throw → chunk.thrownTypes（异常类型字面可静态提取；裸 raise/throw → "*"）
+      const thrown = this.thrownTypeOf(node);
+      if (thrown !== null) {
+        const t = stack[stack.length - 1]!;
+        if (!t.thrownTypes.includes(thrown)) t.thrownTypes.push(thrown);
+      }
       for (const child of node.children) visit(child);
       if (pushed) stack.pop();
     };
@@ -151,6 +157,36 @@ export class Extractor {
     };
     for (const c of params.children) push(c);
     return out;
+  }
+
+  /** 异常抛出类型提取（盲区1）：raise X / throw new Y() → 类型文本；裸 raise/throw → "*"；非抛出节点 → null。 */
+  private thrownTypeOf(node: SyntaxNode): string | null {
+    if (node.type === "raise_statement") {
+      // Python：raise / raise ValueError / raise ValueError("x")
+      const exc = node.children.find((c) => c.type === "call" || c.type === "identifier" || c.type === "attribute");
+      if (!exc) return "*";
+      if (exc.type === "call") {
+        const fn = exc.childForFieldName("function") ?? exc.children[0];
+        if (!fn) return "*";
+        const flat = flattenCallTarget(fn);
+        return flat !== null ? flat.split(".").pop()! : "*";
+      }
+      const flat = flattenCallTarget(exc);
+      return flat !== null ? flat.split(".").pop()! : "*";
+    }
+    if (node.type === "throw_statement") {
+      // TS/JS：throw new Error() / throw err / throw "x"
+      const arg = node.childForFieldName("argument") ?? node.children.find((c) => c.type !== "throw");
+      if (!arg) return "*";
+      if (arg.type === "new_expression") {
+        const ctor = arg.childForFieldName("constructor") ?? arg.children[1];
+        if (ctor) return ctor.type === "identifier" ? ctor.text : "*";
+        return "*";
+      }
+      if (arg.type === "identifier") return arg.text;
+      return "*";
+    }
+    return null;
   }
 
   /**
@@ -359,6 +395,8 @@ interface MutableChunk {
   /** 函数参数名（与 assigned 分离：参数是外部传入对象，对其属性写 = 外部状态写；局部赋值不算）。 */
   params: string[];
   stateWrites: boolean;
+  /** 直接抛出的异常类型（raise ValueError / throw new Error()）。 */
+  thrownTypes: string[];
   ownerClass: string | null;
 }
 
@@ -389,7 +427,7 @@ function fresh(
   ownerClass: string | null = null,
   kind: "class" | "function" | "module" = "function",
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], stateWrites: false, ownerClass };
+  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], stateWrites: false, thrownTypes: [], ownerClass };
 }
 
 /** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */

@@ -259,6 +259,7 @@ export function link(
         calls,
         unknownSites,
         unknownCalls,
+        thrownTypes: rc.thrownTypes,
       });
     }
   }

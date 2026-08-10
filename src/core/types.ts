@@ -48,6 +48,8 @@ export interface Chunk {
   readonly unknownCalls: ReadonlyArray<{ readonly attr: string; readonly obj: string | null; readonly root: string }>;
   /** 文件解析失败（tree-sitter 错误恢复可能吞边）——内容不可信，PURE 标注被拒、不计入语料（迭代4 F1）。 */
   readonly parseError?: boolean;
+  /** 直接抛出的异常类型（raise ValueError / throw new Error() → "ValueError"/"Error"；裸 raise/throw → "*"）。 */
+  readonly thrownTypes: readonly string[];
 }
 
 export interface Verdict {

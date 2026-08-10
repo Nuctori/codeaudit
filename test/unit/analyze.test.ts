@@ -12,6 +12,7 @@ function mk(partial: Partial<Chunk> & { key: string }): Chunk {
     nesting: 0,
     direct: new Set(),
     calls: new Set(),
+    thrownTypes: [],
     ...partial,
   };
 }

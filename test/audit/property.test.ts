@@ -62,7 +62,7 @@ function randGraph(rand: () => number, n: number, edgeProb: number): Map<string,
 function mkChunk(key: string, direct: string[], calls: string[]): Chunk {
   return {
     id: key, key, name: key, file: "f", line: 1, endLine: 2,
-    nesting: 0, direct: new Set(direct), calls: new Set(calls),
+    nesting: 0, direct: new Set(direct), calls: new Set(calls), thrownTypes: [],
   };
 }
 

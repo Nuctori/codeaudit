@@ -7,6 +7,8 @@ interface ModeResult {
   readonly purity: Purity;
   /** 到效应源的最短路径（chunk key 数组，源在前；PURE 为空；audit 模式）。 */
   readonly chainPath: string[];
+  /** 本 chunk 或其调用链可能抛出的异常类型（保守传播，含自身直接抛的）。 */
+  readonly throwsTypes: readonly string[];
 }
 
 /**
@@ -72,6 +74,16 @@ function runOnce(
     if (e.size > 0 && prevComp[k] === -1) prevComp[k] = k; // 自身是效应源
   }
 
+  // 异常传播（盲区1，保守：未捕获异常沿调用链向上——不分析 catch 吞掉 = 过近似方向安全）。
+  // 不参与纯度判定（抛异常是控制流非副作用）；作为 throwsTypes 元数据输出（错误耦合分析）。
+  const throwsComp: Array<Set<string>> = [];
+  for (let k = 0; k < sccs.length; k++) {
+    const t = new Set<string>();
+    for (const i of sccs[k]!) for (const x of byKey.get(i)!.thrownTypes) t.add(x);
+    for (const k2 of succ[k]!) for (const x of throwsComp[k2]!) t.add(x);
+    throwsComp[k] = t;
+  }
+
   // chain 路径重构（audit 模式；用户需求可解释性 2026-08-11）：
   // 分量级路径 [源分量, ..., 本分量]（SCC 内同 chain 无跳），映射为 chunk key（分量取首个 chunk）
   const compKey = new Map<number, string>();
@@ -101,7 +113,7 @@ function runOnce(
         : eff[k]!.has(UNKNOWN_TARGET) || (audit && hasUnknown.has(c.key))
           ? Purity.UNKNOWN
           : Purity.PURE;
-    res.set(c.key, { effects: real, chain: chain[k]!, purity, chainPath: purity === Purity.PURE ? [] : pathOf(k) });
+    res.set(c.key, { effects: real, chain: chain[k]!, purity, chainPath: purity === Purity.PURE ? [] : pathOf(k), throwsTypes: [...throwsComp[comp.get(c.key)!]!].sort() });
   }
   const cycleCount = sccs.filter((s) => s.length > 1).length;
   return { res, inDeg, cycleCount, staleEdges };
@@ -137,6 +149,7 @@ export function analyze(chunks: readonly Chunk[]): AnalyzeOutput {
       inDegree: audit.inDeg.get(c.key) ?? 0,
       outDegree: c.calls.size - (c.calls.has(UNKNOWN_TARGET) ? 1 : 0),
       chainPath: a.chainPath,
+      throwsTypes: a.throwsTypes,
     };
   });
 

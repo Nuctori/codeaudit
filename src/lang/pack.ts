@@ -54,6 +54,8 @@ export interface RawChunk {
   readonly assigned: string[];
   /** 状态写（self.x = / this.x = / global、nonlocal 声明）→ state 效应（用户需求 2026-08-11）。 */
   readonly stateWrites: boolean;
+  /** 直接抛出的异常类型（raise ValueError / throw new Error() → "ValueError"/"Error"；裸 raise/throw → "*"）。 */
+  readonly thrownTypes: readonly string[];
   /** 所在类名（方法归属），顶层为 null。 */
   readonly ownerClass: string | null;
 }
