@@ -55,7 +55,7 @@ export function isCorpus(x: unknown): x is CorpusFile {
 
 const GLOBAL_THETA0 = 0.25; // 实证基率：来自 swagger-ui/src/core 标注模拟（65 条中 51 条 PURE → impure≈0.22，取 0.25 保守）。
 // 注意：这是单项目标签分布泄漏为全局常数（跨项目污染通道）——冷单元格 θ̂≈θ₀ 会被 swagger 基率拉动；
-// 改进方向：项目级基率分层（项目随机效应）或可配置（见 docs/axioms.md 四·五）。
+// 改进方向：项目级基率分层（项目随机效应）或可配置（见 docs/axioms.md 四·七）。
 const KAPPA1 = 12; // 方法级收缩
 const KAPPA2 = 8; // 接收者格收缩
 export const MIN_TOTAL = 30; // 冷启动阈值：总样本不足不提供概率

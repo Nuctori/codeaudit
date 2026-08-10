@@ -78,6 +78,15 @@
 
 实测：`new Conn().open()` → IMPURE（真边）；`from db import conn; conn.execute()`（实例）→ IMPURE；`' x '.strip().upper()` → PURE；`const { go } = require('./lib')` → IMPURE。swagger 零回归。
 
+## 四·七、数学层边界（先验/曲线的已知取舍，2026-08-11 补档）
+
+语料先验与标注曲线的数学实现（corpus.ts / influence.ts）在 A6/A7 之下自洽（算法对拍 + 随机语料 fuzz 验证），以下为**有意取舍**，非缺陷：
+
+1. **单项目基率泄漏**：`GLOBAL_THETA0 = 0.25`（corpus.ts）来自 swagger-ui 单项目标注模拟——冷单元格 θ̂≈θ₀ 会被该基率拉动，跨项目污染。改进方向：项目级基率分层（项目随机效应，标准分层贝叶斯）或可配置基率——**卡数据**（需多个项目的标注语料，当前仅 swagger 一个）。
+2. **root 桶计数显示**：`priorFor` 返回的 `n` 是 root 桶边际计数（多 attr 共享同一 root 类别时虚高），非 (attr, root) 格计数——语料只存边际，交集不可得（LOO 的 clamp 已防止由此产生的负/NaN 先验）。显示语义为"该 root 类别的形态历史"，先验仅进建议不进判定。
+3. **曲线启发序非边际最优**：标注曲线对**给定顺序**精确（逐源释放），但顺序为 UNKNOWN 密集影响面启发序——共享源 chunk 的边际释放 < 桶大小，边际最优需贪心重算（O(n²)），成本取舍，注释明示（cli.ts）。
+4. **先验永不进判定**：`suggested_prompt` 携带的先验提示是建议置信度，purity/chain/effects 判定不读语料——A7"先验不进判定通道"契约。
+
 ## 五、残余
 
 - 外层保真度不可证（效应表数据错误/语言演进）——审查纪律承担
