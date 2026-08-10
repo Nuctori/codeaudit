@@ -147,3 +147,39 @@
 - 迭代 1 的 Blocker 级假纯洞与迭代 2 的崩溃级 DoS 均已闭合；后续发现级别递减（Blocker → Med/Low）。
 - 统计评审明示「核心数学自洽收敛」；文档评审明示「闭环正确性无阻断」。
 
+---
+
+# 迭代 3 收敛复审记录（2026-08-10，5 全新视角：形式化/语言语义/安全复测/性能实测/收敛仲裁）
+
+方法：复审 16051d2 基线。结论：**不收敛但快速收敛中**——4/5 判不收敛（形式化 1 High+3 Med、语言 1 Blocker+残余、安全 2 Med、性能 4 项），仲裁者判**收敛**（迭代 1+2 全部 19 项声称经代码+实测核验为真修）。全部发现已修复（e893dda），7 新回归测试，142/142。
+
+## 已修复（e893dda）
+
+| 来源 | 级别 | 发现 | 修复 |
+| --- | --- | --- | --- |
+| 形式化 | High | H1 降级可被 PURE 标注撤销 → 假纯复辟（chainCertain=true 掩盖；标注协议以不可信的 body 为准） | scan.ts PURE 分支对 parseErrFiles chunk 拒绝标注（保持 UNKNOWN/chainCertain=false） |
+| 形式化 | Med | LOO 用 root 边际冒充 cell 计数 → 负值/NaN 先验（15/15 例 pPure=−0.237；0/0=NaN 逃过阈值） | Math.max(0,·) clamp；归零退回 GLOBAL_THETA0 |
+| 形式化 | Med | 双键 seen 的 `seen[c.id]` 门丢弃异判定实例证据（file 锚定意义即"同内容跨文件判定可不同"） | 去重门按键形式：实例锚定按 annKey，裸 id 按 c.id；双键写入保留 |
+| 形式化 | Med | 解析优先级与特性意图相反：裸 id 对全部实例胜出，显式实例覆写全局死键 | scan.ts + corpus.ts 都改 (file,id) 优先 |
+| 语言 | Blocker | TS/JS `new C()` 构造器效应完全不可见（new_expression 不是 call 节点）——Python 侧 S1 已修，跨语言不对称 | callNodes + new_expression + callOf constructor 字段 → 类 chunk 构造器边 |
+| 语言 | Med | 裸 `Date()`/`new Date()` 时钟读取判纯；performance.now/setTimeout 不一致 | Date 移出 pureBuiltins（→UNKNOWN）、加入 pureGlobals（Date.parse/UTC 纯）；performance.now、定时器入表 |
+| 语言 | Med | Python uuid 熵读取 UNKNOWN vs TS v4 IMPURE | python uuid: ["uuid1","uuid4"] |
+| 语言 | 低 | list.copy/dict.copy/array slice/concat/charCodeAt 表缺口（假 UNKNOWN 噪音） | effects/returns 补齐 |
+| 语言 | — | len/str/int 强制转换协议残余（__len__/__str__ 可带 io） | 文档化有意边界（README 已知限制 + python.ts 注释）——移除则 unknown-rate 爆炸 |
+| 安全 | Med | cache/corpus JSON.parse 无大小上限 → 恶意仓库 OOM DoS | parse 前 statSync 64MB 上限 |
+| 安全 | Med | validFacts 数量预算无字节预算（8MB normText 穿透） | normText 1MB 上限 |
+| 安全 | Low | mergeCorpus 裸赋值 __proto__ 原型污染（bump 已修，merge 漏） | 复用 hasOwn+defineProperty |
+| 安全 | Low | --unknowns 直写非原子（语料/缓存均原子，此处不一致） | tmp+rename + 父目录 mkdir |
+| 性能 | High | Python 绝对导入 O(F×M_distinct)（100k 文件外推 9-11 分钟） | byLast 末段路径索引（resolveModule 可选参数，O(F+M)） |
+| 性能 | Med | link 每 chunk 双 sha256；scan+extractor 文件级双 sha256 | WeakMap id 复用 + contentHash 透传 |
+| 性能 | Low | module chunk split("\n") 生成 10M 元素数组 | 计数循环 |
+| 仲裁 | Med | nesting 差一（箭头函数 tiebreak 漂移）→ 记录；export default identifier 不解析 | findDefaultExport 登记 identifier；nesting 记录已知限制 |
+
+## 收敛信号
+
+- 仲裁者核验迭代 1+2 全部 19 项声称：代码位置 + 实测行为全部为真修；半修 2 项（README 计数、死变量）已清。
+- swagger：impure 56→58、unknown 435→432（new_expression/Date 诚实化方向）。
+- 迭代 3 发现级别：1 Blocker（TS 构造器，跨语言对称性）+ 1 High + 残余 Med/Low——无新崩溃面（安全复测明示「无 Blocker、无崩溃面」）。
+- 趋势：迭代 1 假纯洞 → 迭代 2 崩溃 DoS → 迭代 3 表完备性/边界纪律；核心算法经 3 轮五视角 × 3 组独立评审（形式化、统计、仲裁）均未再发现核心洞。
+
+
