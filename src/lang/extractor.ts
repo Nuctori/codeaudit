@@ -27,7 +27,7 @@ export class Extractor {
     const root = tree.rootNode;
     const chunks: RawChunk[] = [];
     // 伪 chunk 收容模块级调用（公理1）
-    const moduleChunk = fresh("<module>", 1, source.split("\n").length, "", "");
+    const moduleChunk = fresh("<module>", 1, source.split("\n").length, "", "", null, "module");
     const stack: MutableChunk[] = [moduleChunk];
 
     const visit = (node: SyntaxNode): void => {
@@ -43,6 +43,7 @@ export class Extractor {
             node.text,
             normalizeCode(node),
             this.ownerClass(node),
+            this.pack.classNodes.includes(node.type) ? "class" : "function",
           );
           mc.nesting = this.maxNesting(node);
           mc.assigned = this.assignedNames(node);
@@ -70,8 +71,48 @@ export class Extractor {
       chunks,
       imports: this.pack.extractImports(root),
       defaultExport: findDefaultExport(root, this.pack),
+      moduleBindings: this.moduleBindingsOf(root),
       parseError: root.hasError,
     };
+  }
+
+  /** 模块级单赋值绑定（模块级值绑定溯源，A）：名称 → 构造类名；last-write-wins；定义遮蔽赋值。 */
+  private moduleBindingsOf(root: SyntaxNode): Record<string, string> {
+    const bindings: Record<string, string> = {};
+    for (const stmt0 of root.children) {
+      // 解包包装节点：TS export const x = ...（export_statement→variable_declarator）、
+      // Python 表达式语句（expression_statement→assignment）
+      let stmt: SyntaxNode = stmt0;
+      if (stmt.type === "export_statement") {
+        const decl = stmt.children.find((c) => c.type === "variable_declaration" || c.type === "lexical_declaration");
+        if (decl) stmt = decl.children.find((c) => c.type === "variable_declarator") ?? stmt;
+      } else if (stmt.type === "expression_statement") {
+        const inner = stmt.children[0];
+        if (inner && (inner.type === "assignment" || inner.type === "assignment_expression")) stmt = inner;
+      }
+      // 赋值/声明：x = C() / const x = new C() / const x = C()
+      if (stmt.type === "assignment" || stmt.type === "variable_declarator" || stmt.type === "assignment_expression") {
+        const left = stmt.childForFieldName("left") ?? stmt.childForFieldName("name");
+        const value = stmt.childForFieldName("right") ?? stmt.childForFieldName("value");
+        if (left && (left.type === "identifier" || left.type === "property_identifier") && value) {
+          let cls: string | null = null;
+          if (value.type === "call" || value.type === "call_expression") {
+            const fn = value.childForFieldName("function") ?? value.children[0];
+            if (fn && (fn.type === "identifier" || fn.type === "property_identifier") && fn.text !== "require") cls = fn.text;
+          } else if (value.type === "new_expression") {
+            const ctor = value.childForFieldName("constructor") ?? value.children[1];
+            if (ctor && (ctor.type === "identifier" || ctor.type === "property_identifier")) cls = ctor.text;
+          }
+          if (cls !== null) bindings[left.text] = cls;
+          else delete bindings[left.text]; // 非类赋值/重绑 → 清除（不可证）
+        }
+      } else if (stmt.type === "function_definition" || stmt.type === "class_definition" ||
+                 stmt.type === "function_declaration" || stmt.type === "class_declaration") {
+        const nameNode = stmt.childForFieldName("name");
+        if (nameNode) delete bindings[nameNode.text]; // 定义遮蔽赋值绑定
+      }
+    }
+    return bindings;
   }
 
   /** chunk 展示名：优先 name 字段；变量声明的箭头函数取变量名。 */
@@ -119,13 +160,13 @@ export class Extractor {
     if (!fn) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET, receiver: null, argFns };
     const flat = flattenCallTarget(fn);
     if (flat === null) {
-      // 字面量接收者：object 是字面量节点 → receiver 事实（"x".strip / [].push / (5).toFixed）
+      // 接收者事实：字面量 / 链式（"x".strip().upper() 的 upper 接收者是 strip 的返回类型）/ 构造器
       if (fn.type === "attribute" || fn.type === "member_expression") {
         const obj = fn.childForFieldName("object") ?? fn.children[0];
         // Python attribute 无命名字段（children: [obj, ., name]）；TS member_expression 有 property 字段
         const attr = fn.childForFieldName("attribute") ?? fn.childForFieldName("property") ?? fn.children[fn.children.length - 1];
         if (obj && attr && (attr.type === "identifier" || attr.type === "property_identifier")) {
-          const r = literalReceiverType(obj, this.pack);
+          const r = this.receiverTypeOf(obj);
           if (r !== null) return { target: UNRESOLVED_TARGET, obj: null, attr: attr.text, receiver: r, argFns };
         }
       }
@@ -134,6 +175,32 @@ export class Extractor {
     const dot = flat.indexOf(".");
     if (dot === -1) return { target: flat, obj: null, attr: flat, receiver: null, argFns };
     return { target: flat, obj: flat.slice(0, dot), attr: flat.slice(dot + 1), receiver: null, argFns };
+  }
+
+  /**
+   * 接收者类型：字面量 → 内建类型（literalReceivers）；链式（obj 是调用）→ 被调方法的
+   * 返回类型（builtinMethodReturns，语言事实）；构造器（new C()）→ "class:C"；表外 → null。
+   */
+  private receiverTypeOf(obj: SyntaxNode): string | null {
+    const lit = literalReceiverType(obj, this.pack);
+    if (lit !== null) return lit;
+    if (obj.type === "new_expression") {
+      const ctor = obj.childForFieldName("constructor") ?? obj.children[1];
+      if (ctor && (ctor.type === "identifier" || ctor.type === "property_identifier")) return `class:${ctor.text}`;
+      return null;
+    }
+    if (obj.type === "call" || obj.type === "call_expression") {
+      const fn = obj.childForFieldName("function") ?? obj.children[0];
+      if (fn && (fn.type === "attribute" || fn.type === "member_expression")) {
+        const innerObj = fn.childForFieldName("object") ?? fn.children[0];
+        const innerAttr = fn.childForFieldName("attribute") ?? fn.childForFieldName("property") ?? fn.children[fn.children.length - 1];
+        if (innerObj && innerAttr && (innerAttr.type === "identifier" || innerAttr.type === "property_identifier")) {
+          const recv = this.receiverTypeOf(innerObj);
+          if (recv !== null && !recv.startsWith("class:")) return this.pack.builtinMethodReturns[recv]?.[innerAttr.text] ?? null;
+        }
+      }
+    }
+    return null;
   }
 
   /** 命名函数实参（HOF 回调边原料）：arguments 子节点中直接是标识符或可拍平成员表达式（this.log）的，及 Python 关键字实参（key=fn）的值。 */
@@ -203,6 +270,7 @@ interface MutableChunk {
   nesting: number;
   sourceText: string;
   normText: string;
+  kind: "class" | "function" | "module";
   calls: RawCall[];
   assigned: string[];
   ownerClass: string | null;
@@ -234,8 +302,9 @@ function fresh(
   sourceText: string,
   normText: string,
   ownerClass: string | null = null,
+  kind: "class" | "function" | "module" = "function",
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, sourceText, normText, calls: [], assigned: [], ownerClass };
+  return { name, line, endLine, nesting: 0, sourceText, normText, kind, calls: [], assigned: [], ownerClass };
 }
 
 /** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */

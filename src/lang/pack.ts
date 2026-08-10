@@ -50,6 +50,8 @@ export interface RawChunk {
   readonly sourceText: string;
   /** 令牌级规范化文本（去注释、令牌间单空格，字符串原样）——公理4 内容身份来源。 */
   readonly normText: string;
+  /** chunk 形态：class（可 new 构造）| function | module。 */
+  readonly kind: "class" | "function" | "module";
   readonly calls: RawCall[];
   /** 函数内赋值目标名（from-import 绑定被局部重绑时跳过解析，防假纯）。 */
   readonly assigned: string[];
@@ -65,6 +67,8 @@ export interface RawFileFacts {
   readonly imports: RawImport[];
   /** 文件默认导出的 chunk 名（无默认导出为 null）。 */
   readonly defaultExport: string | null;
+  /** 模块级单赋值绑定：名称 → 构造类名（conn = DB() / export const db = new Pool()）。last-write-wins。 */
+  readonly moduleBindings: Record<string, string>;
   readonly parseError: boolean;
 }
 
@@ -107,6 +111,8 @@ export interface LangPack {
   readonly literalReceivers: Readonly<Record<string, string>>;
   /** 内建类型方法效应：类型 → 方法 → "pure" | "hof"。只放硬纯（无参数协议分派）方法；表外 → ?（F9）。 */
   readonly builtinTypeEffects: Readonly<Record<string, Readonly<Record<string, "pure" | "hof">>>>;
+  /** 内建方法返回类型（链式接收者解析用）：类型 → 方法 → 返回类型；表外 → ?（链断）。语言事实义务。 */
+  readonly builtinMethodReturns: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** 框架命名空间（如 egg 的 ctx）：对象名 → 成员前缀列表，命中视为 io 边界（ctx.model.* / ctx.service.*）。 */
   readonly frameworkIo: Readonly<Record<string, readonly string[]>>;
 

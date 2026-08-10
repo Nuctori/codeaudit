@@ -65,6 +65,19 @@
 
 残余（特性否决记录）：模块级值绑定（A）、构造器接收者（B）、内建方法返回类型链（C，有害）、require 解构（D）——在出现重度语料（跨文件单例导入/字面量链）前不重审。
 
+## 四·六、定义性事实族实施（2026-08-10，用户覆写否决）
+
+用户「开修」覆写四方评审否决，四件按 AI 工程师方案实施（带数学家守卫）：
+
+| 件 | 机制 | 守卫 |
+|---|---|---|
+| A 模块级值绑定 | `moduleBindings`（模块级单赋值 name→类名，last-write-wins，解包 export/expression 包装）；from-import 成员分支查绑定 → resolveSymbol → kind=class → 类成员边 | 定义遮蔽赋值清除；require 排除；kind 判别 |
+| B 构造器接收者 | `RawChunk.kind`（class/function/module）；`new C()` → receiver "class:C" → resolveSymbol → kind=class → 类成员边 | kind 判别（函数不可 new）；解析失败 → `?` |
+| C 链式返回类型 | `builtinMethodReturns`（类型→方法→返回类型，语言事实）；extractor 递归 receiverTypeOf | 表外链断 → `?`；链不绕过纯度表；无跨函数 |
+| D require 解构 | extractEsmImports object_pattern → from-import 绑定（{go} / {go:run}） | 仅普通属性；默认值/rest/嵌套 → 不提取 |
+
+实测：`new Conn().open()` → IMPURE（真边）；`from db import conn; conn.execute()`（实例）→ IMPURE；`' x '.strip().upper()` → PURE；`const { go } = require('./lib')` → IMPURE。swagger 零回归。
+
 ## 五、残余
 
 - 外层保真度不可证（效应表数据错误/语言演进）——审查纪律承担

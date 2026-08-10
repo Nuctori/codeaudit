@@ -67,19 +67,32 @@ export function extractEsmImports(root: SyntaxNode): RawImport[] {
         readClause(findChild(n, "export_clause"), module, true);
       }
     } else if (n.type === "variable_declarator") {
-      // CommonJS: const x = require("./m")
+      // CommonJS: const x = require("./m") / const { go, run: renamed } = require("./m")
       const value = n.childForFieldName("value");
       const nameNode = n.childForFieldName("name") ?? n.children[0];
-      if (
-        value && value.type === "call_expression" && nameNode &&
-        nameNode.type === "identifier"
-      ) {
+      if (value && value.type === "call_expression" && nameNode) {
         const fn = value.childForFieldName("function");
         if (fn && fn.text === "require") {
           const args = value.childForFieldName("arguments");
           const str = args?.children.find((c) => c.type === "string");
           if (str) {
-            out.push({ local: nameNode.text, module: strip(str.text), imported: null, reexport: false });
+            const module = strip(str.text);
+            if (nameNode.type === "identifier") {
+              out.push({ local: nameNode.text, module, imported: null, reexport: false });
+            } else if (nameNode.type === "object_pattern") {
+              // 解构绑定：{go} → from-import 语义（local=go, imported=go）；{go: run} 重命名同源
+              for (const prop of nameNode.children) {
+                if (prop.type === "shorthand_property_identifier_pattern") {
+                  out.push({ local: prop.text, module, imported: prop.text, reexport: false });
+                } else if (prop.type === "pair_pattern") {
+                  const key = prop.childForFieldName("key") ?? prop.children[0];
+                  const val = prop.childForFieldName("value") ?? prop.children[1];
+                  if (key && val && (val.type === "identifier" || val.type === "property_identifier")) {
+                    out.push({ local: val.text, module, imported: key.text, reexport: false });
+                  }
+                }
+              }
+            }
           }
         }
       }
@@ -170,6 +183,15 @@ const builtinTypeEffects = {
     regex: { test: "pure", exec: "pure" },
     bigint: { toString: "pure", valueOf: "pure" },
 } as const satisfies Record<string, Record<string, "pure" | "hof">>;
+// 内建方法返回类型（链式接收者解析）：只放非空固定返回（语言事实）；返回可变/动态 → 链断
+const builtinMethodReturns = {
+  string: { trim: "string", trimStart: "string", trimEnd: "string", toLowerCase: "string", toUpperCase: "string", toString: "string", valueOf: "string" },
+  array: { reverse: "array", slice: "array", concat: "array", map: "array", filter: "array", flatMap: "array" },
+  number: { toString: "string", toFixed: "string", toPrecision: "string", toExponential: "string" },
+  boolean: { toString: "string", valueOf: "boolean" },
+  regex: {},
+  bigint: { toString: "string", valueOf: "bigint" },
+} as const satisfies Record<string, Record<string, string>>;
 
 export const typescriptPack: LangPack = {
   name: "typescript",
@@ -206,6 +228,7 @@ export const typescriptPack: LangPack = {
   // 硬纯：无参数协议分派。JS 带参方法做 ToPrimitive/ToString 强制（Symbol.toPrimitive）→ 表外；
   // array indexOf/includes 走 ===（无用户钩子）安全；array map/filter/... 为 hof（addArgEdges）
   builtinTypeEffects,
+  builtinMethodReturns,
 
   // egg.js 惯例：ctx.model（sequelize DB）/ ctx.service（业务层）/ ctx.app —— 均为 io 边界
   frameworkIo: { ctx: ["model", "service", "app"] },

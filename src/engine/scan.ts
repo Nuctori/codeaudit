@@ -184,7 +184,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
     } catch {
       f = {
         file, lang: pack.name, contentHash,
-        chunks: [], imports: [], defaultExport: null, parseError: true,
+        chunks: [], imports: [], defaultExport: null, moduleBindings: {}, parseError: true,
       };
     }
     facts.push(f);

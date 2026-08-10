@@ -563,3 +563,51 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN); // math 是参数 → 遮蔽 import
   });
 });
+
+describe("定义性事实族（用户覆写会议否决后实施）", () => {
+  it("A 模块级值绑定：from db import conn; conn.execute()（实例绑定 → 类成员边）", async () => {
+    const root = project("dfa", {
+      "db.py": "class DB:\n    def execute(self):\n        print('io')\nconn = DB()\n",
+      "use.py": "from db import conn\ndef f():\n    conn.execute()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("use.py::f")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("A2 TS 导出单例：export const db = new Pool(); db.query()", async () => {
+    const root = project("dfa2", {
+      "db.ts": "export class Pool { query(q: string) { console.log(q); } }\nexport const db = new Pool();\n",
+      "use.ts": "import { db } from './db';\nexport function run() { db.query('DELETE'); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("use.ts::run")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("B 构造器接收者：new Conn().open() → 类成员真边", async () => {
+    const root = project("dfb", {
+      "db.ts": "export class Conn { open() { console.log('io'); } }\n",
+      "use.ts": "import { Conn } from './db';\nexport function run() { return new Conn().open(); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("use.ts::run")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("C 链式返回类型：' x '.strip().upper() / ' a '.trim().toLowerCase() → PURE", async () => {
+    const root = project("dfc", {
+      "a.py": "def f():\n    return ' x '.strip().upper()\n",
+      "b.ts": "export function g() { return ' a '.trim().toLowerCase(); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::f")!.purity).toBe(Purity.PURE);
+    expect(b.get("b.ts::g")!.purity).toBe(Purity.PURE);
+  });
+
+  it("D require 解构：const { go } = require('./lib') → 导出签名解析", async () => {
+    const root = project("dfd", {
+      "lib.js": "function go() { console.log('x'); }\nmodule.exports = { go };\n",
+      "use.js": "const { go } = require('./lib');\nfunction run() { go(); }\nmodule.exports = { run };\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("use.js::run")!.purity).toBe(Purity.IMPURE);
+  });
+});

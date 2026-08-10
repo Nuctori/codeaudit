@@ -78,6 +78,19 @@ const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
   set: { copy: "pure", clear: "pure" },
 };
 
+// 内建方法返回类型（链式接收者解析）：只放非空固定返回（语言事实）；返回 None/可变 → 链断
+const builtinMethodReturns: Record<string, Record<string, string>> = {
+  str: { strip: "str", lstrip: "str", rstrip: "str", lower: "str", upper: "str", title: "str", capitalize: "str",
+    casefold: "str", swapcase: "str", split: "list", rsplit: "list", splitlines: "list", removeprefix: "str",
+    removesuffix: "str", replace: "str", isalpha: "str", isdigit: "str", isalnum: "str", isspace: "str",
+    isupper: "str", islower: "str", istitle: "str", isnumeric: "str" },
+  list: { reverse: "list", copy: "list", clear: "list" },
+  bytes: { decode: "str", hex: "str", lower: "bytes", upper: "bytes" },
+  int: { to_bytes: "bytes" },
+  float: { as_integer_ratio: "tuple" },
+  set: { copy: "set", clear: "set" },
+};
+
 export const pythonPack: LangPack = {
   name: "python",
   extensions: [".py", ".pyw"],
@@ -102,6 +115,7 @@ export const pythonPack: LangPack = {
   assignmentTargets: ["assignment", "augmented_assignment", "for_statement", "named_expression"],
   literalReceivers,
   builtinTypeEffects,
+  builtinMethodReturns,
   frameworkIo: {},
 
   extractImports(root: SyntaxNode): RawImport[] {

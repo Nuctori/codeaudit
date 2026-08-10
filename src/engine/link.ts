@@ -250,8 +250,28 @@ function resolveCall(
   //    必须置于一切分支之前（obj=null 会被裸名分支劫持成对本地同名函数的错边）；
   //    表外方法 → ?（F9），永不静默丢。
   if (call.receiver !== null) {
+    // 构造器接收者：new C().m() → 解析类名（本地/import）→ kind=class → 类成员真边
+    if (call.receiver.startsWith("class:")) {
+      const className = call.receiver.slice(6);
+      const clsKey = resolveSymbol(fi.facts.file, className, 0);
+      if (clsKey !== null) {
+        const clsFile = clsKey.slice(0, clsKey.indexOf("::"));
+        const tf = files.get(clsFile);
+        const rc = tf?.chunkByKey.get(clsKey);
+        if (rc && rc.kind === "class") {
+          const q = `${className}.${call.attr}`;
+          if (!tf!.ambiguous.has(q)) {
+            const hit = tf!.byQualified.get(q);
+            if (hit) { sink.addEdge(hit); return; }
+          }
+        }
+      }
+      sink.addUnknownCall(call);
+      sink.markUnknown();
+      return;
+    }
     const rule = pack.builtinTypeEffects[call.receiver]?.[call.attr];
-    if (rule === "hof") { sink.addArgEdges(call.argFns, call.attr); return; } // [1,2,3].map(cb) / sort(key=cb)
+    if (rule === "hof") { sink.addArgEdges(call.argFns, call.attr); return; }
     if (rule === "pure") return;
     sink.addUnknownCall(call);
     sink.markUnknown();
@@ -368,6 +388,23 @@ function resolveCall(
           if (!tf.ambiguous.has(q)) {
             const hit = tf.byQualified.get(q);
             if (hit) { sink.addEdge(hit); return; }
+          }
+          // 模块级值绑定：export const db = new Pool() → 绑定名解析到类 → 类成员真边
+          const boundCls = tf.facts.moduleBindings[name];
+          if (boundCls) {
+            const clsKey = resolveSymbol(target, boundCls, 0);
+            if (clsKey !== null) {
+              const cf = clsKey.slice(0, clsKey.indexOf("::"));
+              const tf2 = files.get(cf);
+              const rc = tf2?.chunkByKey.get(clsKey);
+              if (rc && rc.kind === "class") {
+                const q2 = `${boundCls}.${call.attr}`;
+                if (!tf2!.ambiguous.has(q2)) {
+                  const hit2 = tf2!.byQualified.get(q2);
+                  if (hit2) { sink.addEdge(hit2); return; }
+                }
+              }
+            }
           }
           // 命名空间再导出链：ns 在 target 里是 export * as ns from → 继续解析 attr
           const nsImp = tf.importMap.get(name);
