@@ -784,10 +784,34 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     const mid = impact.affected.find((x) => x.name === "mid")!;
     expect(mid.depth).toBe(1);
     expect(mid.via).toMatch(/^lib\.ts::/); // 影响路径证据：mid 直接调 lib.ts 的 helper
+    expect(mid.viaName).toBe("helper"); // 可读证据
     const top = impact.affected.find((x) => x.name === "top")!;
     expect(top.depth).toBe(2);
     expect(top.via).toMatch(/^mid\.ts::/); // 经 mid 传递
+    expect(top.viaName).toBe("mid");
     expect(impact.summary.maxDepth).toBe(2);
+  });
+
+  it("analyzeChange 边界：环/自环终止、空/不匹配文件标记 unmatchedFiles、反斜杠路径归一化", async () => {
+    const root = project("changeedge", {
+      "a.ts": "export function a() { return b(); }\nexport function b() { return a(); }\nexport function s() { return s(); }\nexport function leaf() { return 1; }\n",
+      "use.ts": "import { a } from './a';\nexport function use() { return a(); }\n",
+    });
+    // 环 a⇄b + 自环 s：BFS 终止、无重复；use 受影响 depth1 via a
+    const ring = await analyzeChange(root, ["a.ts"], { useCache: false });
+    expect(ring.affected.some((x) => x.name === "use")).toBe(true);
+    expect(ring.affected.filter((x) => x.name === "use").length).toBe(1); // 去重
+    // 空 changedFiles → 干净空结果
+    const empty = await analyzeChange(root, [], { useCache: false });
+    expect(empty.summary.changedChunks).toBe(0);
+    expect(empty.summary.affectedChunks).toBe(0);
+    // 不匹配路径 → unmatchedFiles 标记（静默空结果可观测）
+    const nomatch = await analyzeChange(root, ["nope.ts", "./a.ts"], { useCache: false });
+    expect(nomatch.summary.unmatchedFiles).toBe(1); // nope.ts 未匹配（./a.ts 归一化后匹配）
+    expect(nomatch.summary.changedFiles).toBe(1);
+    // 反斜杠路径（Windows）归一化匹配
+    const win = await analyzeChange(root, ["a.ts".replace("/", "\\")], { useCache: false });
+    expect(win.summary.changedFiles).toBe(1);
   });
 });
 

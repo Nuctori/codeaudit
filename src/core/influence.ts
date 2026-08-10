@@ -110,8 +110,10 @@ export interface ImpactedChunk {
   readonly line: number;
   /** 到最近改动 chunk 的调用层数（0 = 改动文件自身）。 */
   readonly depth: number;
-  /** 影响路径首跳：直接调用者 key（depth ≥ 1 时非空；"为什么受影响的证据"）。 */
+  /** 影响路径首跳：到达本 chunk 路径上"我直接调用的被调用者" key（depth ≥ 1 时非空）。 */
   readonly via: string | null;
+  /** via 对应 chunk 的展示名（可读证据；via 是内容哈希 key，配 name 给读者）。 */
+  readonly viaName: string | null;
 }
 
 /** diff 影响面结果：改动文件的反向可达闭包（谁直接/传递调用了它们）。 */
@@ -121,7 +123,10 @@ export interface ChangeImpact {
   /** 受影响调用者（depth ≥ 1，按 depth 升序、key 字典序）。 */
   readonly affected: readonly ImpactedChunk[];
   readonly summary: {
+    /** 匹配到 ≥1 个 chunk 的改动文件数。 */
     readonly changedFiles: number;
+    /** 传入但未匹配任何 chunk 的改动文件数（路径形态不匹配/parseError/跳过——静默空结果的可观测标记）。 */
+    readonly unmatchedFiles: number;
     readonly changedChunks: number;
     readonly affectedChunks: number;
     readonly maxDepth: number;
@@ -137,10 +142,10 @@ export function changedImpact(
   verdicts: readonly { chunk: Chunk }[],
   changedFiles: ReadonlySet<string>,
 ): ChangeImpact {
-  // 路径归一化：chunk.file 是正斜杠相对路径（D-031），调用方可能传 Windows 反斜杠 → 归一化防静默空结果。
-  // 语义约定：传相对 root 的正斜杠/反斜杠路径均可；绝对路径不匹配（与 chunk.file 形态需一致）。
+  // 路径归一化：chunk.file 是正斜杠相对路径（D-031），调用方可能传 Windows 反斜杠 / ./ 前缀
+  // → 归一化防静默空结果。语义约定：传相对 root 的路径均可；绝对路径不匹配（与 chunk.file 形态需一致）。
   const norm = new Set<string>();
-  for (const f of changedFiles) norm.add(f.split("\\").join("/"));
+  for (const f of changedFiles) norm.add(f.replace(/\\/g, "/").replace(/^\.\//, ""));
   const callers = new Map<string, string[]>(); // callee key → caller keys
   for (const v of verdicts) {
     for (const t of v.chunk.calls) {
@@ -153,28 +158,34 @@ export function changedImpact(
   const byKey = new Map(verdicts.map((v) => [v.chunk.key, v.chunk]));
   const seeds = verdicts.filter((v) => norm.has(v.chunk.file)).map((v) => v.chunk.key);
   const seen = new Set<string>(seeds);
-  const queue: Array<[string, number, string | null]> = seeds.map((k) => [k, 0, null]);
+  const queue: Array<[string, number, string | null, string | null]> = seeds.map((k) => [k, 0, null, null]);
   const out: ImpactedChunk[] = [];
   for (let i = 0; i < queue.length; i++) {
-    const [k, d, via] = queue[i]!;
+    const [k, d, via, viaName] = queue[i]!;
     const c = byKey.get(k);
-    if (c) out.push({ key: k, file: c.file, name: c.name, line: c.line, depth: d, via });
+    if (c) out.push({ key: k, file: c.file, name: c.name, line: c.line, depth: d, via, viaName });
     for (const caller of callers.get(k) ?? []) {
       if (!seen.has(caller)) {
         seen.add(caller);
-        queue.push([caller, d + 1, k]);
+        queue.push([caller, d + 1, k, c?.name ?? null]);
       }
     }
   }
   out.sort((a, b) => a.depth - b.depth || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
   const changed = out.filter((x) => x.depth === 0);
   const affected = out.filter((x) => x.depth > 0);
+  // 匹配口径 O(F+C)：chunk 文件集做差集（改动文件 = norm ∩ chunkFiles；未匹配 = 其余）
+  const chunkFiles = new Set<string>();
+  for (const v of verdicts) chunkFiles.add(v.chunk.file);
+  let matchedFiles = 0;
+  for (const f of norm) if (chunkFiles.has(f)) matchedFiles++;
   return {
     changed,
     affected,
     summary: {
-      // 口径：含 ≥1 个 chunk 的改动文件数（parseError/被跳过文件计 0——无 chunk 可分析）
-      changedFiles: [...norm].filter((f) => verdicts.some((v) => v.chunk.file === f)).length,
+      // 口径：含 ≥1 个 chunk 的改动文件数；unmatchedFiles = 路径形态不匹配/parseError/跳过（无 chunk 可分析）
+      changedFiles: matchedFiles,
+      unmatchedFiles: norm.size - matchedFiles,
       changedChunks: changed.length,
       affectedChunks: affected.length,
       maxDepth: affected.length > 0 ? affected[affected.length - 1]!.depth : 0,

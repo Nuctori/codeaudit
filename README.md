@@ -42,11 +42,11 @@ for (const v of report.verdicts) {
   if (v.purity !== 0) console.log(v.chunk.name, v.chain, v.effects);
 }
 
-// diff 影响面：改动哪些文件，直接/传递影响哪些调用者（AI/CI 变更分析用）
+// diff 影响面：改动哪些文件，直接/传递影响哪些调用者（AI/CI 变更分析用；文件级粒度——改动文件的所有 chunk 为种子）
 const impact = await analyzeChange("./src", ["lib/db.ts", "api/route.ts"]);
-console.log(impact.summary); // { changedFiles, changedChunks, affectedChunks, maxDepth }
+console.log(impact.summary); // { changedFiles, unmatchedFiles, changedChunks, affectedChunks, maxDepth }
 for (const a of impact.affected) {
-  console.log(`${"  ".repeat(a.depth)}${a.file}::${a.name}  ← via ${a.via}`);
+  console.log(`${"  ".repeat(a.depth)}${a.file}::${a.name}  ← 调 ${a.viaName ?? "-"}`);
 }
 ```
 
