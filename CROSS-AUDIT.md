@@ -112,3 +112,38 @@
 - Node 18 实机运行未验证（本机 v24）；vitest 4 本身要求 Node ≥20。
 - 探针均在系统临时目录运行，仓库零改动（除上述 node_modules/lockfile 修复）。
 - 行号引用经决策审计轮 `grep -n` 实测复核后修正（python.ts 原引用越界、cli.ts 多处偏移 16-28 行）；机制与结论均不变。
+
+---
+
+# 迭代 2 交叉审计记录（2026-08-10，5 全新视角）
+
+方法：5 个新 reviewer（测试质量/对抗输入/文档消费者/统计数学/维护债务，fresh context 只读）复审 a9d97c9 基线。结论：**不收敛但快速收敛中**——2/5 判收敛（文档消费者、统计），3/5 判不收敛（对抗输入发现 1 Blocker 崩溃、测试质量发现缓存穿透 High、维护债务发现 from-import HOF 假纯 Med）。全部发现已修复（16051d2）。
+
+## 已修复（16051d2，逐项对应）
+
+| 来源 | 级别 | 发现 | 修复 |
+| --- | --- | --- | --- |
+| 对抗输入 | Blocker | `frameworkIo[call.obj]` 裸下标命中 Object.prototype 继承键（hasOwnProperty/toString/constructor 作接收者）→ `for...of` 函数崩溃，单文件 DoS 整扫 | resolveCall + rootOf 改 `Object.hasOwn` 守卫（link.ts:327,155） |
+| 对抗输入 | High | hasError 文件 chunk 以"干净"面貌参与判定：未闭合字符串吞掉后续 import/调用 → 假纯 | parseError 文件 chunk 整体降级 UNKNOWN（`?` 经 eff 集传导给调用者）；修复无标注路径绕过降级的 fallback bug |
+| 对抗输入 | Med | 语料 method/root 继承查找 → NaN 先验 + `__proto__` 键污染原型 | bump 用 defineProperty + hasOwn；priorFor/siteShapeInfo 同款守卫 |
+| 对抗输入 | Med | Python 绝对导入 O(F×M)（distinct 模块逐文件全扫） | 已记录，basename 索引延后（有界 CPU DoS） |
+| 对抗输入 | Med | 缓存投毒可注入任意规模 facts + facts.file 指向兄弟文件 | validFacts 预算（50k chunks/200k calls）+ 要求 `<module>` 伪块 + `facts.file === 缓存键` |
+| 文档消费者 | Med | `--top N --json` 含 PURE 条目（text 先滤） | json 分支同样先滤非 PURE |
+| 文档消费者 | 低 | README 缺 shape/prior/batchable/file 锚定；测试数 114→132；report.root Windows 反斜杠混用 | README 补齐 + root 正斜杠统一 + types.ts state 注释 |
+| 测试质量 | High | validFacts 可被 `chunks:[]` 穿透（同对抗输入，合并修复） | `<module>` 伪块必在 |
+| 测试质量 | Med | Math.random()（PURE）≠ random.random()（IMPURE）跨语言不一致；secrets 不在表 | Math.random → impureGlobals；secrets → impureModules；io-tables 测试补双向断言 |
+| 测试质量 | Med | 多处 `toContain([PURE, UNKNOWN])` 弱断言（实现已确定性） | 收紧为 `toBe`（wildcard 链实测 PURE） |
+| 统计 | Med | 层次收缩双重计数（cell ⊆ method 同源入账） | leave-one-out：θ̂_m 剔除本 cell 计数 |
+| 统计 | Med | 跨键形式去重失效（裸 id / file\0id 换格式重复入账） | seen 双写两键 + 双键去重 |
+| 统计 | Med | EVSI 排序键=总影响面 vs 曲线目标=剩余 UNKNOWN | 排序键改 UNKNOWN 密集影响面（导出与曲线同序） |
+| 统计 | Med | 冷 attr 先验来自 root 异质池借力，n 误导 | 冷 attr（方法级零证据）拒绝提示 |
+| 维护 | Med | from-import HOF 回调边丢失：`from functools import reduce; reduce(write,xs)` → 假纯 | from-import 分支补 hofCallsArgs 钩子（与命名空间分支对称） |
+| 维护 | 低 | dynamicCalls/reexport 死字段；.tmp/ctor-check.test.ts 陈旧探针 | 删除 |
+
+## 收敛信号
+
+- 新增 9 回归测试（B1 崩溃、H1 降级、from-import HOF、io-tables、proto-hash、isCorpus 守卫等），135/135 全绿。
+- swagger 实测：pure 310→307、unknown 432→435（假纯减少，方向正确）。
+- 迭代 1 的 Blocker 级假纯洞与迭代 2 的崩溃级 DoS 均已闭合；后续发现级别递减（Blocker → Med/Low）。
+- 统计评审明示「核心数学自洽收敛」；文档评审明示「闭环正确性无阻断」。
+
