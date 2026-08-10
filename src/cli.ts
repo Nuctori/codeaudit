@@ -72,9 +72,21 @@ function fmtEffects(v: Verdict): string {
   return "{" + parts.join(",") + "}";
 }
 
+let cliRoot = "";
+
+/** 错误消息中的绝对路径前缀裁剪为 "."（段边界：仅当下个字符不是路径延续字符；root 为空/不出现则原样）。 */
+function trimRootPath(msg: string): string {
+  if (!cliRoot || !msg.includes(cliRoot)) return msg;
+  const i = msg.indexOf(cliRoot);
+  const after = msg[i + cliRoot.length];
+  if (after !== undefined && /[A-Za-z0-9_.~-]/.test(after)) return msg; // D:\proj2 不裁剪；引号/分隔符/结尾则裁剪
+  return msg.slice(0, i) + "." + msg.slice(i + cliRoot.length);
+}
+
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
   const root = resolve(args.dir);
+  cliRoot = root;
 
   let annotations: ReadonlyMap<string, "PURE" | "IMPURE"> | undefined;
   if (args.annotations) {
@@ -179,6 +191,7 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  console.error("codeaudit: " + (err instanceof Error ? err.message : String(err)));
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error("codeaudit: " + trimRootPath(msg));
   process.exitCode = 2; // 自然退出：process.exit 与 wasm 句柄关闭竞态会使退出码变 127
 });

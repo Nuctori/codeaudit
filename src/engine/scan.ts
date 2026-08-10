@@ -25,16 +25,53 @@ export interface ScanOptions {
   readonly annotations?: ReadonlyMap<string, "PURE" | "IMPURE">;
 }
 
-const CACHE_VERSION = 4; // v4：文件路径统一 / 分隔（跨平台一致，旧缓存自动失效）
+const CACHE_VERSION = 5; // v5：schema 通道；提取行为变更走自动指纹（computeFingerprint），不再手动 bump
 
 /** 目录递归深度上限（8000 层目录会栈溢出；超限跳过）。 */
 const MAX_DEPTH = 512;
 /** 单文件大小上限（10MB：超限跳过，防 OOM）。 */
 const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
+/**
+ * 行为指纹：哈希一切能改变 RawFileFacts 的输入——提取器源码（lang/ 含 extractor 模块级函数
+ * 与 extractImports 行为）+ 语法包版本（wasm 升级改变解析）。link 期效应表（impureModules 等）
+ * 不缓存、每次扫描重跑，故不参与指纹（加表不应失效缓存）。哈希失败降级为常量（与现状同级安全）。
+ */
+function computeFingerprint(): string {
+  const h = createHash("sha256");
+  try {
+    const base = join(__dirname, "..", "lang");
+    const files: string[] = [];
+    for (const f of readdirSync(base)) if (f.endsWith(".js") || f.endsWith(".ts")) files.push(f);
+    for (const f of readdirSync(join(base, "packs"))) if (f.endsWith(".js") || f.endsWith(".ts")) files.push("packs/" + f);
+    files.sort();
+    for (const f of files) h.update(f).update(readFileSync(join(base, f)));
+    try {
+      h.update(readFileSync("node_modules/tree-sitter-wasms/package.json"));
+    } catch { /* 语法包缺失 → 不参与 */ }
+  } catch {
+    return "const:" + CACHE_VERSION;
+  }
+  return h.digest("hex");
+}
+
 interface CacheFile {
   version: typeof CACHE_VERSION;
+  fingerprint: string;
   files: Record<string, { contentHash: string; facts: RawFileFacts }>;
+}
+
+/** 投毒防护：facts 形状下探到 chunk/import 字段（chunks:[{}] 可穿透仅数组校验）。 */
+function validFacts(f: RawFileFacts | undefined): f is RawFileFacts {
+  if (!f || typeof f.lang !== "string" || !Array.isArray(f.chunks) || !Array.isArray(f.imports)) return false;
+  for (const c of f.chunks) {
+    if (!c || typeof c.name !== "string" || typeof c.normText !== "string" ||
+        typeof c.line !== "number" || !Array.isArray(c.calls) || !Array.isArray(c.assigned)) return false;
+  }
+  for (const i of f.imports) {
+    if (!i || typeof i.local !== "string" || typeof i.module !== "string") return false;
+  }
+  return true;
 }
 
 /** 递归发现源文件（稳定排序保证确定性；路径统一 / 分隔——跨平台一致）。 */
@@ -70,21 +107,23 @@ export function discoverFiles(root: string, packs: readonly LangPack[]): Map<str
 export async function scan(opts: ScanOptions): Promise<ScanReport> {
   const root = normalize(opts.root);
   const fileMap = discoverFiles(root, opts.packs);
+  const fingerprint = opts.useCache ? computeFingerprint() : "";
 
-  let cache: CacheFile = { version: CACHE_VERSION, files: {} };
+  let cache: CacheFile = { version: CACHE_VERSION, fingerprint, files: {} };
   const cachePath = opts.cacheDir ? join(opts.cacheDir, "cache.json") : null;
   if (opts.useCache && cachePath) {
     try {
       const parsed = JSON.parse(readFileSync(cachePath, "utf8")) as CacheFile;
-      // 结构与版本双重校验（畸形/投毒缓存 → 全量重扫）
-      if (parsed && parsed.version === CACHE_VERSION && parsed.files && typeof parsed.files === "object") {
+      // 版本 + 行为指纹 + 结构三重校验（陈旧/畸形/投毒缓存 → 全量重扫）
+      if (parsed && parsed.version === CACHE_VERSION && parsed.fingerprint === fingerprint &&
+          parsed.files && typeof parsed.files === "object") {
         cache = parsed;
       }
     } catch {
-      cache = { version: CACHE_VERSION, files: {} };
+      cache = { version: CACHE_VERSION, fingerprint, files: {} };
     }
   }
-  const nextCache: CacheFile = { version: CACHE_VERSION, files: {} };
+  const nextCache: CacheFile = { version: CACHE_VERSION, fingerprint, files: {} };
   let cachedFiles = 0;
   let skippedFiles = 0;
 
@@ -113,12 +152,11 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
     const contentHash = createHash("sha256").update(source, "utf8").digest("hex");
 
     const hit = cache.files[file];
-    // 缓存命中需结构与内容双重校验（投毒防护：facts 形状必须完整）
+    // 缓存命中需内容 + 字段级结构双重校验（投毒防护：facts 形状必须完整）
     if (
       opts.useCache && hit && hit.contentHash === contentHash &&
-      hit.facts && Array.isArray(hit.facts.chunks) &&
-      typeof hit.facts.lang === "string" &&
-      opts.packs.some((p) => p.name === hit.facts.lang)
+      validFacts(hit.facts) &&
+      opts.packs.some((p) => p.name === hit.facts!.lang)
     ) {
       facts.push(hit.facts);
       nextCache.files[file] = hit;

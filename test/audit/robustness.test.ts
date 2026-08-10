@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { scanProject } from "../../src/index";
+import { scan } from "../../src/engine/scan";
+import { initParser, loadLanguage } from "../../src/loader";
+import { pythonPack } from "../../src/lang/packs/python";
 import { Purity } from "../../src/core/types";
 
 /**
@@ -154,4 +157,53 @@ describe("维度30: 性能预算", () => {
     expect(warm).toBeLessThan(3_000);
     expect(r.stats.cachedFiles).toBe(301);
   }, 60_000);
+});
+
+describe("步骤1：指纹 / memo / 路径裁剪（三方评审落地）", () => {
+  const run = (args: string[]): { code: number; out: string } => {
+    try {
+      const out = execFileSync("node", [CLI, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+      return { code: 0, out };
+    } catch (e: any) {
+      return { code: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
+    }
+  };
+
+  it("缓存行为指纹不匹配 → 全量重扫", async () => {
+    const root = project("cache-fp", { "a.py": "def f():\n    return 1\n" });
+    const cacheDir = join(root, ".codeaudit");
+    await scanProject(root, { useCache: true, cacheDir });
+    expect((await scanProject(root, { useCache: true, cacheDir })).stats.cachedFiles).toBe(1);
+    // 篡改 fingerprint（模拟提取行为变更未失效）→ 全量重扫
+    const cp = join(cacheDir, "cache.json");
+    const cf = JSON.parse(readFileSync(cp, "utf8"));
+    cf.fingerprint = "bogus";
+    writeFileSync(cp, JSON.stringify(cf));
+    expect((await scanProject(root, { useCache: true, cacheDir })).stats.cachedFiles).toBe(0);
+  });
+
+  it("resolveModule 每 (module, fromFile) 只解析一次（memo）", async () => {
+    const root = project("memo", {
+      "a.py": "import os\ndef f():\n    os.getcwd()\n    os.getcwd()\n    os.getcwd()\n",
+    });
+    const ParserCtor = await initParser();
+    let calls = 0;
+    const counting = {
+      ...pythonPack,
+      resolveModule(m: string, f: string, pf: ReadonlySet<string>): string | null {
+        calls++;
+        return pythonPack.resolveModule(m, f, pf);
+      },
+    };
+    await scan({ root, useCache: false, packs: [counting], loadLanguage, ParserCtor });
+    expect(calls).toBeLessThanOrEqual(1); // 3 个 os.getcwd 共享一次模块解析
+  });
+
+  it("错误消息裁剪绝对路径前缀", () => {
+    const root = project("cli-trim", { "a.py": "def f():\n    return 1\n" });
+    const r = run(["scan", join(root, "nope")]);
+    expect(r.code).toBe(2);
+    expect(r.out).not.toContain(root);
+    expect(r.out).toContain(".");
+  });
 });

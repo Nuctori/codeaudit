@@ -39,6 +39,19 @@ export function link(
 ): LinkOutput {
   const projectFiles = new Set(allFacts.map((f) => f.file));
 
+  // resolveModule 调用内 memo（纯函数：projectFiles 本次 link 恒定；键含 pack 名防跨语言串味；null 也缓存）
+  const resMemo = new Map<string, string | null>();
+  const resolveMod = (pack: LangPack, module: string, fromFile: string): string | null => {
+    const k = pack.name + "\u0000" + module + "\u0000" + fromFile;
+    const hit = resMemo.get(k);
+    if (hit !== undefined) return hit;
+    const v = pack.resolveModule(module, fromFile, projectFiles);
+    resMemo.set(k, v);
+    return v;
+  };
+
+
+
   // ---- 第一遍：建立每个文件的符号索引 ----
   const files = new Map<string, FileIndex>();
   let dynamicCalls = 0;
@@ -72,7 +85,7 @@ export function link(
     const wildcards: string[] = [];
     for (const imp of facts.imports) {
       if (imp.local === "*") {
-        const target = pack.resolveModule(imp.module, facts.file, projectFiles);
+        const target = resolveMod(pack, imp.module, facts.file);
         if (target !== null) wildcards.push(target);
         continue;
       }
@@ -109,7 +122,7 @@ export function link(
     for (const imp of fi.facts.imports) {
       if (imp.local !== name && imp.local !== "*") continue;
       if (imp.imported === null) continue; // 命名空间在调用侧解析；别名/再导出（imported 可为别名）按 imported 跟随
-      const target = fi.pack.resolveModule(imp.module, file, projectFiles);
+      const target = resolveMod(fi.pack, imp.module, file);
       if (target === null) continue;
       const importedName = imp.imported === "*" || imp.imported === null ? name : imp.imported;
       const hit = resolveSymbol(target, importedName, depth + 1);
@@ -139,7 +152,7 @@ export function link(
       };
 
       for (const call of rc.calls) {
-        resolveCall(call, rc, fi, files, projectFiles, resolveSymbol, {
+        resolveCall(call, rc, fi, files, projectFiles, resolveSymbol, resolveMod, {
           addEdge: (k) => calls.add(k),
           addEffect: (e) => direct.add(e),
           markUnknown: () => { unknownSites++; calls.add(UNKNOWN_TARGET); },
@@ -160,7 +173,7 @@ export function link(
               if (local && local.length > 0) { calls.add(local[0]!); continue; }
               const imp = fi.importMap.get(n);
               if (imp && imp.imported !== null && imp.imported !== "default" && imp.imported !== "*") {
-                const target = fi.pack.resolveModule(imp.module, fi.facts.file, projectFiles);
+                const target = resolveMod(fi.pack, imp.module, fi.facts.file);
                 if (target !== null) {
                   const hit = resolveSymbol(target, imp.imported, 0);
                   if (hit !== null) { calls.add(hit); continue; }
@@ -209,6 +222,7 @@ function resolveCall(
   files: ReadonlyMap<string, FileIndex>,
   projectFiles: ReadonlySet<string>,
   resolveSymbol: (file: string, name: string, depth: number) => string | null,
+  resolveMod: (pack: LangPack, module: string, fromFile: string) => string | null,
   sink: Sink,
 ): void {
   const pack = fi.pack;
@@ -252,7 +266,7 @@ function resolveCall(
     if (imp.imported === null) {
       // 命名空间导入：import os / import * as fs / const fs = require("fs")
       const member = call.obj !== null ? call.attr : null;
-      const target = pack.resolveModule(imp.module, fi.facts.file, projectFiles);
+      const target = resolveMod(pack, imp.module, fi.facts.file);
       if (target !== null) {
         if (member !== null) {
           const hit = resolveSymbol(target, member, 0);
@@ -281,7 +295,7 @@ function resolveCall(
     }
     // from 导入：from db import save_user → save_user(...)
     if (call.obj === null) {
-      const target = pack.resolveModule(imp.module, fi.facts.file, projectFiles);
+      const target = resolveMod(pack, imp.module, fi.facts.file);
       if (target !== null) {
         const name = imp.imported === "default"
           ? (files.get(target)?.facts.defaultExport ?? imp.imported)
@@ -297,7 +311,7 @@ function resolveCall(
     }
     // from db import conn; conn.execute(...) → 模块导出面解析：类成员真边；外部模块走效应表；重绑遮蔽则跳过
     if (call.obj !== null && !caller.assigned.includes(call.obj)) {
-      const target = pack.resolveModule(imp.module, fi.facts.file, projectFiles);
+      const target = resolveMod(pack, imp.module, fi.facts.file);
       const name = imp.imported === "default"
         ? (target !== null ? (files.get(target)?.facts.defaultExport ?? imp.imported) : imp.imported)
         : imp.imported;
@@ -312,7 +326,7 @@ function resolveCall(
           // 命名空间再导出链：ns 在 target 里是 export * as ns from → 继续解析 attr
           const nsImp = tf.importMap.get(name);
           if (nsImp && nsImp.imported === null) {
-            const t2 = pack.resolveModule(nsImp.module, target, projectFiles);
+            const t2 = resolveMod(pack, nsImp.module, target);
             if (t2 !== null) {
               const hit2 = resolveSymbol(t2, call.attr, 0);
               if (hit2 !== null) { sink.addEdge(hit2); return; }
