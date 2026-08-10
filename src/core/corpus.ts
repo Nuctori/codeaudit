@@ -178,8 +178,9 @@ export function priorFor(corpus: CorpusFile, site: CorpusSite): Prior | null {
   const mImpureLOO = Math.max(0, m.impure - kCell);
   const mTotalLOO = Math.max(0, m.pure + m.impure - nCell);
   const thetaM = (mImpureLOO + GLOBAL_THETA0 * KAPPA1) / (mTotalLOO + KAPPA1);
-  // 角冲突（迭代4 F2）：root 边际 ≥ 方法总数且方法 impure 残差 > 0（mTotalLOO 被 clamp 归零但
-  // mImpureLOO 保留）→ thetaM 由方法残差主导，与真实方法率相去甚远 → 宁缺毋滥回退 null
+  // 角冲突守卫（迭代4 F2）：v1 时 root 桶边际可能 ≥ 方法总数（多 attr 共享 root），LOO 过度扣除导致
+  // thetaM 由方法 impure 残差主导（方向失真）→ 回退 null。v2 cell 精确后正常入账数据不可达
+  // （cell⊆method 恒成立，2000 轮随机 0 触发）——保留作畸形/毒化语料兜底（实测 10.7% 触发全安全回退）
   if (mTotalLOO === 0 && mImpureLOO > 0) return null;
   const thetaCell = (kCell + thetaM * KAPPA2) / (nCell + KAPPA2);
   const pPure = 1 - thetaCell;

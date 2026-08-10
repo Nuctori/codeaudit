@@ -69,9 +69,9 @@ describe("标注语料（corpus）", () => {
     expect(corpus.method.get).toEqual({ pure: 1, impure: 1 }); // 异判定观测都保留（修复前 IMPURE 被裸 id 门吞掉）
   });
 
-  it("LOO 角冲突回退 null（迭代4 F2）：方法 50/50 + root 池纯 → 不制造虚假 PURE 建议", () => {
-    // method.read=10/10（50/50 本应无建议）；root.variable 只收部分 impure（{24,5}，kCell=5 < 方法 impure=10）
-    // → mImpureLOO=5、mTotalLOO=0（clamp 角）→ 修复前 thetaM=5/12≈0.42 方向失真 → 角守卫回退 null
+  it("证据冲突回退 null（迭代4 F2 角守卫 → v2 分歧带）：方法 50/50 + 部分 root 证据 → 无建议", () => {
+    // method.read=10/10（50/50 本应无建议）；(read,variable) 格={10,5} 而 method 其余 5 impure 在 (read,bare)
+    // → v2 下角守卫不触发（cell 精确，mTotalLOO=5），经分歧带（pPure≈0.619∈(0.35,0.65)）→ null
     const chunks: Chunk[] = [];
     const ann = new Map<string, "PURE" | "IMPURE">();
     for (let i = 0; i < 10; i++) { chunks.push(chunk("r" + i, [{ attr: "read", obj: "f", root: "variable" }])); ann.set("r" + i, "PURE"); }
