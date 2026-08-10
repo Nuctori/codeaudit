@@ -52,6 +52,10 @@ export interface Chunk {
   readonly thrownTypes: readonly string[];
   /** 捕获的异常类型（catch {} / except X → "*"/类型名）。 */
   readonly catches: readonly string[];
+  /** 状态写位置（self.x / user.status / global 名）；非空 → state 效应。 */
+  readonly stateWrites: readonly string[];
+  /** 读侧状态位置（self.x / user.status / ⊤）——stateDeps 传播原料（迭代8 视角2）。 */
+  readonly stateReads: readonly string[];
 }
 
 export interface Verdict {

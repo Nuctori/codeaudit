@@ -25,7 +25,7 @@ export interface ScanOptions {
   readonly annotations?: ReadonlyMap<string, "PURE" | "IMPURE">;
 }
 
-const CACHE_VERSION = 5; // v5：schema 通道；提取行为变更走自动指纹（computeFingerprint），不再手动 bump
+const CACHE_VERSION = 6; // v6：stateWrites 布尔→数组 + stateReads 新增（旧 v5 缓存拒 → 全量重扫） // v5：schema 通道；提取行为变更走自动指纹（computeFingerprint），不再手动 bump
 
 /** 目录递归深度上限（8000 层目录会栈溢出；超限跳过）。 */
 const MAX_DEPTH = 512;
@@ -76,6 +76,8 @@ function validFacts(f: RawFileFacts | undefined): f is RawFileFacts {
     if (!c || typeof c.name !== "string" || typeof c.normText !== "string" ||
         typeof c.line !== "number" || !Array.isArray(c.calls) || !Array.isArray(c.assigned)) return false;
     if (c.normText.length > MAX_CACHE_NORMTEXT) return false; // 巨型 normText 被哈希+常驻内存（字节预算）
+    // v6 形状：stateWrites/stateReads 数组（v5 boolean stateWrites 拒 → 防静默漏报 state 效应）
+    if (!Array.isArray(c.stateWrites) || !Array.isArray(c.stateReads)) return false;
     totalCalls += c.calls.length;
     if (totalCalls > MAX_CACHE_CALLS) return false;
   }

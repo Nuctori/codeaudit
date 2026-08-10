@@ -53,7 +53,9 @@ export interface RawChunk {
   /** 函数内赋值目标名（from-import 绑定被局部重绑时跳过解析，防假纯）。 */
   readonly assigned: string[];
   /** 状态写（self.x = / this.x = / global、nonlocal 声明）→ state 效应（用户需求 2026-08-11）。 */
-  readonly stateWrites: boolean;
+  readonly stateWrites: readonly string[];
+  /** 读侧状态位置（self.x / user.status / ⊤）。 */
+  readonly stateReads: readonly string[];
   /** 直接抛出的异常类型（raise ValueError / throw new Error() → "ValueError"/"Error"；裸 raise/throw → "*"）。 */
   readonly thrownTypes: readonly string[];
   /** 捕获的异常类型（catch {} / except X → "*"/类型名）。 */

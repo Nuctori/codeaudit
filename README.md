@@ -113,7 +113,7 @@ src/
 ## 已知限制（有意为之）
 
 - **动态分派不追踪**：`obj.method()` 中 `obj` 是局部变量时，边不可知——记为 `?`（未知），audit 模式下降级为 UNKNOWN，不伪造边（诚实承认看不见）；不可拍平的调用形态（`super().m()`、`factory()()`、`d[k]()`）同样记 `?`。
-- **状态写已建模（2026-08-11）**：`self.x =`/`this.x =`/Python `global`/`nonlocal` 声明 → `state` 效应（函数只改实例/全局状态不再判 PURE）。残余：`self.x = ...` 的**读方**传播不可追踪（谁读了该状态仍不可判定——类型层否决）；模块级可变单例状态同理。
+- **状态写与读方传播（2026-08-11）**：`self.x =`/`this.x =`/Python `global`/`nonlocal`/外部对象属性写（`user.status = …`）→ `state` 效应（函数只改实例/全局状态不再判 PURE）；`verdict.stateDeps` 输出读方耦合（谁读了被项目内其他 chunk 写的位置）——纯元数据不进判定（公理3：读不是副作用）。残余：项目外写者（测试夹具/框架注入）不可见 → 漏报；写侧盲区（下标写 `d[k]=`、调用结果写 `f().x=`）不检测；`self.x` 无类限定（跨类同名超近似）。
 - **强制转换内建的协议残余**：`len(x)`/`str(x)`/`int(x)` 等判纯，但 x 是用户对象时会分派 `__len__`/`__str__`/`__int__`（可带 io）——接受为有意范围（移除则 unknown-rate 爆炸）；`hash/repr/format/getattr/setattr/iter/next/vars/dir` 已移出判未知。
 - **混合模块非 impure 成员 → UNKNOWN**：拆表 schema 的成员表只列 io 成员 + `:p` 显式纯标记（已实现 json.dumps/crypto.createHash 等）；未标记成员（如 `time.strftime`）仍落 UNKNOWN——方向安全（假未知非假纯），继续标记按需扩展。
 - **Python lambda 归属**：赋值 RHS 的 lambda 提为命名 chunk（`handler = lambda: io` → handler 独立判定，module 不误报）；实参 lambda（`map(lambda: …)`）体调用归外层——模块级执行路径正确判 io。残余：实参 lambda 的体 io 无独立判定单元（方向安全）。

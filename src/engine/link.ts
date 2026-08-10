@@ -244,7 +244,7 @@ export function link(
 
       // 状态写（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 → state 效应——
       // 函数只改全局/实例状态不再判 PURE（S1 假纯漏报闭合）
-      if (rc.stateWrites) direct.add("state");
+      if (rc.stateWrites.length > 0) direct.add("state");
 
       out.push({
         // 公理4：id 由内容直接重算，与 key 的去重后缀无关（module 用文件限定 id）
@@ -261,6 +261,8 @@ export function link(
         unknownCalls,
         thrownTypes: rc.thrownTypes,
         catches: rc.catches,
+        stateReads: rc.stateReads,
+        stateWrites: rc.stateWrites,
       });
     }
   }

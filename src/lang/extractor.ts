@@ -59,8 +59,18 @@ export class Extractor {
       }
       // 状态写检测（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 /
       // 任意外部对象属性写（user.status = "banned"，obj 非局部新建）→ state 效应。
-      // 归 stack 顶层 chunk（嵌套函数内赋值归内层 chunk）；class 内方法赋值归方法（构造器边传播）。
-      if (this.isStateWrite(node, stack[stack.length - 1]!)) stack[stack.length - 1]!.stateWrites = true;
+      // 位置化（迭代8 视角2）：返回位置列表（"self.x" / "user.status" / "counter"）供读方传播匹配。
+      const writes = this.stateWritePos(node, stack[stack.length - 1]!);
+      for (const w of writes) {
+        const t = stack[stack.length - 1]!;
+        if (!t.stateWrites.includes(w)) t.stateWrites.push(w);
+      }
+      // 读侧提取（迭代8 视角2）：attribute/member 值读取 → stateReads（赋值左值/调用目标排除）
+      const reads = this.stateReadPos(node, stack[stack.length - 1]!);
+      for (const r of reads) {
+        const t = stack[stack.length - 1]!;
+        if (!t.stateReads.includes(r)) t.stateReads.push(r);
+      }
       // 异常抛出提取（盲区1）：raise/throw → chunk.thrownTypes（异常类型字面可静态提取；裸 raise/throw → "*"）
       const thrown = this.thrownTypeOf(node);
       if (thrown !== null) {
@@ -133,21 +143,66 @@ export class Extractor {
     return bindings;
   }
 
-  /** 状态写检测（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 → state 效应。 */
-  private isStateWrite(node: SyntaxNode, chunk: MutableChunk): boolean {
-    if (node.type === "global_statement" || node.type === "nonlocal_statement") return true;
+  /** 状态写位置提取（迭代8 视角2）：self.x= / this.x= / global、nonlocal 声明 → 位置列表（空 = 非写）。 */
+  private stateWritePos(node: SyntaxNode, chunk: MutableChunk): string[] {
+    if (node.type === "global_statement" || node.type === "nonlocal_statement") {
+      // Python：global counter, x → 声明名列表
+      return node.children.filter((c) => c.type === "identifier").map((c) => c.text);
+    }
     if (node.type === "assignment" || node.type === "augmented_assignment" ||
         node.type === "assignment_expression" || node.type === "augmented_assignment_expression") {
       // TS/JS：x = y → assignment_expression；x += y → augmented_assignment_expression（迭代8 F1）
       const left = node.childForFieldName("left") ?? node.children[0];
-      return this.isExternalWrite(left, chunk);
+      const pos = this.externalWritePos(left, chunk);
+      return pos !== null ? [pos] : [];
     }
     if (node.type === "update_expression") {
       // TS：this.x++ / this.x--
       const arg = node.childForFieldName("argument") ?? node.children[0];
-      return this.isExternalWrite(arg, chunk);
+      const pos = this.externalWritePos(arg, chunk);
+      return pos !== null ? [pos] : [];
     }
-    return false;
+    return [];
+  }
+
+  /** 读侧状态位置（迭代8 视角2）：attribute/member 值读取 → "self.x"/"user.status"/"⊤"；空 = 非读。 */
+  private stateReadPos(node: SyntaxNode, chunk: MutableChunk): string[] {
+    if (node.type !== "attribute" && node.type !== "member_expression") return [];
+    const parent = node.parent;
+    if (parent && (
+      parent.type === "assignment" || parent.type === "augmented_assignment" ||
+      parent.type === "assignment_expression" || parent.type === "augmented_assignment_expression" ||
+      parent.type === "update_expression")) {
+      // 赋值左值跳过（写侧已处理；augmented/update 的右值读由右侧表达式节点捕获）
+      const left = parent.childForFieldName("left") ?? parent.children[0];
+      if (left === node) return [];
+    }
+    if (parent && (parent.type === "call" || parent.type === "call_expression" || parent.type === "new_expression")) {
+      // 调用目标排除（user.save() 不是字段值读取）
+      const fn = parent.childForFieldName("function") ?? parent.childForFieldName("constructor") ?? parent.children[0];
+      if (fn === node) return [];
+    }
+    const obj = node.childForFieldName("object") ?? node.children[0] ?? null;
+    const attr = node.childForFieldName("attribute") ?? node.childForFieldName("property") ?? node.children[node.children.length - 1] ?? null;
+    if (!obj || !attr) return [];
+    if (obj.text === "self" || obj.text === "cls" || obj.text === "this") return [`self.${attr.text}`];
+    if (obj.type === "identifier") {
+      if (chunk.params.includes(obj.text) || !chunk.assigned.includes(obj.text)) return [`${obj.text}.${attr.text}`];
+      return []; // 局部对象读（非外部）
+    }
+    // 下标/调用结果接收者：根限定 ⊤（d[k] 读 → "d.⊤"）或全局 ⊤
+    const root = this.subscriptRoot(obj);
+    return root !== null ? [`${root}.⊤`] : ["⊤"];
+  }
+
+  /** 下标/调用表达式根标识符（d[k] → d；f(x)[k] → 回溯到根标识符或 null）。 */
+  private subscriptRoot(node: SyntaxNode): string | null {
+    let n: SyntaxNode | null = node;
+    for (let i = 0; i < 8 && n !== null; i++) {
+      if (n.type === "identifier") return n.text;
+      n = n.childForFieldName("value") ?? n.childForFieldName("object") ?? n.childForFieldName("function") ?? n.children[0] ?? null;
+    }
+    return null;
   }
 
   /** 异常捕获类型提取（迭代7 ④）：catch_clause（TS catch {} / catch(e) → "*" 吞一切）；
@@ -216,25 +271,34 @@ export class Extractor {
    * 局部赋值**（assigned）中——参数（params 含）/模块级对象属性写（user.status = "banned"）算外部
    * 状态写；局部新建对象初始化（const o = {}; o.x = 1）不算（obj 在 assigned 且非参数）。
    */
-  private isExternalWrite(left: SyntaxNode | null | undefined, chunk: MutableChunk): boolean {
-    if (!left) return false;
+  /**
+   * 外部状态写位置：赋值目标是 self./cls./this. 属性，或任意对象属性且对象名**不在本 chunk 的
+   * 局部赋值**（assigned）中——参数（params 含）/模块级对象属性写（user.status = "banned"）算外部
+   * 状态写；局部新建对象初始化（const o = {}; o.x = 1）不算（obj 在 assigned 且非参数）。
+   * 返回位置字符串（"self.x" / "user.status"）；非外部写 → null。
+   */
+  private externalWritePos(left: SyntaxNode | null | undefined, chunk: MutableChunk): string | null {
+    if (!left) return null;
+    const readTarget = (obj: SyntaxNode | null | undefined, attr: string | null | undefined): string | null => {
+      if (!obj || !attr) return null;
+      if (obj.text === "self" || obj.text === "cls" || obj.text === "this") return `self.${attr}`;
+      if (obj.type === "identifier" &&
+          (chunk.params.includes(obj.text) || !chunk.assigned.includes(obj.text))) {
+        return `${obj.text}.${attr}`;
+      }
+      return null;
+    };
     if (left.type === "attribute") {
-      // Python：self.x / cls.y / user.status
       const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
-      if (!obj) return false;
-      if (obj.text === "self" || obj.text === "cls") return true;
-      return obj.type === "identifier" &&
-        (chunk.params.includes(obj.text) || !chunk.assigned.includes(obj.text));
+      const attr = left.childForFieldName("attribute") ?? left.children[left.children.length - 1] ?? null;
+      return readTarget(obj, attr?.text);
     }
     if (left.type === "member_expression") {
-      // TS：this.x / config.x
       const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
-      if (!obj) return false;
-      if (obj.text === "this") return true;
-      return obj.type === "identifier" &&
-        (chunk.params.includes(obj.text) || !chunk.assigned.includes(obj.text));
+      const attr = left.childForFieldName("property") ?? left.children[left.children.length - 1] ?? null;
+      return readTarget(obj, attr?.text);
     }
-    return false;
+    return null;
   }
 
   /** 状态写检测：self.x = / this.x = / global、nonlocal 声明 → state 效应。 */
@@ -416,7 +480,10 @@ interface MutableChunk {
   assigned: string[];
   /** 函数参数名（与 assigned 分离：参数是外部传入对象，对其属性写 = 外部状态写；局部赋值不算）。 */
   params: string[];
-  stateWrites: boolean;
+  /** 状态写位置（self.x / user.status / global 名）；非空 → state 效应。 */
+  stateWrites: string[];
+  /** 读侧状态位置（self.x / user.status / ⊤）——stateDeps 传播原料。 */
+  stateReads: string[];
   /** 直接抛出的异常类型（raise ValueError / throw new Error()）。 */
   thrownTypes: string[];
   /** 捕获的异常类型（catch {} / except X → "*"/类型名；方向安全减法用）。 */
@@ -451,7 +518,7 @@ function fresh(
   ownerClass: string | null = null,
   kind: "class" | "function" | "module" = "function",
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], stateWrites: false, thrownTypes: [], catches: [], ownerClass };
+  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], stateWrites: [], stateReads: [], thrownTypes: [], catches: [], ownerClass };
 }
 
 /** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */

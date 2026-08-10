@@ -13,6 +13,9 @@ function mk(partial: Partial<Chunk> & { key: string }): Chunk {
     direct: new Set(),
     calls: new Set(),
     thrownTypes: [],
+    catches: [],
+    stateWrites: [],
+    stateReads: [],
     ...partial,
   };
 }

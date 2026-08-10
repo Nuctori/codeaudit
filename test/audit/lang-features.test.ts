@@ -899,6 +899,21 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(by2.get("a.py::handled")!.throwsTypes).not.toContain("ValueError");
   });
 
+  it("读方传播 stateDeps（迭代8 视角2）：send_email↔user.status 耦合可见、判定不变", async () => {
+    const root = project("statedeps", {
+      "a.py": "def validate_user(user):\n    user.status = 'banned'\n    return True\ndef send_email(user):\n    if user.status == 'active':\n        send()\n    return user.status\n",
+      "b.ts": "export class Store {\n  private v = 0;\n  set(x: number) { this.v = x; }\n  get() { return this.v; }\n}\n",
+    });
+    const r = await scanProject(root);
+    const by2 = new Map(r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]));
+    expect(by2.get("a.py::send_email")!.stateDeps).toContain("user.status"); // 读到被 validate_user 写的位置
+    expect(by2.get("a.py::validate_user")!.stateDeps).toEqual([]); // 写者无依赖
+    expect(by2.get("b.ts::Store.get")!.stateDeps).toContain("self.v"); // set 写、get 读
+    // 隔离：stateDeps 非空时 purity 不变（get 读 → PURE；send_email 的 UNKNOWN 来自 send() 未解析，非 stateDeps）
+    expect(by2.get("b.ts::Store.get")!.purity).toBe(Purity.PURE);
+    expect(by2.get("a.py::validate_user")!.purity).toBe(Purity.IMPURE); // state 效应照常
+  });
+
   it("analyzeChange 边界：环/自环终止、空/不匹配文件标记 unmatchedFiles、反斜杠路径归一化", async () => {
     const root = project("changeedge", {
       "a.ts": "export function a() { return b(); }\nexport function b() { return a(); }\nexport function s() { return s(); }\nexport function leaf() { return 1; }\n",

@@ -1,5 +1,6 @@
 import { type Chunk, Purity, type Verdict, UNKNOWN_TARGET } from "./types";
 import { tarjan } from "./tarjan";
+import { stateDepsOf } from "./state";
 
 interface ModeResult {
   readonly effects: ReadonlySet<string>;
@@ -148,6 +149,7 @@ export interface AnalyzeOutput {
 export function analyze(chunks: readonly Chunk[]): AnalyzeOutput {
   const audit = runOnce(chunks, true);
   const dev = runOnce(chunks, false);
+  const stateDeps = stateDepsOf(chunks); // 读方传播（迭代8 视角2，纯元数据）
 
   const verdicts: Verdict[] = chunks.map((c) => {
     const a = audit.res.get(c.key)!;
@@ -163,6 +165,7 @@ export function analyze(chunks: readonly Chunk[]): AnalyzeOutput {
       outDegree: c.calls.size - (c.calls.has(UNKNOWN_TARGET) ? 1 : 0),
       chainPath: a.chainPath,
       throwsTypes: a.throwsTypes,
+      stateDeps: stateDeps.get(c.key) ?? [],
     };
   });
 
