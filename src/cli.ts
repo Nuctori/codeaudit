@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { scanProject } from "./index";
 import { Purity, UNKNOWN_TARGET, type Verdict } from "./core/types";
-import { influenceAnalysis } from "./core/influence";
+import { annotationBudget, annotationCurve } from "./core/influence";
 
 interface CliArgs {
   dir: string;
@@ -133,7 +133,8 @@ async function main(): Promise<void> {
   if (args.unknowns) {
     // 影响面排序：只导出自身含 `?` 的源（纯传播型 UNKNOWN 标它无意义）；
     // 影响面 = 该符号反向可达闭包内的 chunk 数（一次标注解除的 UNKNOWN 量）
-    const influence = influenceAnalysis(report.verdicts.map((v) => v.chunk));
+    const chunks = report.verdicts.map((v) => v.chunk);
+    const budget = annotationBudget(chunks);
     const unknowns = report.verdicts
       .filter((v) => v.purity === Purity.UNKNOWN && v.chunk.calls.has(UNKNOWN_TARGET))
       .map((v) => ({
@@ -141,14 +142,32 @@ async function main(): Promise<void> {
         symbol: v.chunk.name,
         file: v.chunk.file,
         line: v.chunk.line,
-        influence: influence.get(v.chunk.key) ?? 0,
+        influence: budget.influence.get(v.chunk.key) ?? 0,
+        unknownSites: v.chunk.unknownSites,
         suggested_prompt:
-          `函数 \`${v.chunk.name}\`（${v.chunk.file}:${v.chunk.line}）调用了无法静态解析的符号。` +
-          `请判断它是否执行 I/O 或副作用，回答 PURE / IMPURE / UNKNOWN 并给出一句话理由。`,
+          `函数 \`${v.chunk.name}\`（${v.chunk.file}:${v.chunk.line}）有 ${v.chunk.unknownSites} 个无法静态解析的调用点。` +
+          `请判断它是否执行 I/O 或副作用，回答 PURE / IMPURE / UNKNOWN 并给出一句话理由（PURE 需全部调用点确证）。`,
       }))
       .sort((a, b) => b.influence - a.influence);
     writeFileSync(args.unknowns, JSON.stringify(unknowns, null, 2));
-    console.error(`unknowns -> ${args.unknowns} (${unknowns.length} 条)`);
+    // 标注曲线：按影响面贪心序的精确剩余 UNKNOWN（"标到多少就够"的预算数学）。
+    // order = 导出源集（UNKNOWN 且含 `?`）；IMPURE 带未知的源不在清单、不参与释放计数
+    const order = report.verdicts
+      .filter((v) => v.purity === Purity.UNKNOWN && v.chunk.calls.has(UNKNOWN_TARGET))
+      .map((v) => v.chunk.key)
+      .sort((a, b) => (budget.influence.get(b) ?? 0) - (budget.influence.get(a) ?? 0));
+    const unknownKeys = new Set(
+      report.verdicts.filter((v) => v.purity === Purity.UNKNOWN).map((v) => v.chunk.key),
+    );
+    const curve = annotationCurve(budget, order, unknownKeys);
+    const total = curve[0] ?? 0;
+    const pts = [0, 0.1, 0.25, 0.5, 0.75, 1].map((p) => {
+      const k = Math.min(order.length, Math.round(p * order.length));
+      const rem = curve[k] ?? 0;
+      return `标${k}条→${rem} (${((rem / report.stats.chunks) * 100).toFixed(1)}%)`;
+    });
+    console.error(`unknowns -> ${args.unknowns} (${unknowns.length} 条, 全标后 ${total}→${curve[curve.length - 1] ?? 0})`);
+    console.error(`标注曲线(贪心序): ${pts.join(" | ")}`);
   }
 
   if (args.strict && report.stats.impure > 0) process.exit(1);

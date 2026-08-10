@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanProject } from "../../src/index";
 import { influenceAnalysis } from "../../src/core/influence";
+import { annotationBudget, annotationCurve } from "../../src/core/influence";
 import { Purity, type Verdict } from "../../src/core/types";
 
 /**
@@ -424,5 +425,32 @@ describe("迭代2：module id 锚点 + egg 框架命名空间", () => {
     });
     const b = by(await scanProject(root));
     expect(b.get("c.js::index")!.purity).toBe(Purity.IMPURE);
+  });
+});
+
+describe("标注会计：? 多重性 + 标注曲线", () => {
+  it("unknownSites 保留未解析调用点数（calls 的 ? 是去重单哨兵）", async () => {
+    const root = project("usites", {
+      "a.py": "import weirdlib\ndef f():\n    weirdlib.a()\n    weirdlib.b()\n",
+    });
+    const r = await scanProject(root);
+    const f = r.verdicts.find((v) => v.chunk.name === "f")!;
+    expect(f.chunk.calls.has("?")).toBe(true);
+    expect(f.chunk.unknownSites).toBe(2);
+  });
+
+  it("标注曲线精确：a 调 b、b 含 ? → 标 b 释放 a 和 b", async () => {
+    const root = project("curve1", {
+      "a.py": "import b\ndef a():\n    b.source()\n",
+      "b.py": "import weirdlib\ndef source():\n    weirdlib.run()\n",
+    });
+    const r = await scanProject(root);
+    const chunks = r.verdicts.map((v) => v.chunk);
+    const budget = annotationBudget(chunks);
+    const bKey = chunks.find((c) => c.file.endsWith("b.py") && c.name === "source")!.key;
+    const curve = annotationCurve(budget, [bKey]);
+    expect(curve[0]).toBe(2); // a + b 都 UNKNOWN
+    expect(curve[1]).toBe(0); // 标 b 后全部释放
+    expect(budget.deps.get(bKey)).toBe(1); // b 依赖自身 1 个源
   });
 });

@@ -34,6 +34,8 @@ export interface Chunk {
   readonly direct: ReadonlySet<string>;
   /** 已解析 callee 的 key 集合；含 UNKNOWN_TARGET 表示存在未解析调用。 */
   readonly calls: ReadonlySet<string>;
+  /** 未解析调用点数（calls 中 `?` 是集合去重后的单哨兵；此处保留多重性，标注需全部确证）。 */
+  readonly unknownSites: number;
 }
 
 export interface Verdict {

@@ -125,6 +125,7 @@ export function link(
     for (const [key, rc] of fi.chunkByKey) {
       const direct = new Set<string>();
       const calls = new Set<string>();
+      let unknownSites = 0; // `?` 多重性：calls 是 Set 只记一个 `?`，此处记未解析调用点数
 
       const effectFromModule = (rawModule: string, member: string | null): boolean => {
         const module = rawModule.replace(/^node:/, ""); // node:fs ≡ fs
@@ -141,8 +142,8 @@ export function link(
         resolveCall(call, rc, fi, files, projectFiles, resolveSymbol, {
           addEdge: (k) => calls.add(k),
           addEffect: (e) => direct.add(e),
-          markUnknown: () => calls.add(UNKNOWN_TARGET),
-          markDynamic: () => { dynamicCalls++; calls.add(UNKNOWN_TARGET); },
+          markUnknown: () => { unknownSites++; calls.add(UNKNOWN_TARGET); },
+          markDynamic: () => { dynamicCalls++; unknownSites++; calls.add(UNKNOWN_TARGET); },
           addArgEdges: (names) => {
             for (const n of names) {
               // 成员形回调：this.log / self.render → 当前类的同名方法（HOF 成员形假纯修复）
@@ -184,6 +185,7 @@ export function link(
         nesting: rc.nesting,
         direct,
         calls,
+        unknownSites,
       });
     }
   }
