@@ -58,6 +58,9 @@ export class Extractor {
       if (pushed) stack.pop();
     };
     visit(root);
+    // 模块级遮蔽守卫：module chunk 的 assigned = 文件级绑定（函数内重绑由各 chunk 自己的 assigned 管；
+    // 模块级重绑影响所有消费者——如 from db import conn 后被 conn = other 重绑）
+    moduleChunk.assigned = this.assignedNames(root);
 
     chunks.unshift(moduleChunk as RawChunk);
     return {
@@ -157,15 +160,34 @@ export class Extractor {
     return out;
   }
 
-  /** 函数内赋值目标名（遮蔽守卫：from-import 绑定被局部重绑时不再解析）。流不敏感保守收集。 */
+  /** 函数内绑定名（赋值目标 + 参数名——参数同样遮蔽外层 import；遮蔽守卫用）。流不敏感保守收集。 */
   private assignedNames(root: SyntaxNode): string[] {
     const out: string[] = [];
+    const pushParam = (n: SyntaxNode): void => {
+      const named = n.childForFieldName("name") ?? n.childForFieldName("pattern");
+      if (named && (named.type === "identifier" || named.type === "property_identifier")) {
+        out.push(named.text);
+      } else if (n.type === "identifier" || n.type === "property_identifier") {
+        out.push(n.text);
+      }
+    };
     const walk = (n: SyntaxNode): void => {
       if (this.pack.assignmentTargets.includes(n.type)) {
-        const left = n.childForFieldName("left") ?? n.childForFieldName("name");
-        if (left && (left.type === "identifier" || left.type === "property_identifier")) {
-          out.push(left.text);
+        // require 导入声明（const x = require(...)）不是遮蔽——importMap 已登记该绑定
+        let isRequireDecl = false;
+        if (n.type === "variable_declarator") {
+          const val = n.childForFieldName("value");
+          const fn = val ? val.childForFieldName("function") ?? val.children[0] : null;
+          isRequireDecl = !!fn && fn.type === "identifier" && fn.text === "require";
         }
+        if (!isRequireDecl) {
+          const left = n.childForFieldName("left") ?? n.childForFieldName("name");
+          if (left && (left.type === "identifier" || left.type === "property_identifier")) {
+            out.push(left.text);
+          }
+        }
+      } else if (n.type === "parameters") {
+        for (const c of n.children) pushParam(c); // 参数名遮蔽外层绑定
       }
       for (const c of n.children) walk(c);
     };

@@ -52,7 +52,18 @@
 | 3 | bySimple 歧义静默取首：同名顶层重定义不记 `?`；裸名可误解析到类方法 | 仅解析唯一顶层候选；多顶层重定义 → `?`；仅方法候选 → 不解析 |
 | 4 | HOF 实参静默丢：`const f = writeFileSync; [1].map(f)` → 假纯 | 无条件调用 HOF（map/filter/forEach/reduce…）实参未解析 → 记未知（`hofAlwaysArgs` 表）；条件调用（sorted key=/Array.from）保持跳过 |
 
-回归测试：`test/audit/lang-features.test.ts`「公理审计修复」组（5 用例，含不变量机检零违规证书）。
+回归测试：`test/audit/lang-features.test.ts`「公理审计修复」组（7 用例，含不变量机检零违规证书与两个假纯反例）。
+
+## 四·五、后续健全性缺口（定义性事实族评审发现，2026-08-10 已修）
+
+四方评审（模块级值绑定/构造器接收者/返回类型链/require 解构）裁决：**特性全否决**（Jeff Dean 实测触发各 0-3 处，低于停止准则；统一机制=被否决类型层换名）。但评审发现两个存活假纯洞（正确性 bug），按「只修正确性 bug」修复：
+
+| # | 缺口 | 修复 |
+|---|---|---|
+| 5 | **模块级重绑遮蔽 import**：`from db import conn; conn = other`（模块顶层）→ 解析到 db 纯方法 → 假纯（实证 PURE） | module chunk 的 assigned = 文件级绑定（原恒空——模块级遮蔽守卫全死）；import 分支守卫查 moduleAssigned；require 导入声明（`const x = require(...)`）排除（是 importMap 登记，非遮蔽） |
+| 6 | **参数遮蔽命名空间 import**：`import math; def f(math): math.foo()` → 纯表丢弃 → 假纯（实证 PURE） | assignedNames 同时收集参数名（参数遮蔽外层绑定）；import 分支守卫升级为 assigned ∪ 参数 ∪ 模块级 |
+
+残余（特性否决记录）：模块级值绑定（A）、构造器接收者（B）、内建方法返回类型链（C，有害）、require 解构（D）——在出现重度语料（跨文件单例导入/字面量链）前不重审。
 
 ## 五、残余
 

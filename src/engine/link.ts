@@ -25,6 +25,8 @@ interface FileIndex {
   readonly importMap: Map<string, RawImport>;
   /** 星号导入/再导出的目标文件。 */
   readonly wildcards: string[];
+  /** 文件级绑定名（module chunk 的 assigned：模块级赋值/重绑遮蔽所有消费者）。 */
+  readonly moduleAssigned: ReadonlySet<string>;
   readonly chunkByKey: Map<string, RawChunk>;
 }
 
@@ -101,7 +103,9 @@ export function link(
       });
     }
 
-    files.set(facts.file, { facts, pack, byQualified, ambiguous, bySimple, importMap, wildcards, chunkByKey });
+    const moduleAssigned = new Set(facts.chunks.find((c) => c.name === "<module>")?.assigned ?? []);
+
+    files.set(facts.file, { facts, pack, byQualified, ambiguous, bySimple, importMap, wildcards, chunkByKey, moduleAssigned });
   }
 
   // ---- 符号解析（含再导出跟随，深度受限） ----
@@ -297,10 +301,10 @@ function resolveCall(
     }
   }
 
-  // 3. import 映射
+  // 3. import 映射（绑定被遮蔽——赋值/参数/模块级重绑——则不解析，落到效应表/未知诚实处理）
   const binding = call.obj ?? call.attr;
   const imp = fi.importMap.get(binding);
-  if (imp) {
+  if (imp && !caller.assigned.includes(binding) && !fi.moduleAssigned.has(binding)) {
     if (imp.imported === null) {
       // 命名空间导入：import os / import * as fs / const fs = require("fs")
       const member = call.obj !== null ? call.attr : null;

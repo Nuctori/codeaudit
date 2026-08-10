@@ -545,4 +545,21 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     const r = await scanProject(root);
     expect(r.stats.invariantViolations).toBe(0);
   });
+
+  it("模块级重绑遮蔽 import：conn = other 后不解析到 db 的纯方法", async () => {
+    const root = project("modrebind", {
+      "db.py": "class conn:\n    def execute(self):\n        pass\n",
+      "use.py": "from db import conn\nconn = make_evil()\ndef f():\n    conn.execute()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("use.py::f")!.purity).toBe(Purity.UNKNOWN); // 模块级重绑 → 不解析
+  });
+
+  it("参数遮蔽命名空间 import：def f(math): math.foo() → 未知", async () => {
+    const root = project("paramshadow", {
+      "a.py": "import math\ndef f(math):\n    math.foo()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN); // math 是参数 → 遮蔽 import
+  });
 });
