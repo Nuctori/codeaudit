@@ -260,6 +260,7 @@ export function link(
         unknownSites,
         unknownCalls,
         thrownTypes: rc.thrownTypes,
+        catches: rc.catches,
       });
     }
   }

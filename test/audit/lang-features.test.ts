@@ -871,6 +871,18 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(by2.get("b.ts::caller")!.throwsTypes).toContain("RangeError");
   });
 
+  it("异常 catch 细化（迭代7 ④）：try/except ValueError 吞掉、TS catch{} 吞一切、未捕获保留", async () => {
+    const root = project("catchdet", {
+      "a.py": "def parse(x):\n    raise ValueError('bad')\ndef safe_parse(x):\n    try:\n        return parse(x)\n    except ValueError:\n        return None\ndef risky(x):\n    return parse(x)\n",
+      "b.ts": "export function boom(): never { throw new RangeError('x'); }\nexport function handled() { try { return boom(); } catch { return 0; } }\n",
+    });
+    const r = await scanProject(root);
+    const by2 = new Map(r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]));
+    expect(by2.get("a.py::safe_parse")!.throwsTypes).toEqual([]); // except ValueError 吞掉
+    expect(by2.get("a.py::risky")!.throwsTypes).toContain("ValueError"); // 未捕获保留
+    expect(by2.get("b.ts::handled")!.throwsTypes).toEqual([]); // catch {} 吞一切
+  });
+
   it("analyzeChange 边界：环/自环终止、空/不匹配文件标记 unmatchedFiles、反斜杠路径归一化", async () => {
     const root = project("changeedge", {
       "a.ts": "export function a() { return b(); }\nexport function b() { return a(); }\nexport function s() { return s(); }\nexport function leaf() { return 1; }\n",

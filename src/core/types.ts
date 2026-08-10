@@ -50,6 +50,8 @@ export interface Chunk {
   readonly parseError?: boolean;
   /** 直接抛出的异常类型（raise ValueError / throw new Error() → "ValueError"/"Error"；裸 raise/throw → "*"）。 */
   readonly thrownTypes: readonly string[];
+  /** 捕获的异常类型（catch {} / except X → "*"/类型名）。 */
+  readonly catches: readonly string[];
 }
 
 export interface Verdict {

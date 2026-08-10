@@ -67,6 +67,12 @@ export class Extractor {
         const t = stack[stack.length - 1]!;
         if (!t.thrownTypes.includes(thrown)) t.thrownTypes.push(thrown);
       }
+      // 异常捕获提取（迭代7 视角3 ④）：catch 子句类型——TS catch {} 吞一切（"*"）；Python except X 精确类型
+      const caught = this.catchTypeOf(node);
+      if (caught !== null) {
+        const t = stack[stack.length - 1]!;
+        if (!t.catches.includes(caught)) t.catches.push(caught);
+      }
       for (const child of node.children) visit(child);
       if (pushed) stack.pop();
     };
@@ -140,6 +146,20 @@ export class Extractor {
       return this.isExternalWrite(arg, chunk);
     }
     return false;
+  }
+
+  /** 异常捕获类型提取（迭代7 ④）：catch_clause（TS catch {} / catch(e) → "*" 吞一切）；
+   *  Python except_clause（except ValueError → "ValueError"；裸 except: → "*"）。非捕获节点 → null。 */
+  private catchTypeOf(node: SyntaxNode): string | null {
+    if (node.type === "catch_clause") return "*"; // TS/JS catch 无条件吞一切（无类型化 catch）
+    if (node.type === "except_clause") {
+      // Python：except ValueError: / except (A, B): / except: / except Exception as e:
+      const typ = node.children.find((c) => c.type === "identifier" || c.type === "attribute" || c.type === "tuple");
+      if (!typ) return "*"; // 裸 except:
+      if (typ.type === "tuple") return "*"; // except (A, B): 多类型——保守吞一切（过近似安全）
+      return typ.text; // 精确类型（仅字面匹配；项目自定义类型未提取继承边 → 保守不减其子类）
+    }
+    return null;
   }
 
   /** chunk 自身参数名（不进入嵌套函数——只取本 chunk 的 parameters 字段直接子节点）。 */
@@ -397,6 +417,8 @@ interface MutableChunk {
   stateWrites: boolean;
   /** 直接抛出的异常类型（raise ValueError / throw new Error()）。 */
   thrownTypes: string[];
+  /** 捕获的异常类型（catch {} / except X → "*"/类型名；方向安全减法用）。 */
+  catches: string[];
   ownerClass: string | null;
 }
 
@@ -427,7 +449,7 @@ function fresh(
   ownerClass: string | null = null,
   kind: "class" | "function" | "module" = "function",
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], stateWrites: false, thrownTypes: [], ownerClass };
+  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], stateWrites: false, thrownTypes: [], catches: [], ownerClass };
 }
 
 /** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */

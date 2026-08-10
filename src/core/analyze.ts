@@ -74,8 +74,8 @@ function runOnce(
     if (e.size > 0 && prevComp[k] === -1) prevComp[k] = k; // 自身是效应源
   }
 
-  // 异常传播（盲区1，保守：未捕获异常沿调用链向上——不分析 catch 吞掉 = 过近似方向安全）。
-  // 不参与纯度判定（抛异常是控制流非副作用）；作为 throwsTypes 元数据输出（错误耦合分析）。
+  // 异常传播（盲区1，保守：未捕获异常沿调用链向上）。方向安全减法（迭代7 ④）：
+  // 本 chunk 的 catch（"*" 吞一切 / 精确类型）吞掉对应 throws——只减明确覆盖，内建层级/项目类型不减（多报不漏报）
   const throwsComp: Array<Set<string>> = [];
   for (let k = 0; k < sccs.length; k++) {
     const t = new Set<string>();
@@ -83,6 +83,8 @@ function runOnce(
     for (const k2 of succ[k]!) for (const x of throwsComp[k2]!) t.add(x);
     throwsComp[k] = t;
   }
+  const coveredBy = (t: string, catches: readonly string[]): boolean =>
+    catches.includes("*") || catches.includes(t);
 
   // chain 路径重构（audit 模式；用户需求可解释性 2026-08-11）：
   // 分量级路径 [源分量, ..., 本分量]（SCC 内同 chain 无跳），映射为 chunk key（分量取首个 chunk）
@@ -115,7 +117,11 @@ function runOnce(
         : eff[k]!.has(UNKNOWN_TARGET)
           ? Purity.UNKNOWN
           : Purity.PURE;
-    res.set(c.key, { effects: real, chain: chain[k]!, purity, chainPath: purity === Purity.PURE ? [] : pathOf(k, c.key), throwsTypes: [...throwsComp[comp.get(c.key)!]!].sort() });
+    res.set(c.key, {
+      effects: real, chain: chain[k]!, purity,
+      chainPath: purity === Purity.PURE ? [] : pathOf(k, c.key),
+      throwsTypes: [...throwsComp[comp.get(c.key)!]!].filter((t) => !coveredBy(t, c.catches)).sort(),
+    });
   }
   const cycleCount = sccs.filter((s) => s.length > 1).length;
   return { res, inDeg, cycleCount, staleEdges };
