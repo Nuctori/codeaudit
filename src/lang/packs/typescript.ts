@@ -195,6 +195,8 @@ export const typescriptPack: LangPack = {
   impureGlobals,
   pureGlobals,
   hofCallsArgs: new Set(["from"]), // Array.from(xs, cb) 会调用 cb
+  // 数组方法中无条件调用实参的子集（Array.from 的 cb 可选 → 不入）；实参未解析时记未知
+  hofAlwaysArgs: new Set(["map", "filter", "forEach", "reduce", "reduceRight", "some", "every", "find", "findIndex", "flatMap"]),
   assignmentTargets: ["variable_declarator", "assignment_expression", "for_in_statement", "for_of_statement"],
   // 字面量接收者：string/template（值恒为 string，插值副作用独立捕获）/number/bool/regex/array/bigint
   literalReceivers: {

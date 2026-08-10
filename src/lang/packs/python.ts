@@ -40,6 +40,8 @@ const pureModules = new Set([
 
 // 会调用其函数实参的内建/模块成员：map/filter/sorted/max/min（key=）、functools.reduce
 const hofCallsArgs = new Set(["map", "filter", "sorted", "max", "min", "reduce"]);
+// 无条件调用函数实参的子集：实参未解析时记未知（防假纯）
+const hofAlwaysArgs = new Set(["map", "filter", "reduce"]);
 
 // 字面量接收者 → 内建类型（只收字面量形态；bytes 与 f-string 同节点，前缀判定见 extractor）
 const literalReceivers: Record<string, string> = {
@@ -96,6 +98,7 @@ export const pythonPack: LangPack = {
   impureGlobals: {},
   pureGlobals: new Set(),
   hofCallsArgs,
+  hofAlwaysArgs,
   assignmentTargets: ["assignment", "augmented_assignment", "for_statement", "named_expression"],
   literalReceivers,
   builtinTypeEffects,

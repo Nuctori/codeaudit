@@ -211,7 +211,8 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
   const analyzedChunks =
     ann && ann.size > 0
       ? chunks.map((c) => {
-          const v = ann.get(c.id);
+          // 标注匹配：优先 (file, id) 实例锚定（防同内容跨文件误放行）；无 file 则内容寻址
+          const v = ann.get(c.id) ?? ann.get(`${c.file}\u0000${c.id}`);
           if (v === undefined) return c;
           if (v === "IMPURE") {
             if (c.direct.has("io")) return c;

@@ -118,11 +118,13 @@ async function main(): Promise<void> {
   let annotations: ReadonlyMap<string, "PURE" | "IMPURE"> | undefined;
   if (args.annotations) {
     try {
-      const list = JSON.parse(readFileSync(args.annotations, "utf8")) as Array<{ id?: unknown; verdict?: unknown }>;
+      const list = JSON.parse(readFileSync(args.annotations, "utf8")) as Array<{ id?: unknown; verdict?: unknown; file?: unknown }>;
       const m = new Map<string, "PURE" | "IMPURE">();
       for (const item of list) {
         if (item && typeof item.id === "string" && (item.verdict === "PURE" || item.verdict === "IMPURE")) {
-          m.set(item.id, item.verdict);
+          // 带 file 的标注锚定到具体实例（同内容跨文件判定可不同——import 上下文差异）；
+          // 纯 id = 内容寻址（公理4 语义：同内容同判定，适用于全部同 id chunk）
+          m.set(typeof item.file === "string" ? item.file + "\u0000" + item.id : item.id, item.verdict);
         }
       }
       annotations = m;

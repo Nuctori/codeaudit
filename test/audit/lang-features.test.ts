@@ -499,3 +499,50 @@ describe("步骤2：字面量接收者（三方评审最小形态）", () => {
     expect(b.get("a.ts::run")!.purity).toBe(Purity.UNKNOWN);
   });
 });
+
+describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合）", () => {
+  it("标注按 (file, id) 锚定：同内容跨文件不误放行", async () => {
+    const root = project("annfile", {
+      "a.py": "import weirdlib\ndef f():\n    weirdlib.run()\n",
+      "b.py": "import weirdlib\ndef f():\n    weirdlib.run()\n",
+    });
+    const r = await scanProject(root);
+    const a = r.verdicts.find((v) => v.chunk.file === "a.py" && v.chunk.name === "f")!;
+    const b = r.verdicts.find((v) => v.chunk.file === "b.py" && v.chunk.name === "f")!;
+    expect(a.chunk.id).toBe(b.chunk.id); // 同内容同 id（公理4）
+    // 带 file 的标注只放行 a.py 实例（同 id⇒同判定为假：import 上下文可不同）
+    const r1 = await scanProject(root, { annotations: new Map([[`${a.chunk.file}\u0000${a.chunk.id}`, "PURE"]]) });
+    expect(r1.verdicts.find((v) => v.chunk.file === "a.py" && v.chunk.name === "f")!.purity).toBe(Purity.PURE);
+    expect(r1.verdicts.find((v) => v.chunk.file === "b.py" && v.chunk.name === "f")!.purity).toBe(Purity.UNKNOWN);
+  });
+
+  it("裸名遮蔽守卫：局部赋值后不解析到顶层同名函数", async () => {
+    const root = project("shadow", {
+      "a.py": "def helper():\n    print('io')\n\ndef run():\n    helper = local()\n    helper()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::run")!.purity).toBe(Purity.UNKNOWN); // helper 是局部变量，不连顶层 helper
+  });
+
+  it("裸名调用不指向类方法（方法不在裸名作用域）", async () => {
+    const root = project("methodbare", {
+      "a.py": "class C:\n    def run(self):\n        pass\n\ndef call():\n    run()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::call")!.purity).toBe(Purity.UNKNOWN);
+  });
+
+  it("无条件 HOF 实参未解析 → 记未知（const f = console.log; [1].map(f)）", async () => {
+    const root = project("hofunres", {
+      "a.ts": "export function run() { const f = console.log; return [1].map(f); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.ts::run")!.purity).toBe(Purity.UNKNOWN); // f 是变量实参 → 不能证明纯
+  });
+
+  it("不变量机检在真实扫描上为零违规（健全性证书）", async () => {
+    const root = project("inv0", { "a.py": "import os\ndef f():\n    os.getcwd()\n" });
+    const r = await scanProject(root);
+    expect(r.stats.invariantViolations).toBe(0);
+  });
+});

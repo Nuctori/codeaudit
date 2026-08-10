@@ -168,7 +168,7 @@ export function link(
           markUnknown: () => { unknownSites++; calls.add(UNKNOWN_TARGET); },
           markDynamic: () => { dynamicCalls++; unknownSites++; calls.add(UNKNOWN_TARGET); },
           addUnknownCall: (call) => unknownCalls.push({ attr: call.attr, obj: call.obj, root: rootOf(call) }),
-          addArgEdges: (names) => {
+          addArgEdges: (names, hof) => {
             for (const n of names) {
               // 成员形回调：this.log / self.render → 当前类的同名方法（HOF 成员形假纯修复）
               const dotIdx = n.indexOf(".");
@@ -190,8 +190,10 @@ export function link(
                   if (hit !== null) { calls.add(hit); continue; }
                 }
               }
-              // 解析不到（变量实参/外部函数）：跳过——无法区分 max(xs) 与 map(ext_fn)，
-              // 记未知会把 max(xs) 这类常见形态误伤成噪音
+              // 无条件调用实参的 HOF（map/filter/forEach…）：实参未解析 → 记未知（防假纯，
+              // 如 const f = writeFileSync; [1].map(f)）；条件调用（sorted key=/Array.from cb）
+              // 的实参未解析 → 跳过（无法区分 max(xs) 与 map(ext_fn)，记未知会误伤噪音）
+              if (fi.pack.hofAlwaysArgs.has(hof)) calls.add(UNKNOWN_TARGET);
             }
           },
           effectFromModule,
@@ -224,7 +226,7 @@ interface Sink {
   markUnknown(): void;
   markDynamic(): void;
   addUnknownCall(call: RawCall): void;
-  addArgEdges(names: readonly string[]): void;
+  addArgEdges(names: readonly string[], hof: string): void;
   effectFromModule(module: string, member: string | null): boolean;
 }
 
@@ -245,7 +247,7 @@ function resolveCall(
   //    表外方法 → ?（F9），永不静默丢。
   if (call.receiver !== null) {
     const rule = pack.builtinTypeEffects[call.receiver]?.[call.attr];
-    if (rule === "hof") { sink.addArgEdges(call.argFns); return; } // [1,2,3].map(cb) / sort(key=cb)
+    if (rule === "hof") { sink.addArgEdges(call.argFns, call.attr); return; } // [1,2,3].map(cb) / sort(key=cb)
     if (rule === "pure") return;
     sink.addUnknownCall(call);
     sink.markUnknown();
@@ -266,10 +268,20 @@ function resolveCall(
     return;
   }
 
-  // 2. 裸名：同文件定义
-  if (call.obj === null) {
+  // 2. 裸名：同文件顶层定义。仅顶层可裸名解析（方法不在裸名作用域）；
+  //    局部赋值遮蔽则跳过；同名重定义歧义 → ?（与限定名 ambiguous 对称）。
+  if (call.obj === null && !caller.assigned.includes(call.attr)) {
     const local = fi.bySimple.get(call.attr);
-    if (local && local.length > 0) { sink.addEdge(local[0]!); return; }
+    if (local && local.length > 0) {
+      const top = local.filter((k) => fi.chunkByKey.get(k)!.ownerClass === null);
+      if (top.length === 1) { sink.addEdge(top[0]!); return; }
+      if (top.length > 1) {
+        sink.addUnknownCall(call);
+        sink.markUnknown(); // 同名顶层重定义：不静默选一
+        return;
+      }
+      // 仅方法候选：裸名调用不指向方法 → 落到后续分支（import/效应表/未知）
+    }
   }
 
   // 2.5 框架命名空间（egg ctx.model.* / ctx.service.* → io 边界；遮蔽/参数同名则跳过判定）
@@ -313,7 +325,7 @@ function resolveCall(
         return;
       }
       if (member !== null && sink.effectFromModule(imp.module, member)) {
-        if (pack.hofCallsArgs.has(member)) sink.addArgEdges(call.argFns); // functools.reduce(cb, …)
+        if (pack.hofCallsArgs.has(member)) sink.addArgEdges(call.argFns, member); // functools.reduce(cb, …)
         return;
       }
       if (sink.effectFromModule(imp.module, null)) return;
@@ -364,7 +376,7 @@ function resolveCall(
           }
         }
       } else if (sink.effectFromModule(imp.module, call.attr)) {
-        if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns); // _.map(cb, xs)
+        if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr); // _.map(cb, xs)
         return;
       }
     }
@@ -378,7 +390,7 @@ function resolveCall(
     if (pack.impureBuiltins.has(call.attr)) { sink.addEffect("io"); return; }
     if (pack.pureBuiltins.has(call.attr)) {
       // HOF（map/filter/sorted…）会调用函数实参：回调效应必须保留，否则假纯
-      if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns);
+      if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr);
       return;
     }
   } else {
@@ -388,7 +400,7 @@ function resolveCall(
       return;
     }
     if (pack.pureGlobals.has(call.obj)) {
-      if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns); // Array.from(xs, cb)
+      if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr); // Array.from(xs, cb)
       return;
     }
   }

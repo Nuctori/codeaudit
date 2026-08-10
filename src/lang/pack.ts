@@ -99,6 +99,8 @@ export interface LangPack {
   readonly pureGlobals: ReadonlySet<string>;
   /** 高阶函数名：会调用其函数实参的内建/模块成员（map/filter/sorted/Array.from…），用于回调实参边。 */
   readonly hofCallsArgs: ReadonlySet<string>;
+  /** 无条件调用函数实参的 HOF 子集（map/filter/forEach…）：实参未解析时记未知（防假纯）。 */
+  readonly hofAlwaysArgs: ReadonlySet<string>;
   /** 赋值目标节点类型（x = ... / const x = ... 的左侧收集，遮蔽守卫用）。 */
   readonly assignmentTargets: readonly string[];
   /** AST 字面量节点类型 → 内建类型名（字面量接收者判定；表外节点 → 不判定）。 */
