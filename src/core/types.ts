@@ -72,6 +72,10 @@ export interface Verdict {
   readonly chainDev: number;
   /** 到效应源的最短路径（chunk key 数组，源在前；PURE 为空；audit 模式）——可解释性（用户需求 2026-08-11）。 */
   readonly chainPath: readonly string[];
+  /** 本 chunk 或其调用链可能抛出的异常类型（保守传播，含自身直接抛的；盲区1）。 */
+  readonly throwsTypes: readonly string[];
+  /** 读且被项目内其他 chunk 写的状态位置（纯元数据；不进 purity/effects/chain，公理3；盲区3）。 */
+  readonly stateDeps: readonly string[];
   /**
    * chain 是否确定：dev（乐观）与 audit（悲观）两遍结果一致时为 true。
    * false 表示结论依赖未知符号，需要标注。

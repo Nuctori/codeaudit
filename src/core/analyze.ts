@@ -88,9 +88,16 @@ function runOnce(
     catches.includes("*") || catches.includes(t);
 
   // chain 路径重构（audit 模式；用户需求可解释性 2026-08-11）：
-  // 分量级路径 [源分量, ..., 本分量]（SCC 内同 chain 无跳），映射为 chunk key（分量取首个 chunk）
+  // 分量级路径 [源分量, ..., 本分量]（SCC 内同 chain 无跳），映射为 chunk key（分量取字典序最小 key——输入序无关）
   const compKey = new Map<number, string>();
-  sccs.forEach((s, k) => { for (const i of s) { compKey.set(k, i); break; } });
+  sccs.forEach((s, k) => {
+    let best: string | null = null;
+    for (const i of s) {
+      const key = byKey.get(i)!.key;
+      if (best === null || key < best) best = key;
+    }
+    compKey.set(k, best ?? "");
+  });
   const pathOf = (compIdx: number, chunkKey: string): string[] => {
     const keys: string[] = [];
     let cur = compIdx;
