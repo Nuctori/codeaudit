@@ -139,9 +139,9 @@ describe("维度23: JavaScript 特性", () => {
     const b = by(await scanProject(root));
     // require 重命名后 fs2 仍是命名空间绑定 → fs 表命中
     expect(b.get("renamed.js::w")!.purity).toBe(Purity.IMPURE);
-    // 解构 require：go 不是标识符绑定 → 当前诚实行为是未解析
+    // 解构 require（定义性事实族 D）：{ go } 绑定到 lib.go → 真边 → 确定性 PURE（go 纯函数）
     const use = b.get("destructured.js::use")!;
-    expect([Purity.PURE, Purity.UNKNOWN]).toContain(use.purity);
+    expect(use.purity).toBe(Purity.PURE);
   });
 });
 
