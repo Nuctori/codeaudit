@@ -11,7 +11,7 @@
 1. **边的守恒**：每个调用点恰好归属一个 chunk（含文件级伪 chunk `<module>`）。
 2. **先凝聚，后计算**：一切传播都在 Tarjan SCC 凝聚后的 DAG 上进行。终止性由构造保证——相互递归、回调环不会让分析发散。
 3. **纯度三值，未知不猜**：`PURE / UNKNOWN / IMPURE`。未解析符号标记 `UNKNOWN`，`audit` 模式将其视为不纯（可靠、不漏报），`dev` 模式视为纯（低噪音）。两遍结果之差即"链长区间"，区间非零的 chunk 占比即 **unknown-rate**——工具自我报告的"无知程度"。
-4. **身份即内容**：`chunk.id = hash(规范化源码)`。函数搬家、改注释、调缩进，id 不变；AI 标注与缓存按 id 寻址，不漂移。
+4. **身份即内容**：`chunk.id = hash(规范化源码)`。函数搬家、改注释、调缩进，id 不变；AI 标注与缓存按 id 寻址，不漂移。（文件级伪 chunk `<module>` 无源码，id 用文件限定 `module@<file>`，防标注跨文件泄漏。）
 5. **排序不混合量纲**：输出排序只用字典序（纯度 → 链长 → 嵌套），不存在拍脑袋的加权求和。
 
 ## 安装与使用
@@ -19,7 +19,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 73 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 32 维交叉审计
+npm test             # 114 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -67,6 +67,8 @@ src/
     tarjan.ts     迭代式 Tarjan SCC（50k 深链不爆栈），逆拓扑序输出
     analyze.ts    唯一的分析函数：凝聚 DAG 上的效应并集 + 最短链，audit/dev 双跑
     hash.ts       规范化 + 内容寻址（公理4）
+    influence.ts  影响面分析 + 标注曲线（标注预算数学）
+    corpus.ts     标注语料 + EVSI 先验（suggested_prompt 的概率建议）
   lang/
     pack.ts       LangPack 接口：数据侧（节点表/效应表）+ 行为侧（import 提取/模块解析）
     extractor.ts  通用 AST 遍历器，由语言包数据驱动
@@ -90,7 +92,11 @@ src/
 
 ## AI 标注闭环
 
-工具不内置 LLM（零密钥、零网络）。`--unknowns out.json` 导出按**影响面**排序的未知符号清单——每条含 `id`（内容寻址锚点）、`symbol`、`influence`（该符号反向可达闭包内 chunk 数，即标注一次解除的 UNKNOWN 量）与 `suggested_prompt`；只含自身触发未知的源符号（纯传播型 UNKNOWN 标它无意义）。影响面最大的符号先标，标注收益最大。回填到你的知识库后，后续扫描未知率下降、链长区间收窄。
+工具不内置 LLM（零密钥、零网络）。闭环三环：
+
+1. **导出**：`--unknowns out.json` 按**影响面**排序的未知符号清单——每条含 `id`（内容寻址锚点）、`symbol`、`file/line`、`influence`（反向可达闭包内 chunk 数）、`unknownSites`（需全部确证的调用点数）、`calls`（站点明细）与 `suggested_prompt`；只含自身触发未知的源符号。
+2. **回读**：`--annotations ann.json`（`[{id, verdict:"PURE"|"IMPURE"}]`，按 chunk.id 匹配）——PURE 移除该 chunk 自身的 `?`（下游随之翻案），IMPURE 加直接 io 效应。`--corpus`（默认 `.codeaudit/corpus.json`）把标注结果**幂等累积**为语料（方法名 × 接收者根类别的纯/不纯计数），随后 `suggested_prompt` 携带语料先验提示（「形态历史 ≈8 成被标 PURE（n=37）」——建议置信度，非纯度判定，以函数体为准）。
+3. **预算**：CLI 输出**标注曲线**（按影响面贪心序的精确剩余 UNKNOWN）——「标 0 条→428 (53.6%) | 标 102 条→306 | 标 204 条→204 (25.6%) | 标 408 条→0」，直接回答「标多少个到 X%」。
 
 ## 已知限制（有意为之）
 
@@ -102,7 +108,7 @@ src/
 
 ## 测试
 
-73 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)）：
+114 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。

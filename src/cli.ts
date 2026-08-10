@@ -78,6 +78,15 @@ function fmtEffects(v: Verdict): string {
 
 let cliRoot = "";
 
+/** 版本号：从 package.json 读（硬编码会随 bump 漂移）；读取失败回退占位。 */
+const VERSION = (() => {
+  try {
+    return (JSON.parse(readFileSync(join(__dirname, "../package.json"), "utf8")) as { version?: string }).version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
+
 /** 错误消息中的绝对路径前缀裁剪为 "."（段边界：仅当下个字符不是路径延续字符；root 为空/不出现则原样）。 */
 function trimRootPath(msg: string): string {
   if (!cliRoot || !msg.includes(cliRoot)) return msg;
@@ -170,7 +179,7 @@ async function main(): Promise<void> {
   } else {
     const s = report.stats;
     console.log(
-      `codeaudit 0.1.0 — ${s.chunks} chunks, ${s.files} files, ` +
+      `codeaudit ${VERSION} — ${s.chunks} chunks, ${s.files} files, ` +
       `unknown-rate ${(s.unknownRate * 100).toFixed(1)}%, cycles ${s.cycles}` +
       (s.cachedFiles > 0 ? `, cached ${s.cachedFiles}` : "") +
       (s.parseErrors > 0 ? `, parse-errors ${s.parseErrors}` : ""),
