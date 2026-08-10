@@ -52,6 +52,8 @@ export interface RawChunk {
   readonly calls: RawCall[];
   /** 函数内赋值目标名（from-import 绑定被局部重绑时跳过解析，防假纯）。 */
   readonly assigned: string[];
+  /** 状态写（self.x = / this.x = / global、nonlocal 声明）→ state 效应（用户需求 2026-08-11）。 */
+  readonly stateWrites: boolean;
   /** 所在类名（方法归属），顶层为 null。 */
   readonly ownerClass: string | null;
 }

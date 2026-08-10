@@ -56,6 +56,9 @@ export class Extractor {
       if (this.pack.callNodes.includes(node.type)) {
         stack[stack.length - 1]!.calls.push(this.callOf(node));
       }
+      // 状态写检测（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 → state 效应。
+      // 归 stack 顶层 chunk（嵌套函数内赋值归内层 chunk）；class 内方法赋值归方法（构造器边传播）。
+      if (this.isStateWrite(node)) stack[stack.length - 1]!.stateWrites = true;
       for (const child of node.children) visit(child);
       if (pushed) stack.pop();
     };
@@ -115,6 +118,39 @@ export class Extractor {
     }
     return bindings;
   }
+
+  /** 状态写检测（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 → state 效应。 */
+  private isStateWrite(node: SyntaxNode): boolean {
+    if (node.type === "global_statement" || node.type === "nonlocal_statement") return true;
+    if (node.type === "assignment" || node.type === "augmented_assignment" || node.type === "assignment_expression") {
+      const left = node.childForFieldName("left") ?? node.children[0];
+      return this.isSelfTarget(left);
+    }
+    if (node.type === "update_expression") {
+      // TS：this.x++ / this.x--
+      const arg = node.childForFieldName("argument") ?? node.children[0];
+      return this.isSelfTarget(arg);
+    }
+    return false;
+  }
+
+  /** 赋值目标是 self./cls./this. 属性（实例/外部状态写）。 */
+  private isSelfTarget(left: SyntaxNode | null | undefined): boolean {
+    if (!left) return false;
+    if (left.type === "attribute") {
+      // Python：self.x / cls.y
+      const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
+      return obj !== null && (obj.text === "self" || obj.text === "cls");
+    }
+    if (left.type === "member_expression") {
+      // TS：this.x
+      const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
+      return obj !== null && obj.text === "this";
+    }
+    return false;
+  }
+
+  /** 状态写检测：self.x = / this.x = / global、nonlocal 声明 → state 效应。 */
 
   /** chunk 展示名：优先 name 字段；变量声明的箭头函数取变量名；赋值 RHS 的 Python lambda 取变量名。 */
   private chunkName(node: SyntaxNode): string | null {
@@ -291,6 +327,7 @@ interface MutableChunk {
   kind: "class" | "function" | "module";
   calls: RawCall[];
   assigned: string[];
+  stateWrites: boolean;
   ownerClass: string | null;
 }
 
@@ -321,7 +358,7 @@ function fresh(
   ownerClass: string | null = null,
   kind: "class" | "function" | "module" = "function",
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], ownerClass };
+  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], stateWrites: false, ownerClass };
 }
 
 /** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */

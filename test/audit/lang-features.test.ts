@@ -792,6 +792,21 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(impact.summary.maxDepth).toBe(2);
   });
 
+  it("状态写建模（用户需求 2026-08-11）：self.x=/this.x=/global 声明 → state 效应，纯函数保持 PURE", async () => {
+    const root = project("statewrite", {
+      "a.py": "class Counter:\n    def inc(self):\n        self.count += 1\n    def read(self):\n        return self.count\ncounter = 0\ndef bump():\n    global counter\n    counter += 1\ndef pure_fn(x):\n    return x * 2\n",
+      "b.ts": "export class Store {\n  set(x: number) { this.v = x; }\n  get() { return this.v; }\n}\nexport function pure(x: number) { return x + 1; }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::Counter.inc")!.purity).toBe(Purity.IMPURE); // self.count += 1
+    expect(b.get("a.py::Counter.inc")!.effects.has("state")).toBe(true);
+    expect(b.get("a.py::bump")!.purity).toBe(Purity.IMPURE); // global counter
+    expect(b.get("a.py::Counter.read")!.purity).toBe(Purity.PURE); // 只读不写
+    expect(b.get("a.py::pure_fn")!.purity).toBe(Purity.PURE);
+    expect(b.get("b.ts::Store.set")!.purity).toBe(Purity.IMPURE); // this.v = x
+    expect(b.get("b.ts::Store.get")!.purity).toBe(Purity.PURE);
+  });
+
   it("analyzeChange 边界：环/自环终止、空/不匹配文件标记 unmatchedFiles、反斜杠路径归一化", async () => {
     const root = project("changeedge", {
       "a.ts": "export function a() { return b(); }\nexport function b() { return a(); }\nexport function s() { return s(); }\nexport function leaf() { return 1; }\n",
