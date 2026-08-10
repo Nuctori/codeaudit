@@ -21,6 +21,8 @@ export interface RawCall {
   readonly obj: string | null;
   /** 末段（方法/函数名）。 */
   readonly attr: string;
+  /** 字面量接收者的内建类型名（"str"/"list"...）；非字面量接收者为 null。 */
+  readonly receiver: string | null;
   /** 语法函数实参（命名函数/import 绑定的标识符），供 HOF 回调边使用。 */
   readonly argFns: readonly string[];
 }
@@ -99,6 +101,10 @@ export interface LangPack {
   readonly hofCallsArgs: ReadonlySet<string>;
   /** 赋值目标节点类型（x = ... / const x = ... 的左侧收集，遮蔽守卫用）。 */
   readonly assignmentTargets: readonly string[];
+  /** AST 字面量节点类型 → 内建类型名（字面量接收者判定；表外节点 → 不判定）。 */
+  readonly literalReceivers: Readonly<Record<string, string>>;
+  /** 内建类型方法效应：类型 → 方法 → "pure" | "hof"。只放硬纯（无参数协议分派）方法；表外 → ?（F9）。 */
+  readonly builtinTypeEffects: Readonly<Record<string, Readonly<Record<string, "pure" | "hof">>>>;
   /** 框架命名空间（如 egg 的 ctx）：对象名 → 成员前缀列表，命中视为 io 边界（ctx.model.* / ctx.service.*）。 */
   readonly frameworkIo: Readonly<Record<string, readonly string[]>>;
 

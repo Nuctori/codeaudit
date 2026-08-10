@@ -157,6 +157,20 @@ const pureGlobals = new Set([
   "TextDecoder", "structuredClone", "queueMicrotask",
 ]);
 
+const builtinTypeEffects = {
+    string: { trim: "pure", trimStart: "pure", trimEnd: "pure", toLowerCase: "pure", toUpperCase: "pure", toString: "pure", valueOf: "pure" },
+    array: {
+      push: "pure", pop: "pure", shift: "pure", unshift: "pure", reverse: "pure",
+      indexOf: "pure", includes: "pure",
+      map: "hof", filter: "hof", forEach: "hof", reduce: "hof", reduceRight: "hof",
+      some: "hof", every: "hof", find: "hof", findIndex: "hof", sort: "hof", flatMap: "hof",
+    },
+    number: { toString: "pure", toFixed: "pure", toPrecision: "pure", toExponential: "pure" },
+    boolean: { toString: "pure", valueOf: "pure" },
+    regex: { test: "pure", exec: "pure" },
+    bigint: { toString: "pure", valueOf: "pure" },
+} as const satisfies Record<string, Record<string, "pure" | "hof">>;
+
 export const typescriptPack: LangPack = {
   name: "typescript",
   extensions: [".ts", ".mts", ".cts"],
@@ -182,6 +196,15 @@ export const typescriptPack: LangPack = {
   pureGlobals,
   hofCallsArgs: new Set(["from"]), // Array.from(xs, cb) 会调用 cb
   assignmentTargets: ["variable_declarator", "assignment_expression", "for_in_statement", "for_of_statement"],
+  // 字面量接收者：string/template（值恒为 string，插值副作用独立捕获）/number/bool/regex/array/bigint
+  literalReceivers: {
+    string: "string", template_string: "string", number: "number",
+    true: "boolean", false: "boolean", regex: "regex", array: "array", bigint: "bigint",
+  },
+  // 硬纯：无参数协议分派。JS 带参方法做 ToPrimitive/ToString 强制（Symbol.toPrimitive）→ 表外；
+  // array indexOf/includes 走 ===（无用户钩子）安全；array map/filter/... 为 hof（addArgEdges）
+  builtinTypeEffects,
+
   // egg.js 惯例：ctx.model（sequelize DB）/ ctx.service（业务层）/ ctx.app —— 均为 io 边界
   frameworkIo: { ctx: ["model", "service", "app"] },
   extractImports: extractEsmImports,

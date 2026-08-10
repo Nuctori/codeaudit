@@ -227,6 +227,17 @@ function resolveCall(
 ): void {
   const pack = fi.pack;
 
+  // 0. 字面量接收者：类型已证明（"x".strip / [].push / (5).toFixed）→ 内建方法表。
+  //    必须置于一切分支之前（obj=null 会被裸名分支劫持成对本地同名函数的错边）；
+  //    表外方法 → ?（F9），永不静默丢。
+  if (call.receiver !== null) {
+    const rule = pack.builtinTypeEffects[call.receiver]?.[call.attr];
+    if (rule === "hof") { sink.addArgEdges(call.argFns); return; } // [1,2,3].map(cb) / sort(key=cb)
+    if (rule === "pure") return;
+    sink.markUnknown();
+    return;
+  }
+
   // 1. self/this 方法调用 → 所在类（同名冲突时诚实记未知）
   if (call.obj !== null && pack.selfNames.includes(call.obj)) {
     if (caller.ownerClass) {

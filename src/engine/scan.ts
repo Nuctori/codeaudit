@@ -71,6 +71,13 @@ function validFacts(f: RawFileFacts | undefined): f is RawFileFacts {
   for (const i of f.imports) {
     if (!i || typeof i.local !== "string" || typeof i.module !== "string") return false;
   }
+  for (const c of f.chunks) {
+    for (const call of c.calls) {
+      if (!call || typeof call.attr !== "string" ||
+          (call.obj !== null && typeof call.obj !== "string") ||
+          (call.receiver !== null && typeof call.receiver !== "string")) return false;
+    }
+  }
   return true;
 }
 

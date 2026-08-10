@@ -109,16 +109,28 @@ export class Extractor {
     return max;
   }
 
-  /** 调用点提取：点连文本 + 首段对象 + 末段名。不可拍平（super().m()、factory()()、d[k]()）产哨兵走未知。 */
+  /** 调用点提取：点连文本 + 首段对象 + 末段名。不可拍平（super().m()、factory()()、d[k]()）产哨兵走未知；字面量接收者（"x".strip、[].push）产 receiver 事实。 */
   private callOf(node: SyntaxNode): RawCall {
     const argFns = this.argFnsOf(node);
     const fn = node.childForFieldName("function") ?? node.children[0];
-    if (!fn) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET, argFns };
+    if (!fn) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET, receiver: null, argFns };
     const flat = flattenCallTarget(fn);
-    if (flat === null) return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET, argFns };
+    if (flat === null) {
+      // 字面量接收者：object 是字面量节点 → receiver 事实（"x".strip / [].push / (5).toFixed）
+      if (fn.type === "attribute" || fn.type === "member_expression") {
+        const obj = fn.childForFieldName("object") ?? fn.children[0];
+        // Python attribute 无命名字段（children: [obj, ., name]）；TS member_expression 有 property 字段
+        const attr = fn.childForFieldName("attribute") ?? fn.childForFieldName("property") ?? fn.children[fn.children.length - 1];
+        if (obj && attr && (attr.type === "identifier" || attr.type === "property_identifier")) {
+          const r = literalReceiverType(obj, this.pack);
+          if (r !== null) return { target: UNRESOLVED_TARGET, obj: null, attr: attr.text, receiver: r, argFns };
+        }
+      }
+      return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET, receiver: null, argFns };
+    }
     const dot = flat.indexOf(".");
-    if (dot === -1) return { target: flat, obj: null, attr: flat, argFns };
-    return { target: flat, obj: flat.slice(0, dot), attr: flat.slice(dot + 1), argFns };
+    if (dot === -1) return { target: flat, obj: null, attr: flat, receiver: null, argFns };
+    return { target: flat, obj: flat.slice(0, dot), attr: flat.slice(dot + 1), receiver: null, argFns };
   }
 
   /** 命名函数实参（HOF 回调边原料）：arguments 子节点中直接是标识符或可拍平成员表达式（this.log）的，及 Python 关键字实参（key=fn）的值。 */
@@ -202,6 +214,25 @@ function fresh(
   ownerClass: string | null = null,
 ): MutableChunk {
   return { name, line, endLine, nesting: 0, sourceText, normText, calls: [], assigned: [], ownerClass };
+}
+
+/** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */
+function literalReceiverType(node: SyntaxNode, pack: LangPack): string | null {
+  let n = node;
+  while (
+    n.type === "parenthesized_expression" || n.type === "as_expression" ||
+    n.type === "satisfies_expression" || n.type === "non_null_expression"
+  ) {
+    const inner = n.childForFieldName("expression") ?? n.childForFieldName("value")
+      ?? n.children.find((c) => c.type !== "(" && c.type !== ")");
+    if (!inner) return null;
+    n = inner;
+  }
+  const t = pack.literalReceivers[n.type];
+  if (t === undefined) return null;
+  // tree-sitter-python 的 f-string 与 bytes 同是 string 节点：b"/B" 前缀才是 bytes
+  if (t === "str" && /^[bB]['"]/.test(n.text)) return "bytes";
+  return t;
 }
 
 /** 把 member/attribute 链拍平成点连文本；动态部分（下标、调用结果）返回 null。 */

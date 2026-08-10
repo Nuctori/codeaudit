@@ -454,3 +454,48 @@ describe("标注会计：? 多重性 + 标注曲线", () => {
     expect(budget.deps.get(bKey)).toBe(1); // b 依赖自身 1 个源
   });
 });
+
+describe("步骤2：字面量接收者（三方评审最小形态）", () => {
+  it("硬纯方法判纯：\"x\".upper() / (5).bit_length() / b\"x\".decode()", async () => {
+    const root = project("lit1", {
+      "a.py": "def a():\n    return \"x\".upper()\n\ndef b():\n    return (5).bit_length()\n\ndef c():\n    return b'x'.decode()\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::a")!.purity).toBe(Purity.PURE);
+    expect(b.get("a.py::b")!.purity).toBe(Purity.PURE);
+    expect(b.get("a.py::c")!.purity).toBe(Purity.PURE);
+  });
+
+  it("表外方法 → 诚实未知（F9）；协议分派方法（join）表外", async () => {
+    const root = project("lit2", {
+      "a.py": "def a():\n    return \"x\".custom_method()\n\ndef b(xs):\n    return \" \".join(xs)\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.py::a")!.purity).toBe(Purity.UNKNOWN);
+    expect(b.get("a.py::b")!.purity).toBe(Purity.UNKNOWN); // join 对参数 __iter__ 分派 → 层 2 表外
+  });
+
+  it("数组字面量 HOF：cb 的 io 经 [1,2,3].map(cb) 传播，不被本地同名 map 劫持", async () => {
+    const root = project("lit3", {
+      "lib.ts": "function map(xs: number[], cb: any) { return xs; }\nexport function log(x: number) { console.log(x); }\nexport function run(xs: number[]) { return [1, 2, 3].map(log); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("lib.ts::run")!.purity).toBe(Purity.IMPURE); // 经 log 的 io；本地 map 未被错连
+  });
+
+  it("template 字面量：插值内调用的 io 独立捕获", async () => {
+    const root = project("lit4", {
+      "a.ts": "export function danger() { console.log('x'); }\nexport function run(n: number) { return `${danger()}`.trim(); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.ts::run")!.purity).toBe(Purity.IMPURE);
+  });
+
+  it("标识符接收者不变：xs.map(cb) 仍 UNKNOWN", async () => {
+    const root = project("lit5", {
+      "a.ts": "export function cb(x: number) { return x; }\nexport function run(xs: number[]) { return xs.map(cb); }\n",
+    });
+    const b = by(await scanProject(root));
+    expect(b.get("a.ts::run")!.purity).toBe(Purity.UNKNOWN);
+  });
+});

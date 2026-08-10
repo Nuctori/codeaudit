@@ -41,6 +41,41 @@ const pureModules = new Set([
 // 会调用其函数实参的内建/模块成员：map/filter/sorted/max/min（key=）、functools.reduce
 const hofCallsArgs = new Set(["map", "filter", "sorted", "max", "min", "reduce"]);
 
+// 字面量接收者 → 内建类型（只收字面量形态；bytes 与 f-string 同节点，前缀判定见 extractor）
+const literalReceivers: Record<string, string> = {
+  string: "str", concatenated_string: "str", integer: "int", float: "float",
+  true: "bool", false: "bool", bytes: "bytes", list: "list", dictionary: "dict", set: "set",
+};
+
+// 内建类型方法效应：只放硬纯（无参数协议分派——不含 format/join/translate（__format__/__iter__）、
+// list.index/count（__eq__）、dict.get（__hash__）等）；表外 → ?（F9）
+const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
+  str: {
+    strip: "pure", lstrip: "pure", rstrip: "pure", lower: "pure", upper: "pure",
+    title: "pure", capitalize: "pure", casefold: "pure", swapcase: "pure",
+    split: "pure", rsplit: "pure", splitlines: "pure",
+    removeprefix: "pure", removesuffix: "pure",
+    startswith: "pure", endswith: "pure",
+    find: "pure", rfind: "pure", index: "pure", rindex: "pure", count: "pure",
+    replace: "pure", isalpha: "pure", isdigit: "pure", isalnum: "pure",
+    isspace: "pure", isupper: "pure", islower: "pure", istitle: "pure", isnumeric: "pure",
+  },
+  list: {
+    append: "pure", pop: "pure", reverse: "pure", clear: "pure",
+    sort: "hof", // key= 回调
+  },
+  dict: {
+    keys: "pure", values: "pure", items: "pure", clear: "pure", popitem: "pure", copy: "pure",
+  },
+  bytes: {
+    decode: "pure", hex: "pure", lower: "pure", upper: "pure",
+  },
+  int: { bit_length: "pure", to_bytes: "pure" },
+  float: { as_integer_ratio: "pure", is_integer: "pure" },
+  bool: {},
+  set: { copy: "pure", clear: "pure" },
+};
+
 export const pythonPack: LangPack = {
   name: "python",
   extensions: [".py", ".pyw"],
@@ -62,6 +97,8 @@ export const pythonPack: LangPack = {
   pureGlobals: new Set(),
   hofCallsArgs,
   assignmentTargets: ["assignment", "augmented_assignment", "for_statement", "named_expression"],
+  literalReceivers,
+  builtinTypeEffects,
   frameworkIo: {},
 
   extractImports(root: SyntaxNode): RawImport[] {
