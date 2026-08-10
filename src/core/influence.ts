@@ -137,6 +137,10 @@ export function changedImpact(
   verdicts: readonly { chunk: Chunk }[],
   changedFiles: ReadonlySet<string>,
 ): ChangeImpact {
+  // 路径归一化：chunk.file 是正斜杠相对路径（D-031），调用方可能传 Windows 反斜杠 → 归一化防静默空结果。
+  // 语义约定：传相对 root 的正斜杠/反斜杠路径均可；绝对路径不匹配（与 chunk.file 形态需一致）。
+  const norm = new Set<string>();
+  for (const f of changedFiles) norm.add(f.split("\\").join("/"));
   const callers = new Map<string, string[]>(); // callee key → caller keys
   for (const v of verdicts) {
     for (const t of v.chunk.calls) {
@@ -147,7 +151,7 @@ export function changedImpact(
     }
   }
   const byKey = new Map(verdicts.map((v) => [v.chunk.key, v.chunk]));
-  const seeds = verdicts.filter((v) => changedFiles.has(v.chunk.file)).map((v) => v.chunk.key);
+  const seeds = verdicts.filter((v) => norm.has(v.chunk.file)).map((v) => v.chunk.key);
   const seen = new Set<string>(seeds);
   const queue: Array<[string, number, string | null]> = seeds.map((k) => [k, 0, null]);
   const out: ImpactedChunk[] = [];
@@ -169,7 +173,8 @@ export function changedImpact(
     changed,
     affected,
     summary: {
-      changedFiles: [...changedFiles].filter((f) => verdicts.some((v) => v.chunk.file === f)).length,
+      // 口径：含 ≥1 个 chunk 的改动文件数（parseError/被跳过文件计 0——无 chunk 可分析）
+      changedFiles: [...norm].filter((f) => verdicts.some((v) => v.chunk.file === f)).length,
       changedChunks: changed.length,
       affectedChunks: affected.length,
       maxDepth: affected.length > 0 ? affected[affected.length - 1]!.depth : 0,
