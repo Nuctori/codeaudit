@@ -34,7 +34,9 @@ export function emptyCorpus(): CorpusFile {
   return { version: 1, seen: {}, method: {}, root: {} };
 }
 
-const GLOBAL_THETA0 = 0.25; // 实证基率（swagger 标注模拟 65 条中 51 条 PURE）
+const GLOBAL_THETA0 = 0.25; // 实证基率：来自 swagger-ui/src/core 标注模拟（65 条中 51 条 PURE → impure≈0.22，取 0.25 保守）。
+// 注意：这是单项目标签分布泄漏为全局常数（跨项目污染通道）——冷单元格 θ̂≈θ₀ 会被 swagger 基率拉动；
+// 改进方向：项目级基率分层（项目随机效应）或可配置（见 docs/axioms.md 四·五）。
 const KAPPA1 = 12; // 方法级收缩
 const KAPPA2 = 8; // 接收者格收缩
 export const MIN_TOTAL = 30; // 冷启动阈值：总样本不足不提供概率
@@ -146,4 +148,34 @@ export function summarize(corpus: CorpusFile): { total: number; pure: number; im
     impure += e.impure;
   }
   return { total: pure + impure, pure, impure };
+}
+
+export interface SiteShapeInfo {
+  /** 代表性形态（attr·root，取先验样本数最大的站点）。 */
+  readonly shape: string;
+  /** 代表性站点的先验（无则 null）。 */
+  readonly prior: Prior | null;
+  /** 是否可批量处理：全部站点同向且高置信 PURE（p̂≥0.9、n≥30）——仅供人工分组，非自动判定。 */
+  readonly batchable: boolean;
+}
+
+/** 站点形态信息（导出分组视图用）：代表性形态 + 先验 + 批量标记。 */
+export function siteShapeInfo(corpus: CorpusFile, sites: readonly CorpusSite[]): SiteShapeInfo {
+  let best: { shape: string; prior: Prior | null } = { shape: "", prior: null };
+  let bestN = -1;
+  let allBatchable = sites.length > 0;
+  for (const s of sites) {
+    const p = priorFor(corpus, s);
+    const shape = `${s.attr}·${s.root}`;
+    if (p && p.n > bestN) {
+      bestN = p.n;
+      best = { shape, prior: p };
+    }
+    if (best.shape === "") best = { shape, prior: null };
+    // 批量标记（仅供人工分组提示）：要求方法级（attr 专属）证据——root 是垃圾箱类目（variable 塌缩
+    // 一切变量接收者），root 兜底先验 = 异质池频率，不足以支持批量；p̂≥0.9、n≥30 且全部站点满足。
+    const m = corpus.method[s.attr];
+    if (!m || m.pure + m.impure < 30 || !p || p.pPure < 0.9) allBatchable = false;
+  }
+  return { shape: best.shape, prior: best.prior, batchable: allBatchable };
 }

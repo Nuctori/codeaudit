@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  emptyCorpus, updateCorpus, mergeCorpus, priorFor, summarize,
+  emptyCorpus, updateCorpus, mergeCorpus, priorFor, summarize, siteShapeInfo,
   MIN_TOTAL, MIN_CELL, PRIOR_THRESHOLD,
 } from "../../src/core/corpus";
 import type { Chunk } from "../../src/core/types";
@@ -22,6 +22,28 @@ describe("标注语料（corpus）", () => {
     const corpus = updateCorpus(emptyCorpus(), [c1, c2], ann);
     expect(corpus.method.get).toEqual({ pure: 1, impure: 0 }); // 只有 a.py 实例入账
     expect(corpus.seen).toEqual({ "a.py\u0000idX": true });
+  });
+
+  it("siteShapeInfo：shape 取最大先验样本站点；batchable 要求全部站点高置信", () => {
+    // 构造 40 条 get·variable PURE 语料
+    const chunks: Chunk[] = [];
+    const ann = new Map<string, "PURE" | "IMPURE">();
+    for (let i = 0; i < 40; i++) {
+      chunks.push(chunk("id" + i, [{ attr: "get", obj: "req", root: "variable" }]));
+      ann.set("id" + i, "PURE");
+    }
+    const c = updateCorpus(emptyCorpus(), chunks, ann);
+    // 单站点高置信 → batchable
+    const single = siteShapeInfo(c, [{ attr: "get", obj: "req", root: "variable" }]);
+    expect(single.batchable).toBe(true);
+    expect(single.shape).toBe("get·variable");
+    // 混合站点：一个无先验 → 不 batchable
+    const mixed = siteShapeInfo(c, [
+      { attr: "get", obj: "req", root: "variable" },
+      { attr: "save", obj: "db", root: "variable" }, // save 无语料先验
+    ]);
+    expect(mixed.batchable).toBe(false);
+    expect(mixed.shape).toBe("get·variable"); // 最大先验样本站点
   });
 
   it("updateCorpus 按 chunk.id 去重且按站点计数（幂等）", () => {

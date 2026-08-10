@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { scanProject } from "./index";
 import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
 import { annotationBudget, annotationCurve } from "./core/influence";
-import { emptyCorpus, updateCorpus, priorFor, summarize, type CorpusFile } from "./core/corpus";
+import { emptyCorpus, updateCorpus, priorFor, summarize, siteShapeInfo, type CorpusFile } from "./core/corpus";
 
 interface CliArgs {
   dir: string;
@@ -209,19 +209,25 @@ async function main(): Promise<void> {
     const budget = annotationBudget(chunks);
     const unknowns = report.verdicts
       .filter((v) => v.purity === Purity.UNKNOWN && v.chunk.calls.has(UNKNOWN_TARGET))
-      .map((v) => ({
-        id: v.chunk.id,
-        symbol: v.chunk.name,
-        file: v.chunk.file,
-        line: v.chunk.line,
-        influence: budget.influence.get(v.chunk.key) ?? 0,
-        unknownSites: v.chunk.unknownSites,
-        calls: v.chunk.unknownCalls,
-        suggested_prompt:
-          `函数 \`${v.chunk.name}\`（${v.chunk.file}:${v.chunk.line}）有 ${v.chunk.unknownSites} 个无法静态解析的调用点。` +
-          `请判断它是否执行 I/O 或副作用，回答 PURE / IMPURE / UNKNOWN 并给出一句话理由（PURE 需全部调用点确证）。` +
-          priorHint(corpus, v.chunk.unknownCalls),
-      }))
+      .map((v) => {
+        const sp = siteShapeInfo(corpus, v.chunk.unknownCalls);
+        return {
+          id: v.chunk.id,
+          symbol: v.chunk.name,
+          file: v.chunk.file,
+          line: v.chunk.line,
+          influence: budget.influence.get(v.chunk.key) ?? 0,
+          unknownSites: v.chunk.unknownSites,
+          calls: v.chunk.unknownCalls,
+          shape: sp.shape,
+          prior: sp.prior ? { pPure: sp.prior.pPure, n: sp.prior.n } : null,
+          batchable: sp.batchable,
+          suggested_prompt:
+            `函数 \`${v.chunk.name}\`（${v.chunk.file}:${v.chunk.line}）有 ${v.chunk.unknownSites} 个无法静态解析的调用点。` +
+            `请判断它是否执行 I/O 或副作用，回答 PURE / IMPURE / UNKNOWN 并给出一句话理由（PURE 需全部调用点确证）。` +
+            priorHint(corpus, v.chunk.unknownCalls),
+        };
+      })
       .sort((a, b) => b.influence - a.influence);
     writeFileSync(args.unknowns, JSON.stringify(unknowns, null, 2));
     // 标注曲线：按影响面贪心序的精确剩余 UNKNOWN（"标到多少就够"的预算数学）。
