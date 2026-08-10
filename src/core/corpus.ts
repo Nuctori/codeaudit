@@ -70,12 +70,14 @@ export function updateCorpus(
 ): CorpusFile {
   let out = corpus;
   for (const c of chunks) {
-    const v = annotations.get(c.id);
-    if (v === undefined || c.id in out.seen) continue;
+    // 标注键解析与 scan.ts 回读同构：优先裸 id（内容寻址），再 (file, id) 实例锚定
+    const annKey = annotations.has(c.id) ? c.id : `${c.file}\u0000${c.id}`;
+    const v = annotations.get(annKey);
+    if (v === undefined || annKey in out.seen) continue;
     if (c.unknownCalls.length === 0) continue;
     out = {
       version: 1,
-      seen: { ...out.seen, [c.id]: true },
+      seen: { ...out.seen, [annKey]: true },
       method: bump(out.method, new Set(c.unknownCalls.map((s) => s.attr)), v),
       root: bump(out.root, new Set(c.unknownCalls.map((s) => s.root)), v),
     };

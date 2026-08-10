@@ -14,6 +14,16 @@ function chunk(id: string, sites: Array<{ attr: string; obj: string | null; root
 }
 
 describe("标注语料（corpus）", () => {
+  it("file 锚定标注计入语料（F1 修复：updateCorpus 与 scan 回读同构）", () => {
+    const c1 = chunk("idX", [{ attr: "get", obj: "req", root: "variable" }]);
+    const c2 = chunk("idX", [{ attr: "get", obj: "req", root: "variable" }]);
+    // 同内容跨文件，file 锚定标注只入账对应实例
+    const ann = new Map<string, "PURE" | "IMPURE">([["a.py\u0000idX", "PURE"]]);
+    const corpus = updateCorpus(emptyCorpus(), [c1, c2], ann);
+    expect(corpus.method.get).toEqual({ pure: 1, impure: 0 }); // 只有 a.py 实例入账
+    expect(corpus.seen).toEqual({ "a.py\u0000idX": true });
+  });
+
   it("updateCorpus 按 chunk.id 去重且按站点计数（幂等）", () => {
     const c1 = chunk("id1", [{ attr: "get", obj: "req", root: "variable" }, { attr: "save", obj: null, root: "bare" }]);
     const c2 = chunk("id2", [{ attr: "get", obj: "req", root: "variable" }]);
