@@ -21,27 +21,30 @@ export interface CorpusSite {
 }
 
 export interface CorpusFile {
-  readonly version: 1;
+  readonly version: 2;
   /** 已入账的 chunk.id（去重）。 */
   readonly seen: Record<string, true>;
   /** 方法名 → pure/impure 计数。 */
   readonly method: Record<string, { pure: number; impure: number }>;
   /** 接收者根类别 → pure/impure 计数。 */
   readonly root: Record<string, { pure: number; impure: number }>;
+  /** (attr, root) 格 → pure/impure 计数（v2 新增：LOO 精确化 + n 显示真格计数，根治 root 桶虚高）。 */
+  readonly cell: Record<string, { pure: number; impure: number }>;
 }
 
 export function emptyCorpus(): CorpusFile {
-  return { version: 1, seen: {}, method: {}, root: {} };
+  return { version: 2, seen: {}, method: {}, root: {}, cell: {} };
 }
 
 /** 语料结构守卫（投毒/畸形防护）：版本 + 结构 + 计数非负有限数。 */
 export function isCorpus(x: unknown): x is CorpusFile {
   if (!x || typeof x !== "object") return false;
   const c = x as Partial<CorpusFile>;
-  if (c.version !== 1) return false;
+  if (c.version !== 2) return false;
   if (!c.seen || typeof c.seen !== "object") return false;
   if (!c.method || typeof c.method !== "object") return false;
   if (!c.root || typeof c.root !== "object") return false;
+  if (!c.cell || typeof c.cell !== "object") return false;
   const validCount = (v: unknown): boolean => {
     if (!v || typeof v !== "object") return false;
     const o = v as { pure?: unknown; impure?: unknown };
@@ -50,6 +53,7 @@ export function isCorpus(x: unknown): x is CorpusFile {
   };
   for (const v of Object.values(c.method)) if (!validCount(v)) return false;
   for (const v of Object.values(c.root)) if (!validCount(v)) return false;
+  for (const v of Object.values(c.cell)) if (!validCount(v)) return false;
   return true;
 }
 
@@ -75,6 +79,8 @@ export function mergeCorpus(a: CorpusFile, b: CorpusFile): CorpusFile {
   for (const [k, v] of Object.entries(b.method)) add(out.method, k, v.pure, v.impure);
   for (const [k, v] of Object.entries(a.root)) add(out.root, k, v.pure, v.impure);
   for (const [k, v] of Object.entries(b.root)) add(out.root, k, v.pure, v.impure);
+  for (const [k, v] of Object.entries(a.cell)) add(out.cell, k, v.pure, v.impure);
+  for (const [k, v] of Object.entries(b.cell)) add(out.cell, k, v.pure, v.impure);
   for (const k of Object.keys(a.seen)) out.seen[k] = true;
   for (const k of Object.keys(b.seen)) out.seen[k] = true;
   return out;
@@ -104,10 +110,11 @@ export function updateCorpus(
     if (c.parseError) continue;
     if (c.unknownCalls.length === 0) continue;
     out = {
-      version: 1,
+      version: 2,
       seen: { ...out.seen, [annKey]: true, [c.id]: true },
       method: bump(out.method, new Set(c.unknownCalls.map((s) => s.attr)), v),
       root: bump(out.root, new Set(c.unknownCalls.map((s) => s.root)), v),
+      cell: bump(out.cell, new Set(c.unknownCalls.map((s) => `${s.attr}\u0000${s.root}`)), v),
     };
   }
   return out;
@@ -155,18 +162,19 @@ export function priorFor(corpus: CorpusFile, site: CorpusSite): Prior | null {
   if (total(corpus) < MIN_TOTAL) return null; // 冷启动：不编数字
   // hasOwn 守卫：method/root 是普通对象，裸下标命中继承的 Object.prototype 键（toString 等）→ NaN 先验
   const m = Object.hasOwn(corpus.method, site.attr) ? corpus.method[site.attr] : undefined;
-  const r = Object.hasOwn(corpus.root, site.root) ? corpus.root[site.root] : undefined;
   // 冷 attr（方法级零证据）不提示：其 p̂ 完全来自 root 异质池借力（GLOBAL_THETA0 + 池频率），
   // 显示的 n 会误导为"该形态的实证"——宁缺毋滥（统计评审迭代2 #4）
   if (!m) return null;
   // 两层收缩：先方法级，再接收者格；任一维样本不足都拒绝（宁缺毋滥）
   if (m.pure + m.impure < MIN_CELL) return null;
-  const nCell = (r?.pure ?? 0) + (r?.impure ?? 0);
+  // v2 cell 维度：(attr, root) 真格计数——n 显示与 LOO 精确化（根治 root 桶虚高）
+  const cellKey = `${site.attr}\u0000${site.root}`;
+  const c = Object.hasOwn(corpus.cell, cellKey) ? corpus.cell[cellKey] : undefined;
+  const nCell = (c?.pure ?? 0) + (c?.impure ?? 0);
   if (nCell < MIN_CELL) return null;
-  const kCell = r?.impure ?? 0;
+  const kCell = c?.impure ?? 0;
   // 方法级 θ̂ 用 leave-one-out（剔除本 cell 计数，防双重计数——cell ⊆ method 同源入账）。
-  // clamp：root 表边际可能 > 方法总数（多 attr 共享同一 root 桶），过度扣除 → 负/NaN 先验
-  // （迭代3 #2）；归零时退回 GLOBAL_THETA0（方法内无其他 cell 证据）
+  // clamp 防御（cell 计数精确后 LOO 不会为负，保留兜底防数据畸形）
   const mImpureLOO = Math.max(0, m.impure - kCell);
   const mTotalLOO = Math.max(0, m.pure + m.impure - nCell);
   const thetaM = (mImpureLOO + GLOBAL_THETA0 * KAPPA1) / (mTotalLOO + KAPPA1);

@@ -24,12 +24,37 @@ const pureBuiltins = new Set([
 ]);
 
 const impureModules: Record<string, "*" | readonly string[]> = {
-  os: "*", sys: "*", io: "*", socket: "*", subprocess: "*", shutil: "*",
+  // os 拆表：io 成员全集（保守列举，宁可多列）+ os.path 纯计算子模块（:p）；未列成员落 UNKNOWN（方向安全）
+  os: ["system", "popen", "spawnv", "spawnve", "spawnl", "spawnle", "spawnlp", "spawnlpe",
+    "spawnvp", "spawnvpe", "fork", "forkpty", "execv", "execve", "execvp", "execl", "execlp",
+    "execle", "execvpe", "kill", "killpg", "remove", "unlink", "rename", "renames", "replace",
+    "rmdir", "removedirs", "mkdir", "makedirs", "chdir", "fchdir", "chmod", "chown", "lchown",
+    "link", "symlink", "readlink", "listdir", "scandir", "walk", "stat", "lstat", "fstat",
+    "statvfs", "pathconf", "fpathconf", "getcwd", "getcwdb", "chroot", "getpid", "getppid",
+    "getuid", "geteuid", "getgid", "getegid", "getgroups", "getlogin", "getenv", "putenv",
+    "unsetenv", "setuid", "seteuid", "setgid", "setegid", "setgroups", "umask", "getumask",
+    "urandom", "getrandom", "open", "fdopen", "pipe", "dup", "dup2", "close", "closerange",
+    "read", "write", "fsync", "fdatasync", "truncate", "ftruncate", "mknod", "mkfifo",
+    "utime", "access", "openpty", "getloadavg", "ttyname", "isatty", "nice", "abort",
+    "environ", "get_terminal_size", "register_at_fork", "get_exec_path", "confstr", "sysconf",
+    // os.path 纯计算（join/basename 等）；读 fs 状态的（getsize/exists/isdir…）不在列 → UNKNOWN
+    "path.join:p", "path.basename:p", "path.dirname:p", "path.split:p", "path.splitext:p",
+    "path.normpath:p", "path.normcase:p", "path.isabs:p", "path.commonpath:p", "path.commonprefix:p",
+    "path.splitdrive:p", "path.splitunc:p", "path.curdir:p", "path.pardir:p", "path.sep:p"],
+  // from os.path import join 的别名表（与 os 表的 path: 项一致）
+  "os.path": ["join:p", "basename:p", "dirname:p", "split:p", "splitext:p", "normpath:p",
+    "normcase:p", "isabs:p", "commonpath:p", "commonprefix:p", "splitdrive:p", "splitunc:p"],
+  sys: "*", io: "*", socket: "*", subprocess: "*", shutil: "*",
   sqlite3: "*", urllib: "*", http: "*", smtplib: "*", ftplib: "*",
   requests: "*", httpx: "*", aiohttp: "*", psycopg2: "*", pymysql: "*",
   pymongo: "*", redis: "*", boto3: "*", paramiko: "*",
   pickle: ["load", "dump"], json: ["load", "dump", "dumps:p", "loads:p"], csv: "*",
-  logging: "*", time: ["sleep", "time", "monotonic"], random: "*",
+  logging: "*",
+  // time：时钟读取（io）+ 纯转换（:p，不触时钟）
+  time: ["sleep", "time", "monotonic", "perf_counter", "process_time", "thread_time", "monotonic_ns",
+    "time_ns", "perf_counter_ns", "process_time_ns", "thread_time_ns",
+    "localtime:p", "gmtime:p", "mktime:p", "strftime:p", "strptime:p", "ctime:p", "asctime:p"],
+  random: "*",
   tempfile: "*", glob: "*", pathlib: "*", multiprocessing: "*",
   threading: "*", asyncio: "*", select: "*", signal: "*",
   // 时钟读取（与 time.time 判 io 同源）：datetime.now/utcnow/today/fromtimestamp/utcfromtimestamp

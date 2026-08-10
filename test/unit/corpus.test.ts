@@ -15,15 +15,32 @@ function chunk(id: string, sites: Array<{ attr: string; obj: string | null; root
 
 describe("标注语料（corpus）", () => {
   it("isCorpus 守卫：畸形语料（负计数/NaN/缺字段/字符串计数）全拒", () => {
-    expect(isCorpus({ version: 1, seen: {}, method: {}, root: {} })).toBe(true);
-    expect(isCorpus({ version: 1, seen: {}, method: { get: { pure: 40, impure: 0 } }, root: {} })).toBe(true);
-    expect(isCorpus({ version: 1, seen: {}, method: { get: { pure: 100, impure: -70 } }, root: {} })).toBe(false);
-    expect(isCorpus({ version: 1, seen: {}, method: { get: { pure: "40", impure: 0 } }, root: {} })).toBe(false);
-    expect(isCorpus({ version: 1, seen: {}, method: { get: { pure: NaN, impure: 0 } }, root: {} })).toBe(false);
-    expect(isCorpus({ version: 1, seen: {}, method: null, root: {} })).toBe(false);
-    expect(isCorpus({ version: 1, seen: {}, method: {}, root: undefined })).toBe(false);
+    const v2 = (extra = {}) => ({ version: 2, seen: {}, method: {}, root: {}, cell: {}, ...extra });
+    expect(isCorpus(v2())).toBe(true);
+    expect(isCorpus(v2({ method: { get: { pure: 40, impure: 0 } } }))).toBe(true);
+    expect(isCorpus(v2({ method: { get: { pure: 100, impure: -70 } } }))).toBe(false);
+    expect(isCorpus(v2({ method: { get: { pure: "40", impure: 0 } } }))).toBe(false);
+    expect(isCorpus(v2({ method: { get: { pure: NaN, impure: 0 } } }))).toBe(false);
+    expect(isCorpus(v2({ method: null }))).toBe(false);
+    expect(isCorpus(v2({ root: undefined }))).toBe(false);
+    expect(isCorpus(v2({ cell: { x: { pure: 1, impure: -1 } } }))).toBe(false);
+    expect(isCorpus(v2({ cell: undefined }))).toBe(false);
     expect(isCorpus(null)).toBe(false);
-    expect(isCorpus({ version: 2, seen: {}, method: {}, root: {} })).toBe(false);
+    expect(isCorpus({ version: 1, seen: {}, method: {}, root: {} })).toBe(false); // v1 旧语料拒（cell 缺失）
+  });
+
+  it("v2 cell 维度（继续做）：n 显示真格计数、LOO 精确——多 attr 共享 root 不虚高", () => {
+    // 15 read/self PURE + 15 write/self IMPURE：root.self={15,15} 但 (read,self) 格 = {15,0}
+    const chunks: Chunk[] = [];
+    const ann = new Map<string, "PURE" | "IMPURE">();
+    for (let i = 0; i < 15; i++) { chunks.push(chunk("r" + i, [{ attr: "read", obj: "f", root: "self" }])); ann.set("r" + i, "PURE"); }
+    for (let i = 0; i < 15; i++) { chunks.push(chunk("w" + i, [{ attr: "write", obj: "f", root: "self" }])); ann.set("w" + i, "IMPURE"); }
+    const c = updateCorpus(emptyCorpus(), chunks, ann);
+    // cell 精确：read/self 格 15 条全 PURE → 建议 PURE（旧 root 边际语义被桶污染 → 无建议）
+    const p = priorFor(c, { attr: "read", obj: "f", root: "self" });
+    expect(p).not.toBeNull();
+    expect(p!.n).toBe(15); // n = 真格计数（旧行为显示 root 桶 30）
+    expect(p!.pPure).toBeGreaterThan(0.9);
   });
 
   it("file 锚定标注计入语料（F1 修复：updateCorpus 与 scan 回读同构）", () => {
@@ -50,18 +67,6 @@ describe("标注语料（corpus）", () => {
     ]);
     const corpus = updateCorpus(emptyCorpus(), [c1, c2], ann);
     expect(corpus.method.get).toEqual({ pure: 1, impure: 1 }); // 异判定观测都保留（修复前 IMPURE 被裸 id 门吞掉）
-  });
-
-  it("LOO clamp（迭代3 #2）：root 边际 > 方法计数 → 无负值/NaN 先验", () => {
-    // 15 read/self PURE + 15 write/self IMPURE：root.self={15,15} 而 method.read={15,0}——root 边际 > 方法计数
-    const chunks: Chunk[] = [];
-    const ann = new Map<string, "PURE" | "IMPURE">();
-    for (let i = 0; i < 15; i++) { chunks.push(chunk("r" + i, [{ attr: "read", obj: "f", root: "self" }])); ann.set("r" + i, "PURE"); }
-    for (let i = 0; i < 15; i++) { chunks.push(chunk("w" + i, [{ attr: "write", obj: "f", root: "self" }])); ann.set("w" + i, "IMPURE"); }
-    const c = updateCorpus(emptyCorpus(), chunks, ann);
-    const p = priorFor(c, { attr: "read", obj: "f", root: "self" });
-    // 修复前 mImpureLOO=0-15 → 负值 → pPure 越界；clamp 后 θ 收缩为 0.25→0.447 → pPure≈0.55 分歧大 → null
-    expect(p).toBeNull();
   });
 
   it("LOO 角冲突回退 null（迭代4 F2）：方法 50/50 + root 池纯 → 不制造虚假 PURE 建议", () => {
