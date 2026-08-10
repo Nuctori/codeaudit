@@ -99,6 +99,9 @@ export function updateCorpus(
     // 裸 id（内容寻址）按裸 id 门（同内容同判定）。双键写入保跨格式幂等（迭代2 #2）。
     const gate = annKey.includes("\u0000") ? out.seen[annKey] === true : out.seen[c.id] === true;
     if (v === undefined || gate) continue;
+    // 已 parseError 的 chunk 不计入语料：判定侧已拒其 PURE 标注，语料侧不得借"body 不可信"的标注累积先验
+    // （迭代4 F1：scan 拒标注 vs updateCorpus 计入的闭环污染）
+    if (c.parseError) continue;
     if (c.unknownCalls.length === 0) continue;
     out = {
       version: 1,
@@ -167,6 +170,9 @@ export function priorFor(corpus: CorpusFile, site: CorpusSite): Prior | null {
   const mImpureLOO = Math.max(0, m.impure - kCell);
   const mTotalLOO = Math.max(0, m.pure + m.impure - nCell);
   const thetaM = (mImpureLOO + GLOBAL_THETA0 * KAPPA1) / (mTotalLOO + KAPPA1);
+  // 角冲突（迭代4 F2）：root 边际 ≥ 方法总数且方法 impure 残差 > 0（mTotalLOO 被 clamp 归零但
+  // mImpureLOO 保留）→ thetaM 由方法残差主导，与真实方法率相去甚远 → 宁缺毋滥回退 null
+  if (mTotalLOO === 0 && mImpureLOO > 0) return null;
   const thetaCell = (kCell + thetaM * KAPPA2) / (nCell + KAPPA2);
   const pPure = 1 - thetaCell;
   if (pPure < PRIOR_THRESHOLD && pPure > 1 - PRIOR_THRESHOLD) return null; // 分歧大，无建议

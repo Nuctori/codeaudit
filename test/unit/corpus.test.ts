@@ -64,6 +64,27 @@ describe("标注语料（corpus）", () => {
     expect(p).toBeNull();
   });
 
+  it("LOO 角冲突回退 null（迭代4 F2）：方法 50/50 + root 池纯 → 不制造虚假 PURE 建议", () => {
+    // method.read=10/10（50/50 本应无建议）；root.variable 只收部分 impure（{24,5}，kCell=5 < 方法 impure=10）
+    // → mImpureLOO=5、mTotalLOO=0（clamp 角）→ 修复前 thetaM=5/12≈0.42 方向失真 → 角守卫回退 null
+    const chunks: Chunk[] = [];
+    const ann = new Map<string, "PURE" | "IMPURE">();
+    for (let i = 0; i < 10; i++) { chunks.push(chunk("r" + i, [{ attr: "read", obj: "f", root: "variable" }])); ann.set("r" + i, "PURE"); }
+    for (let i = 0; i < 5; i++) { chunks.push(chunk("w" + i, [{ attr: "read", obj: "f", root: "variable" }])); ann.set("w" + i, "IMPURE"); }
+    for (let i = 5; i < 10; i++) { chunks.push(chunk("w" + i, [{ attr: "read", obj: "f", root: "bare" }])); ann.set("w" + i, "IMPURE"); }
+    for (let i = 0; i < 14; i++) { chunks.push(chunk("x" + i, [{ attr: "write", obj: "f", root: "variable" }])); ann.set("x" + i, "PURE"); }
+    const c = updateCorpus(emptyCorpus(), chunks, ann);
+    const p = priorFor(c, { attr: "read", obj: "f", root: "variable" });
+    expect(p).toBeNull(); // 证据冲突 → 宁缺毋滥
+  });
+
+  it("parseError chunk 不计入语料（迭代4 F1）：scan 拒 PURE 与语料侧一致", () => {
+    const c1 = { ...chunk("idX", [{ attr: "unknown", obj: "x", root: "variable" }]), parseError: true };
+    const ann = new Map<string, "PURE" | "IMPURE">([["idX", "PURE"]]);
+    const corpus = updateCorpus(emptyCorpus(), [c1], ann);
+    expect(corpus.method.unknown).toBeUndefined(); // body 不可信的标注不得累积先验
+  });
+
   it("siteShapeInfo：shape 取最大先验样本站点；batchable 要求全部站点高置信", () => {
     // 构造 40 条 get·variable PURE 语料
     const chunks: Chunk[] = [];

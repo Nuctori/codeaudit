@@ -225,8 +225,8 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
   // 真实调用（未闭合字符串把后续 import/调用吸进字符串节点）→ 整体降级 UNKNOWN（"?" 经 eff 集传导给调用者）
   const chunks2 = parseErrFiles.size === 0 ? chunks : chunks.map((c) =>
     parseErrFiles.has(c.file) && !c.calls.has(UNKNOWN_TARGET)
-      ? { ...c, calls: new Set([...c.calls, UNKNOWN_TARGET]) }
-      : c,
+      ? { ...c, parseError: true, calls: new Set([...c.calls, UNKNOWN_TARGET]) }
+      : (parseErrFiles.has(c.file) ? { ...c, parseError: true } : c),
   );
   // 标注回读：证据注入源头（公理3 闭环）。PURE → 移除该 chunk 自己的 `?`；
   // IMPURE → 加直接 io 效应。id 不匹配（内容已变）的条目静默忽略。
@@ -237,13 +237,14 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
           // 标注匹配：优先 (file, id) 实例锚定（显式实例覆写胜过内容寻址）；无 file 锚定则裸 id（迭代3 #4）
           const v = ann.get(`${c.file}\u0000${c.id}`) ?? ann.get(c.id);
           if (v === undefined) return c;
-          // H1 守卫（迭代3 #1）：parseError chunk 的 `?` 是内容信任标记（body 可能被错误恢复吞边），
-          // 标注协议以函数体为准——而 body 本身不可信 → 标注不可撤销降级，保持 UNKNOWN/chainCertain=false
-          if (parseErrFiles.has(c.file)) return c;
           if (v === "IMPURE") {
             if (c.direct.has("io")) return c;
             return { ...c, direct: new Set([...c.direct, "io"]) };
           }
+          // H1 守卫（迭代3 #1，迭代4 F2 放宽）：parseError chunk 的 `?` 是内容信任标记（body 可能被
+          // 错误恢复吞边），标注协议以函数体为准——而 body 本身不可信 → PURE 标注不可撤销降级；
+          // IMPURE 标注是保守方向（只增 io）→ 仍放行
+          if (parseErrFiles.has(c.file)) return c;
           if (!c.calls.has(UNKNOWN_TARGET)) return c;
           const calls = new Set(c.calls);
           calls.delete(UNKNOWN_TARGET);

@@ -679,6 +679,27 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(b.purity).toBe(Purity.IMPURE); // 实例覆写生效
     expect(a.purity).toBe(Purity.PURE); // 无覆写 → 裸 id 生效
   });
+
+  it("class: 接收者遮蔽守卫（迭代4 F1）：局部变量遮蔽类名 → 诚实 UNKNOWN 而非错边 IMPURE", async () => {
+    const root = project("ctor-shadow", {
+      "a.ts": "export class Conn {\n  q() { console.log('io'); }\n}\nexport function e() {\n  const Conn = factory();\n  return new Conn().q();\n}\nexport function factory() { return { q() { return 1; } }; }\n",
+    });
+    const b = by(await scanProject(root));
+    // new Conn() 内层已因遮蔽走 `?`；class: 接收者不再错边到真类 → UNKNOWN（修复前错边 → IMPURE）
+    expect(b.get("a.ts::e")!.purity).toBe(Purity.UNKNOWN);
+  });
+
+  it("parseError chunk 的 IMPURE 标注放行、PURE 拒（迭代4 F2）", async () => {
+    const root = project("parsedeck-imp", {
+      "a.py": "def f():\n    return \"unterminated\nimport os\nos.system(\"ls\")\n",
+    });
+    const base = await scanProject(root);
+    const f = base.verdicts.find((v) => v.chunk.name === "f")!;
+    const ann = new Map<string, "PURE" | "IMPURE">([[`a.py\u0000${f.chunk.id}`, "IMPURE"]]);
+    const r = await scanProject(root, { annotations: ann, useCache: false });
+    const v = r.verdicts.find((x) => x.chunk.name === "f")!;
+    expect(v.purity).toBe(Purity.IMPURE); // 保守方向标注仍生效（迭代4 放宽）
+  });
 });
 
 describe("定义性事实族（用户覆写会议否决后实施）", () => {

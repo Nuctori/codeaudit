@@ -233,6 +233,7 @@ async function main(): Promise<void> {
           symbol: v.chunk.name,
           file: v.chunk.file,
           line: v.chunk.line,
+          parseError: v.chunk.parseError ?? false,
           influence: budget.influence.get(v.chunk.key) ?? 0,
           unknownSites: v.chunk.unknownSites,
           calls: v.chunk.unknownCalls,

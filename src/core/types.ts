@@ -38,6 +38,8 @@ export interface Chunk {
   readonly unknownSites: number;
   /** 未解析调用点的站点明细（标注语料：attr/obj + 接收者根类别）。 */
   readonly unknownCalls: ReadonlyArray<{ readonly attr: string; readonly obj: string | null; readonly root: string }>;
+  /** 文件解析失败（tree-sitter 错误恢复可能吞边）——内容不可信，PURE 标注被拒、不计入语料（迭代4 F1）。 */
+  readonly parseError?: boolean;
 }
 
 export interface Verdict {

@@ -276,6 +276,12 @@ function resolveCall(
     // 构造器接收者：new C().m() → 解析类名（本地/import）→ kind=class → 类成员真边
     if (call.receiver.startsWith("class:")) {
       const className = call.receiver.slice(6);
+      // 遮蔽守卫（迭代4 F1，与分支 2/3 对称）：局部变量遮蔽类名时 class: 接收者不可信 → 诚实未知
+      if (caller.assigned.includes(className)) {
+        sink.addUnknownCall(call);
+        sink.markUnknown();
+        return;
+      }
       const clsKey = resolveSymbol(fi.facts.file, className, 0);
       if (clsKey !== null) {
         const clsFile = clsKey.slice(0, clsKey.indexOf("::"));
