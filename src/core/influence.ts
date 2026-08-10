@@ -135,8 +135,8 @@ export interface ChangeImpact {
 
 /**
  * diff 影响面：给定改动文件集，返回其 chunk 的**反向可达闭包**（谁直接/传递调用了它们）。
- * depth = 到最近改动 chunk 的调用层数；via = 到达该 chunk 的直接调用者（影响路径证据）。
- * 与标注影响面（influence）同一反向闭包数学，方向互补——「改动 N 个函数，影响哪些调用者」。
+ * depth = 到最近改动 chunk 的调用层数；via/viaName = 影响路径首跳上"本 chunk 直接调用的被调用者"
+ * （证据：我调了什么才受影响）。与标注影响面（influence）同一反向闭包数学，方向互补——「改动 N 个函数，影响哪些调用者」。
  */
 export function changedImpact(
   verdicts: readonly { chunk: Chunk }[],
