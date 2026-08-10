@@ -4,7 +4,7 @@ import { tarjan } from "./tarjan";
 /**
  * 影响面分析（--unknowns 标注优先级的数学形式）。
  *
- * 定义：S(w) = 可到达 w 的未知源（含 `?` 的 chunk）集；源 u 的影响面
+ * 定义：S(w) = w 的调用链下游中含 `?` 的未知源集（w 可到达的源）；源 u 的影响面
  * I(u) = {w : u ∈ S(w)}（u 反向可达闭包内的 chunk 集，按 chunk 计数）。
  * 标注 u 释放所有满足 S(w) ⊆ R 的 w 的 UNKNOWN——u 的影响面越大，
  * 一次标注解除的 UNKNOWN 越多。

@@ -21,7 +21,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 135 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 146 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -112,10 +112,10 @@ src/
 
 ## 测试
 
-135 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
+146 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。
 - **边界 E2E**：空目录、语法损毁文件、重复 chunk、包内相对导入、默认导出、再导出环、TSX。
-- **合成大库 E2E**：300 文件 / 2400+ chunks / 含环，冷扫约 1.3s，两次扫描结果逐字节一致（确定性）。
+- **合成大库 E2E**：300 文件 / 2400+ chunks / 含环，冷扫约 1.3s，两次扫描分析负载逐字节一致（确定性；`stats.cachedFiles` 为缓存状态指示器例外）。
 - **32 维交叉审计**：随机图性质对照朴素参考实现、对抗性输入（畸形/极端/遮蔽/千结环）、四语言特性矩阵、缓存与 CLI 鲁棒性、输出契约（45 个用例）。

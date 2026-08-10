@@ -242,7 +242,9 @@ async function main(): Promise<void> {
           batchable: sp.batchable,
           suggested_prompt:
             `函数 \`${v.chunk.name}\`（${v.chunk.file}:${v.chunk.line}）有 ${v.chunk.unknownSites} 个无法静态解析的调用点。` +
-            `请判断它是否执行 I/O 或副作用，回答 PURE / IMPURE / UNKNOWN 并给出一句话理由（PURE 需全部调用点确证）。` +
+            (v.chunk.parseError
+              ? "该文件解析失败，函数体可能不完整（tree-sitter 错误恢复）——PURE 标注会被忽略，请只标 IMPURE 或改源码后重扫。"
+              : `请判断它是否执行 I/O 或副作用，回答 PURE / IMPURE / UNKNOWN 并给出一句话理由（PURE 需全部调用点确证）。`) +
             priorHint(corpus, v.chunk.unknownCalls),
         };
       });
@@ -271,7 +273,8 @@ async function main(): Promise<void> {
       return `标${k}条→${rem} (${((rem / report.stats.chunks) * 100).toFixed(1)}%)`;
     });
     console.error(`unknowns -> ${args.unknowns} (${unknowns.length} 条, 全标后 ${total}→${curve[curve.length - 1] ?? 0})`);
-    console.error(`标注曲线(贪心序): ${pts.join(" | ")}`);
+    // staleEdges>0 时悬垂边 UNKNOWN 不可标注释放（目标不存在，只能重扫修复）——曲线终值低于 stats.unknown 属此因
+    console.error(`标注曲线(贪心序): ${pts.join(" | ")}${report.stats.staleEdges > 0 ? `（注：${report.stats.staleEdges} 条悬垂边 UNKNOWN 只能重扫修复，不参与释放）` : ""}`);
   }
 
   if (args.strict && report.stats.impure > 0) process.exitCode = 1;
