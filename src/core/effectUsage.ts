@@ -21,10 +21,17 @@ export interface EffectTableUsage {
 		readonly consulted: number;
 		readonly hits: number;
 		readonly miss: number;
-		readonly status: "provably-dead" | "hit" | "consulted-but-miss" | "corpus-inactive";
+		readonly status:
+			| "provably-dead"
+			| "hit"
+			| "consulted-but-miss"
+			| "corpus-inactive";
 		readonly evidence?: string;
 	}>;
-	readonly missSlots: ReadonlyArray<{ readonly slot: string; readonly miss: number }>;
+	readonly missSlots: ReadonlyArray<{
+		readonly slot: string;
+		readonly miss: number;
+	}>;
 }
 
 /** provably-dead 判定（P1-P4——锁定查找码现状，单测防漂移）：
@@ -45,16 +52,24 @@ export function classifyUsage(
 			consulted: number;
 			hits: number;
 			miss: number;
-			status: "provably-dead" | "hit" | "consulted-but-miss" | "corpus-inactive";
+			status:
+				| "provably-dead"
+				| "hit"
+				| "consulted-but-miss"
+				| "corpus-inactive";
 			evidence?: string;
 		}> = [];
 		// 枚举全部表键（module/global/builtin 三类条目）
 		const keySets: Array<[string, string]> = [];
-		for (const k of Object.keys(pack.impureModules)) keySets.push(["impureModules", k]);
-		for (const k of Object.keys(pack.pureModules)) keySets.push(["pureModules", k]);
-		for (const k of Object.keys(pack.impureGlobals)) keySets.push(["impureGlobals", k]);
+		for (const k of Object.keys(pack.impureModules))
+			keySets.push(["impureModules", k]);
+		for (const k of Object.keys(pack.pureModules))
+			keySets.push(["pureModules", k]);
+		for (const k of Object.keys(pack.impureGlobals))
+			keySets.push(["impureGlobals", k]);
 		for (const k of pack.pureGlobals) keySets.push(["pureGlobals", k]);
-		for (const k of Object.keys(pack.impureBuiltins)) keySets.push(["impureBuiltins", k]);
+		for (const k of Object.keys(pack.impureBuiltins))
+			keySets.push(["impureBuiltins", k]);
 		for (const k of pack.pureBuiltins) keySets.push(["pureBuiltins", k]);
 
 		let hits = 0;
@@ -62,47 +77,105 @@ export function classifyUsage(
 		let consultedButMiss = 0;
 		let provablyDead = 0;
 		for (const [table, key] of keySets) {
-			const slot = table.startsWith("impureModules") || table.startsWith("pureModules")
-				? `module:${key.replace(/^node:/, "")}`
-				: table.includes("Globals") || table.includes("Builtins")
-					? `${table.includes("Globals") ? "global" : "builtin"}:${key}`
-					: `module:${key}`;
+			const slot =
+				table.startsWith("impureModules") || table.startsWith("pureModules")
+					? `module:${key.replace(/^node:/, "")}`
+					: table.includes("Globals") || table.includes("Builtins")
+						? `${table.includes("Globals") ? "global" : "builtin"}:${key}`
+						: `module:${key}`;
 			const h = hit.get(slot) ?? 0;
 			const m = miss.get(slot) ?? 0;
 			const consulted = h + m;
 			// provably-dead 判定
 			let evidence: string | undefined;
-			if (table === "pureModules" || table === "pureGlobals" || table === "pureBuiltins") {
-				const impureSide = table === "pureModules" ? pack.impureModules : table === "pureGlobals" ? pack.impureGlobals : pack.impureBuiltins;
+			if (
+				table === "pureModules" ||
+				table === "pureGlobals" ||
+				table === "pureBuiltins"
+			) {
+				const impureSide =
+					table === "pureModules"
+						? pack.impureModules
+						: table === "pureGlobals"
+							? pack.impureGlobals
+							: pack.impureBuiltins;
 				const r = impureSide[key as never];
 				if (typeof r === "string") evidence = "P1"; // 同键 impure 为 string 效应 → pure 不可达
 			}
-			if (!evidence && (table === "impureModules" || table === "pureModules") && /^(\.\/|\.\.\/|node:)/.test(key)) {
+			if (
+				!evidence &&
+				(table === "impureModules" || table === "pureModules") &&
+				/^(\.\/|\.\.\/|node:)/.test(key)
+			) {
 				evidence = /^node:/.test(key) ? "P2" : "P4";
 			}
 			if (h > 0) {
 				hits++;
-				entries.push({ table, key, consulted, hits: h, miss: m, status: "hit" });
+				entries.push({
+					table,
+					key,
+					consulted,
+					hits: h,
+					miss: m,
+					status: "hit",
+				});
 			} else if (evidence) {
 				provablyDead++;
-				entries.push({ table, key, consulted, hits: 0, miss: m, status: "provably-dead", evidence });
+				entries.push({
+					table,
+					key,
+					consulted,
+					hits: 0,
+					miss: m,
+					status: "provably-dead",
+					evidence,
+				});
 			} else if (m > 0) {
 				consultedButMiss++;
-				entries.push({ table, key, consulted, hits: 0, miss: m, status: "consulted-but-miss" });
+				entries.push({
+					table,
+					key,
+					consulted,
+					hits: 0,
+					miss: m,
+					status: "consulted-but-miss",
+				});
 			} else {
 				corpusInactive++;
-				entries.push({ table, key, consulted: 0, hits: 0, miss: 0, status: "corpus-inactive" });
+				entries.push({
+					table,
+					key,
+					consulted: 0,
+					hits: 0,
+					miss: 0,
+					status: "corpus-inactive",
+				});
 			}
 		}
 		// missSlots（咨询未中槽位——绝大多数非表条目 = 补表候选）
 		const missSlots = [...miss.entries()]
-			.filter(([, n]) => n > 0 && !keySets.some(([, k]) => (k.startsWith("./") ? false : `module:${k.replace(/^node:/, "")}` === "" )))
+			.filter(
+				([, n]) =>
+					n > 0 &&
+					!keySets.some(([, k]) =>
+						k.startsWith("./")
+							? false
+							: `module:${k.replace(/^node:/, "")}` === "",
+					),
+			)
 			.map(([slot, n]) => ({ slot, miss: n }))
 			.sort((a, b) => b.miss - a.miss);
 		const missSites = missSlots.reduce((s, x) => s + x.miss, 0);
 		out.push({
 			pack: packName,
-			summary: { entries: entries.length, hits, corpusInactive, consultedButMiss, provablyDead, missSites },
+			summary: {
+				entries: entries.length,
+				hits,
+				corpusInactive,
+				consultedButMiss,
+				provablyDead,
+				missSites,
+			},
 			entries,
 			missSlots,
 		});
