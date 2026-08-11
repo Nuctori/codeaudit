@@ -417,3 +417,16 @@ D-086（Step1-2 落地）、D-087（证据字段+阈值重标+解构绑定）、
 ### 决策链
 D-097（迭代 15 剩余工作执行——最简性+盲区+可解释性+极小性闭环）
 
+
+## 迭代 16（生产就绪轮：真实项目验证 + 能力增量 + CI + 测试盲区 + 发布验证）
+
+- **真实项目验证**（用户提供 J:/旧宇宙/代码仓库 2818 chunks/179 files/549 impure + express/axios）：无崩溃、秒级；**背锅者分析**——手写代码腐化主力（42% IMPURE：BaseInitDeityUser {io,state}、ActionRunner {random,state}、SimpleRedisClient），generated 场景传播放大层（83% UNKNOWN），枢纽 reward_refresh_single_box/_op_refresh_single_box 解锁 6-7 下游
+- **--sources 旗标**（背锅者查找）：chain=0 IMPURE 效应源按调用点排序（README/--help 同步）
+- **CI**（.github/workflows/ci.yml）：Node 20 + build + 203 测试 + 自扫描 --strict 门禁 + require 冒烟；actions pin SHA
+- **测试盲区补齐**（历史 Med 行 82）：impureModules 效应表规则、数组接收者效应、link 深度上限（10 层 re-export 链 → ? 不崩溃）、缓存写失败只读目录、损坏缓存回退
+- **npm pack 验证**：43 文件/79.6kB；消费者安装测试通过（wasm 经 tree-sitter-wasms 依赖解析、scanProject 可用）
+- **文档同步**：README 导出清单补全（forwardClosure/gradeOf/graphMetrics/defaultPacks/ScanStats/GraphMetrics）；axioms 四·七补阈值-因子联合体
+
+### 决策链
+D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭环）
+
