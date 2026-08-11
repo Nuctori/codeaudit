@@ -402,3 +402,18 @@ D-082（迭代 12 收敛）、D-083（拓扑采纳）、D-084（7cab482 测试�
 ### 决策链
 
 D-086（Step1-2 落地）、D-087（证据字段+阈值重标+解构绑定）、D-088（迭代 14 5 视角）、D-089（终裁文档化分类）、D-090（R_state 实施，审计判偏离）、D-091（拓扑实施，审计判偏离——旗标已补）、D-092（setTimeout 修复无效——已由 D-093 修正）、D-093（异步边门修正）、D-094（R_state 覆写裁决）
+
+## 迭代 15（剩余工作执行轮：最简性 + 盲区修复 + 可解释性 + 极小性）
+
+- **最简性清扫**（e8327d5）：S1（riskOfChange 复用 changedImpact，backSeen 由 changed+affected 重建）、S2（annotationCurve 加权参数 + 初值全量累计——对齐 proof θ 的 deps=0 口径）、S3（annotationCompare/unknownKeysOf 三处共享）、D1（maxReachable 删）、D2（gap 删）、D5（UNKNOWN_COUNT 单遍）
+- **分母统一**（528f176）：CLI 标注曲线分母 chunks → |U|，对齐 proof Θ（1−rem/|U|）——覆写视角 5「两指标合法」裁决
+- **CJS 解构 require 盲区**（f2adb62 + 5e52793）：exports.x=fn 建命名 chunk（from-import 可解析）；导出赋值不再算 chunk 体状态写（arrow 导出 PURE）；边界校准（同名歧义 → ? 诚实、重导出走 importMap）
+- **F2 参数重绑**（cf45f17）：参数重绑非外部状态写（纯局部），参数对象属性写保留外部
+- **gradeOf 验证**（无代码改动）：src 真实语料 120 集 0 high/critical、p95 26.6 vs 迭代 12 的 29.4——R_state 后阈值 15/35/60 保持有效；合成随机图模拟器偏差（critical 1232）记录不用于校准
+- **发布面**（8ca8615）：package.json repository；exports/types/bin/files 已齐
+- **可解释性层**（8ca8615 + 1ed878a + 5e52793）：grade action 行 + 证据置信度警告 + 拓扑人类解读（视角 4 文本修正：无门禁措辞、未知边限定、dagDepth 结构深度非效应链）
+- **极小性（视角 5）**：A（src/core/*.js 689 行构建产物误提交——已删）、B（Verdict inDegree/outDegree 死字段——已删）、C（F2 回归测试——已补）、D（README global/nonlocal 矛盾——已修）、E（--topology 文档——已补 help/README）、F（GraphMetrics.evidence 断言——已补）
+
+### 决策链
+D-097（迭代 15 剩余工作执行——最简性+盲区+可解释性+极小性闭环）
+
