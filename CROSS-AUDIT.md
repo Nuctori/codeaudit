@@ -449,3 +449,13 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **诚实局限**：中文标识符 parse-error 77 文件（WorldRegion.草木之森——wasm Unicode 缺陷，方向安全 UNKNOWN）；协程/LINQ 链/事件订阅第一版不建模；<unresolved> 2206（不可拍平调用设计边界）
 - 测试 +6（csharp-lang 6 例），216/216
 
+
+
+## 迭代 20-21（标注清零 + 数学解 + 生产就绪 DAG）
+
+- **迭代 20**：中文标识符 wasm 硬限制确认（外部债 D1）；工具修复 4 项（predefined_type/conditional_access/Unity 裸全局/string 纯）；标注 928+ 条 → InitDeity unknown 8159→5124（-37%）
+- **交叉审计**：ground truth PURE 24-32%（标注质量差——接收侧 annotationRejected 护栏落地）；阈值重验（C# 效应表未推高分布——真问题是纯度饱和×后果饥饿）
+- **迭代 21 数学解 A/B/C**：A 标注一致性验证器（多站点记账 latent bug 修复——置 0 + annotationRejected + 语料防污染）；B 效应表使用率（effectTableUsage 三分类 + missSlots 补表候选）；C-缺口 1 annotatable
+- **发散 AI（22 发现）**：F13 files 加 scripts/docs、F14 --version、F16 效应表注入（平台化）、F19 pathlib 拆表、F20 :p 审计（Path.cwd/home 假纯闭合）
+- **DAG 生产就绪**：T1 forks 池、T2 标注护栏、T3 真实 fixture（8 文件 8 断言）、T4 missSlots 补表（nameof/System/UnityEngine 前缀）、T5 链式诚实结论（设计边界）、T6 resolveCall 拆分
+- InitDeity：unknown 8159→5761（工具+标注-29%）、226/226

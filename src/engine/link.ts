@@ -326,6 +326,137 @@ interface Sink {
   effectFromModule(module: string, member: string | null): boolean;
 }
 
+function resolveImport(
+  call: RawCall,
+  caller: RawChunk,
+  fi: FileIndex,
+  files: ReadonlyMap<string, FileIndex>,
+  projectFiles: ReadonlySet<string>,
+  resolveSymbol: (file: string, name: string, depth: number) => string | null,
+  resolveMod: (pack: LangPack, module: string, fromFile: string) => string | null,
+  sink: Sink,
+): boolean {
+  const pack = fi.pack;
+  const binding = call.obj ?? call.attr;
+  const imp = fi.importMap.get(binding);
+  if (imp && !caller.assigned.includes(binding) && !fi.moduleAssigned.has(binding)) {
+    if (imp.imported === null) {
+      // 命名空间导入：import os / import * as fs / const fs = require("fs")
+      const member = call.obj !== null ? call.attr : null;
+      const target = resolveMod(pack, imp.module, fi.facts.file);
+      if (target !== null) {
+        if (member !== null) {
+          const hit = resolveSymbol(target, member, 0);
+          if (hit !== null) { sink.addEdge(hit); return true; }
+          // 点连成员：import a.b; a.b.fn() → callOf 首点切分得 obj=a、attr=b.fn，
+          // 全名 a.b.fn 去掉模块路径 a.b 后的段（fn）在模块内解析（遮蔽重绑则跳过）
+          if (call.obj !== null && !caller.assigned.includes(call.obj)) {
+            const full = `${call.obj}.${call.attr}`;
+            if (full.startsWith(imp.module + ".")) {
+              const inner = full.slice(imp.module.length + 1);
+              const hit2 = resolveSymbol(target, inner, 0);
+              if (hit2 !== null) { sink.addEdge(hit2); return true; }
+            }
+          }
+        }
+        sink.addUnknownCall(call);
+        sink.markUnknown();
+        return true;
+      }
+      // 两级成员链（迭代18 旧宇宙驱动）：os.environ.get → 效应表查全链 "environ.get"
+      // （effectFromModule 前缀回退命中 "environ"=io）；os.path.join → "path.join":p
+      const effMember = call.obj !== null && call.obj.startsWith(imp.module + ".")
+        ? `${call.obj.slice(imp.module.length + 1)}.${call.attr}`
+        : member;
+      if (effMember !== null && sink.effectFromModule(imp.module, effMember)) {
+        if (pack.hofCallsArgs.has(effMember)) sink.addArgEdges(call.argFns, effMember); // functools.reduce(cb, …)
+        return true;
+      }
+      if (sink.effectFromModule(imp.module, null)) return true;
+      sink.missTable(`module:${imp.module}`); // 迭代21 B：module 咨询未中 = 补表候选
+      sink.addUnknownCall(call);
+      sink.markUnknown();
+      return true;
+    }
+    // from 导入：from db import save_user → save_user(...)
+    if (call.obj === null) {
+      const target = resolveMod(pack, imp.module, fi.facts.file);
+      if (target !== null) {
+        const name = imp.imported === "default"
+          ? (files.get(target)?.facts.defaultExport ?? imp.imported)
+          : imp.imported;
+        const hit = resolveSymbol(target, name, 0);
+        if (hit !== null) { sink.addEdge(hit); return true; }
+        sink.addUnknownCall(call);
+        sink.markUnknown();
+        return true;
+      }
+      if (sink.effectFromModule(imp.module, imp.imported)) {
+        // HOF 实参回调边（与命名空间分支对称）：from functools import reduce; reduce(write, xs) → write 效应保留
+        if (pack.hofCallsArgs.has(imp.imported)) sink.addArgEdges(call.argFns, imp.imported);
+        return true;
+      }
+      sink.missTable(`module:${imp.module}`); // 迭代21 B
+      sink.addUnknownCall(call);
+      sink.markUnknown();
+      return true;
+    }
+    // from db import conn; conn.execute(...) → 模块导出面解析：类成员真边；外部模块走效应表；重绑遮蔽则跳过
+    if (call.obj !== null && !caller.assigned.includes(call.obj)) {
+      const target = resolveMod(pack, imp.module, fi.facts.file);
+      const name = imp.imported === "default"
+        ? (target !== null ? (files.get(target)?.facts.defaultExport ?? imp.imported) : imp.imported)
+        : imp.imported;
+      if (target !== null) {
+        const tf = files.get(target);
+        if (tf) {
+          const q = `${name}.${call.attr}`;
+          if (!tf.ambiguous.has(q)) {
+            const hit = tf.byQualified.get(q);
+            if (hit) { sink.addEdge(hit); return true; }
+          }
+          // 模块级值绑定：export const db = new Pool() → 绑定名解析到类 → 类成员真边
+          const boundCls = Object.hasOwn(tf.facts.moduleBindings, name) ? tf.facts.moduleBindings[name] : undefined;
+          if (boundCls) {
+            const clsKey = resolveSymbol(target, boundCls, 0);
+            if (clsKey !== null) {
+              const cf = clsKey.slice(0, clsKey.indexOf("::"));
+              const tf2 = files.get(cf);
+              const rc = tf2?.chunkByKey.get(clsKey);
+              if (rc && rc.kind === "class") {
+                const q2 = `${boundCls}.${call.attr}`;
+                if (!tf2!.ambiguous.has(q2)) {
+                  const hit2 = tf2!.byQualified.get(q2);
+                  if (hit2) { sink.addEdge(hit2); return true; }
+                }
+              }
+            }
+          }
+          // 命名空间再导出链：ns 在 target 里是 export * as ns from → 继续解析 attr
+          const nsImp = tf.importMap.get(name);
+          if (nsImp && nsImp.imported === null) {
+            const t2 = resolveMod(pack, nsImp.module, target);
+            if (t2 !== null) {
+              const hit2 = resolveSymbol(t2, call.attr, 0);
+              if (hit2 !== null) { sink.addEdge(hit2); return true; }
+            }
+          }
+        }
+      } else if (sink.effectFromModule(imp.module, call.attr)) {
+        if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr); // _.map(cb, xs)
+        return true;
+      }
+    }
+    sink.addUnknownCall(call);
+    sink.markDynamic();
+    return true;
+  }
+
+
+  return false;
+}
+
+
 function resolveCall(
   call: RawCall,
   caller: RawChunk,
@@ -434,122 +565,7 @@ function resolveCall(
     }
   }
 
-  // 3. import 映射（绑定被遮蔽——赋值/参数/模块级重绑——则不解析，落到效应表/未知诚实处理）
-  const binding = call.obj ?? call.attr;
-  const imp = fi.importMap.get(binding);
-  if (imp && !caller.assigned.includes(binding) && !fi.moduleAssigned.has(binding)) {
-    if (imp.imported === null) {
-      // 命名空间导入：import os / import * as fs / const fs = require("fs")
-      const member = call.obj !== null ? call.attr : null;
-      const target = resolveMod(pack, imp.module, fi.facts.file);
-      if (target !== null) {
-        if (member !== null) {
-          const hit = resolveSymbol(target, member, 0);
-          if (hit !== null) { sink.addEdge(hit); return; }
-          // 点连成员：import a.b; a.b.fn() → callOf 首点切分得 obj=a、attr=b.fn，
-          // 全名 a.b.fn 去掉模块路径 a.b 后的段（fn）在模块内解析（遮蔽重绑则跳过）
-          if (call.obj !== null && !caller.assigned.includes(call.obj)) {
-            const full = `${call.obj}.${call.attr}`;
-            if (full.startsWith(imp.module + ".")) {
-              const inner = full.slice(imp.module.length + 1);
-              const hit2 = resolveSymbol(target, inner, 0);
-              if (hit2 !== null) { sink.addEdge(hit2); return; }
-            }
-          }
-        }
-        sink.addUnknownCall(call);
-        sink.markUnknown();
-        return;
-      }
-      // 两级成员链（迭代18 旧宇宙驱动）：os.environ.get → 效应表查全链 "environ.get"
-      // （effectFromModule 前缀回退命中 "environ"=io）；os.path.join → "path.join":p
-      const effMember = call.obj !== null && call.obj.startsWith(imp.module + ".")
-        ? `${call.obj.slice(imp.module.length + 1)}.${call.attr}`
-        : member;
-      if (effMember !== null && sink.effectFromModule(imp.module, effMember)) {
-        if (pack.hofCallsArgs.has(effMember)) sink.addArgEdges(call.argFns, effMember); // functools.reduce(cb, …)
-        return;
-      }
-      if (sink.effectFromModule(imp.module, null)) return;
-      sink.missTable(`module:${imp.module}`); // 迭代21 B：module 咨询未中 = 补表候选
-      sink.addUnknownCall(call);
-      sink.markUnknown();
-      return;
-    }
-    // from 导入：from db import save_user → save_user(...)
-    if (call.obj === null) {
-      const target = resolveMod(pack, imp.module, fi.facts.file);
-      if (target !== null) {
-        const name = imp.imported === "default"
-          ? (files.get(target)?.facts.defaultExport ?? imp.imported)
-          : imp.imported;
-        const hit = resolveSymbol(target, name, 0);
-        if (hit !== null) { sink.addEdge(hit); return; }
-        sink.addUnknownCall(call);
-        sink.markUnknown();
-        return;
-      }
-      if (sink.effectFromModule(imp.module, imp.imported)) {
-        // HOF 实参回调边（与命名空间分支对称）：from functools import reduce; reduce(write, xs) → write 效应保留
-        if (pack.hofCallsArgs.has(imp.imported)) sink.addArgEdges(call.argFns, imp.imported);
-        return;
-      }
-      sink.missTable(`module:${imp.module}`); // 迭代21 B
-      sink.addUnknownCall(call);
-      sink.markUnknown();
-      return;
-    }
-    // from db import conn; conn.execute(...) → 模块导出面解析：类成员真边；外部模块走效应表；重绑遮蔽则跳过
-    if (call.obj !== null && !caller.assigned.includes(call.obj)) {
-      const target = resolveMod(pack, imp.module, fi.facts.file);
-      const name = imp.imported === "default"
-        ? (target !== null ? (files.get(target)?.facts.defaultExport ?? imp.imported) : imp.imported)
-        : imp.imported;
-      if (target !== null) {
-        const tf = files.get(target);
-        if (tf) {
-          const q = `${name}.${call.attr}`;
-          if (!tf.ambiguous.has(q)) {
-            const hit = tf.byQualified.get(q);
-            if (hit) { sink.addEdge(hit); return; }
-          }
-          // 模块级值绑定：export const db = new Pool() → 绑定名解析到类 → 类成员真边
-          const boundCls = Object.hasOwn(tf.facts.moduleBindings, name) ? tf.facts.moduleBindings[name] : undefined;
-          if (boundCls) {
-            const clsKey = resolveSymbol(target, boundCls, 0);
-            if (clsKey !== null) {
-              const cf = clsKey.slice(0, clsKey.indexOf("::"));
-              const tf2 = files.get(cf);
-              const rc = tf2?.chunkByKey.get(clsKey);
-              if (rc && rc.kind === "class") {
-                const q2 = `${boundCls}.${call.attr}`;
-                if (!tf2!.ambiguous.has(q2)) {
-                  const hit2 = tf2!.byQualified.get(q2);
-                  if (hit2) { sink.addEdge(hit2); return; }
-                }
-              }
-            }
-          }
-          // 命名空间再导出链：ns 在 target 里是 export * as ns from → 继续解析 attr
-          const nsImp = tf.importMap.get(name);
-          if (nsImp && nsImp.imported === null) {
-            const t2 = resolveMod(pack, nsImp.module, target);
-            if (t2 !== null) {
-              const hit2 = resolveSymbol(t2, call.attr, 0);
-              if (hit2 !== null) { sink.addEdge(hit2); return; }
-            }
-          }
-        }
-      } else if (sink.effectFromModule(imp.module, call.attr)) {
-        if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr); // _.map(cb, xs)
-        return;
-      }
-    }
-    sink.addUnknownCall(call);
-    sink.markDynamic();
-    return;
-  }
-
+  if (resolveImport(call, caller, fi, files, projectFiles, resolveSymbol, resolveMod, sink)) return;
   // 4. 效应表
   if (call.obj === null) {
     const b = Object.hasOwn(pack.impureBuiltins, call.attr) ? pack.impureBuiltins[call.attr] : undefined;
