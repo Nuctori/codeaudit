@@ -344,6 +344,11 @@ async function main(): Promise<void> {
           file: v.chunk.file,
           line: v.chunk.line,
           parseError: v.chunk.parseError ?? false,
+          // 可标注性分类（迭代21 数学解 C-缺口1）：stale-edge（悬垂边致 UNKNOWN——标 PURE 会被拒）
+          // / 传播型（无自身 ?——纯下游传导——应标上游）——提示避免白费人工
+          annotatable: v.chunk.parseError
+            ? false
+            : (v.chunk.calls.has(UNKNOWN_TARGET) && v.chunk.unknownSites > 0),
           influence: budget.influence.get(v.chunk.key) ?? 0,
           unknownSites: v.chunk.unknownSites,
           calls: v.chunk.unknownCalls,
