@@ -316,11 +316,13 @@ export class Extractor {
       // 裸标识符写：TS/JS 模块级 let/闭包外层变量（let count; inc(){count++} / count = count - 1）→ 外部；
       // Python 函数内赋值 = 局部定义（global/nonlocal 由 global_statement 分支处理）→ 非外部。
       // module chunk 特判：模块级赋值（handler = ...）是定义非外部写。
+      // 参数重绑（function f(x){ x = 5 }）纯局部（JS 语义）→ 非外部（迭代15 F2 修复）。
       // 终裁 Step1 {closure} 折叠进 state；S1 假纯洞修复（迭代12 Jeff P0）
       if (chunk.kind === "module") return null;
       if (this.pack.name === "python") return null;
       if (chunk.declared.includes(left.text)) return null; // 局部声明（let y = 0; y = 5）
-      return left.text; // TS/JS 裸标识符写 = 外部（含参数重绑——保守）
+      if (chunk.params.includes(left.text)) return null; // 参数重绑（F2）
+      return left.text; // TS/JS 裸标识符写 = 外部
     }
     const readTarget = (obj: SyntaxNode | null | undefined, attr: string | null | undefined): string | null => {
       if (!obj || !attr) return null;
