@@ -66,6 +66,8 @@ codeaudit scan src --changed src/engine/scan.ts
 #   ⚠ 未知率过高——判定覆盖面不足，建议先标注再作结论
 ```
 
+完整库 API 示例见 [examples/api-demo.js](examples/api-demo.js)（扫描 + 影响面 + 回归风险 + 证明完整度 + 拓扑）。变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+
 - **六因子**（全部从扫描推导）：`impact`（反向可达闭包 ∪ 状态读者占比）、`purity`（纯度退化——key 稳定用退化矩阵、编辑/新增用现状纯度映射）、`cycle`（SCC 环内修改，平凡排除+对数压缩）、`depth`（效应链深，PURE/∞→0 饱和）、`fog`（正向影响面内 UNKNOWN 计数占比）、`state`（stateDeps 命中的读者占比——图调用边外耦合通道，迭代14）。
 - **聚合**：L×C 风险矩阵——`L = 1-(1-purity)(1-fog)(1-state)`（正相关下可证明的保守上界；state 与 fog/purity 无结构性相关，全静态解析的库可状态耦合极密）、`C = 0.5·impact+0.3·cycle+0.2·depth`（凸组合）、`Risk = 100·L·C`。阈值：<15 LOW / <35 MEDIUM / <60 HIGH / ≥60 CRITICAL（按实测分布重标，迭代13——真实语料 1233 模拟改动集 0 high/critical，30/60/85 两个死区；迭代15 复测含 R_state 后阈值保持有效）。路径不匹配 → `invalid`（不可评估，不静默放行）。
 - **库 API**：`riskOfChange(verdicts, changedFiles, {oldVerdicts?})` / `forwardClosure` / `proofCompleteness(verdicts, {weighted?, targetTheta?})`（证明完整度 Θ + 标注预算序——annotationCurve 派生报告层，非新数学）。
