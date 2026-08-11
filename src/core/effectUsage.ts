@@ -1,0 +1,111 @@
+import type { LangPack } from "../lang/pack";
+
+/**
+ * 效应表使用率（迭代21 数学解 B——设计经交叉审计：触发率=0 ⟹ 死 不成立）。
+ * 三分类：provably-dead（结构性死条目，静态可证）/ corpus-inactive（语料未咨询——非死）/
+ * consulted-but-miss（咨询未中槽位 = 补表候选——降 unknown-rate 正路）。
+ */
+export interface EffectTableUsage {
+	readonly pack: string;
+	readonly summary: {
+		readonly entries: number;
+		readonly hits: number;
+		readonly corpusInactive: number;
+		readonly consultedButMiss: number;
+		readonly provablyDead: number;
+		readonly missSites: number;
+	};
+	readonly entries: ReadonlyArray<{
+		readonly table: string;
+		readonly key: string;
+		readonly consulted: number;
+		readonly hits: number;
+		readonly miss: number;
+		readonly status: "provably-dead" | "hit" | "consulted-but-miss" | "corpus-inactive";
+		readonly evidence?: string;
+	}>;
+	readonly missSlots: ReadonlyArray<{ readonly slot: string; readonly miss: number }>;
+}
+
+/** provably-dead 判定（P1-P4——锁定查找码现状，单测防漂移）：
+ *  P1 遮蔽：同类别 impure 键为 string 效应且 pure 同键 → pure 不可达（effectFromModule/branch4 先查 impure return）。
+ *  P2 node: 前缀不可达（effectFromModule 先 replace(/^node:/,"")——该键永不命中）。
+ *  P3 形态不可达：builtinTypeEffects 类型键 ∉ literalReceivers 值域。
+ *  P4 相对路径不可达：impureModules 键以 ./ ../ 开头（resolveModule 必命中项目文件，永不 consult 表）。 */
+export function classifyUsage(
+	packs: ReadonlyMap<string, LangPack>,
+	hit: ReadonlyMap<string, number>,
+	miss: ReadonlyMap<string, number>,
+): EffectTableUsage[] {
+	const out: EffectTableUsage[] = [];
+	for (const [packName, pack] of packs) {
+		const entries: Array<{
+			table: string;
+			key: string;
+			consulted: number;
+			hits: number;
+			miss: number;
+			status: "provably-dead" | "hit" | "consulted-but-miss" | "corpus-inactive";
+			evidence?: string;
+		}> = [];
+		// 枚举全部表键（module/global/builtin 三类条目）
+		const keySets: Array<[string, string]> = [];
+		for (const k of Object.keys(pack.impureModules)) keySets.push(["impureModules", k]);
+		for (const k of Object.keys(pack.pureModules)) keySets.push(["pureModules", k]);
+		for (const k of Object.keys(pack.impureGlobals)) keySets.push(["impureGlobals", k]);
+		for (const k of pack.pureGlobals) keySets.push(["pureGlobals", k]);
+		for (const k of Object.keys(pack.impureBuiltins)) keySets.push(["impureBuiltins", k]);
+		for (const k of pack.pureBuiltins) keySets.push(["pureBuiltins", k]);
+
+		let hits = 0;
+		let corpusInactive = 0;
+		let consultedButMiss = 0;
+		let provablyDead = 0;
+		for (const [table, key] of keySets) {
+			const slot = table.startsWith("impureModules") || table.startsWith("pureModules")
+				? `module:${key.replace(/^node:/, "")}`
+				: table.includes("Globals") || table.includes("Builtins")
+					? `${table.includes("Globals") ? "global" : "builtin"}:${key}`
+					: `module:${key}`;
+			const h = hit.get(slot) ?? 0;
+			const m = miss.get(slot) ?? 0;
+			const consulted = h + m;
+			// provably-dead 判定
+			let evidence: string | undefined;
+			if (table === "pureModules" || table === "pureGlobals" || table === "pureBuiltins") {
+				const impureSide = table === "pureModules" ? pack.impureModules : table === "pureGlobals" ? pack.impureGlobals : pack.impureBuiltins;
+				const r = impureSide[key as never];
+				if (typeof r === "string") evidence = "P1"; // 同键 impure 为 string 效应 → pure 不可达
+			}
+			if (!evidence && (table === "impureModules" || table === "pureModules") && /^(\.\/|\.\.\/|node:)/.test(key)) {
+				evidence = /^node:/.test(key) ? "P2" : "P4";
+			}
+			if (h > 0) {
+				hits++;
+				entries.push({ table, key, consulted, hits: h, miss: m, status: "hit" });
+			} else if (evidence) {
+				provablyDead++;
+				entries.push({ table, key, consulted, hits: 0, miss: m, status: "provably-dead", evidence });
+			} else if (m > 0) {
+				consultedButMiss++;
+				entries.push({ table, key, consulted, hits: 0, miss: m, status: "consulted-but-miss" });
+			} else {
+				corpusInactive++;
+				entries.push({ table, key, consulted: 0, hits: 0, miss: 0, status: "corpus-inactive" });
+			}
+		}
+		// missSlots（咨询未中槽位——绝大多数非表条目 = 补表候选）
+		const missSlots = [...miss.entries()]
+			.filter(([, n]) => n > 0 && !keySets.some(([, k]) => (k.startsWith("./") ? false : `module:${k.replace(/^node:/, "")}` === "" )))
+			.map(([slot, n]) => ({ slot, miss: n }))
+			.sort((a, b) => b.miss - a.miss);
+		const missSites = missSlots.reduce((s, x) => s + x.miss, 0);
+		out.push({
+			pack: packName,
+			summary: { entries: entries.length, hits, corpusInactive, consultedButMiss, provablyDead, missSites },
+			entries,
+			missSlots,
+		});
+	}
+	return out;
+}

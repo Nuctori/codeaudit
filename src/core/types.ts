@@ -7,6 +7,7 @@
  * 公理4（身份即内容）：chunk.id = hash(规范化源码文本)，搬家改名不漂移。
  * 公理5（排序不混合量纲）：报告排序只用字典序。
  */
+import type { EffectTableUsage } from "./effectUsage";
 
 /** 图中表示"存在未解析调用"的哨兵目标。 */
 export const UNKNOWN_TARGET = "?";
@@ -94,6 +95,8 @@ export interface ScanStats {
   readonly unknown: number;
   /** 被拒标注（迭代21 数学解 A）：PURE 标注但 analyze 后判定非 PURE（未生效/矛盾）——逐实例报告防静默。 */
   readonly annotationRejected: readonly { id: string; file: string; reason: string }[];
+  /** 效应表使用率（迭代21 数学解 B——additive，旧消费者忽略）。 */
+  readonly effectTableUsage?: readonly EffectTableUsage[];
   /** chain 不确定的 chunk 占比（0..1），工具对代码库的"无知程度"。 */
   readonly unknownRate: number;
   /** 强连通分量中大小 > 1 的个数（调用环数）。 */

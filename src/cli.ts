@@ -321,6 +321,17 @@ async function main(): Promise<void> {
     console.log(
       `\nSTATS: pure ${s.pure}, impure ${s.impure}, unknown ${s.unknown}`,
     );
+    // 效应表使用率摘要（迭代21 数学解 B——additive 一行，详情看 json stats.effectTableUsage）
+    if (s.effectTableUsage) {
+      for (const p of s.effectTableUsage) {
+        const sm = p.summary;
+        console.log(
+          `效应表[${p.pack}]: ${sm.entries} 条目 / 命中 ${sm.hits} / corpus-inactive ${sm.corpusInactive}` +
+          (sm.missSites > 0 ? ` / 咨询未中 ${sm.missSites} 站点（补表候选）` : "") +
+          (sm.provablyDead > 0 ? ` / 结构性死条目 ${sm.provablyDead}` : ""),
+        );
+      }
+    }
   }
 
   if (args.unknowns) {

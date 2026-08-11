@@ -222,7 +222,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
   }
 
   const packsByName = new Map(opts.packs.map((p) => [p.name, p]));
-  const { chunks } = link(facts, packsByName);
+  const { chunks, effectTableUsage } = link(facts, packsByName);
   // H1：parseError 文件（hasError 或 extract 异常）chunk 内容不可信——tree-sitter 错误恢复可能吞掉
   // 真实调用（未闭合字符串把后续 import/调用吸进字符串节点）→ 整体降级 UNKNOWN（"?" 经 eff 集传导给调用者）
   const chunks2 = parseErrFiles.size === 0 ? chunks : chunks.map((c) =>
@@ -297,6 +297,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
       impure,
       unknown,
       annotationRejected,
+      effectTableUsage,
       unknownRate: verdicts.length === 0 ? 0 : uncertain / verdicts.length,
       cycles: cycleCount,
       cachedFiles,

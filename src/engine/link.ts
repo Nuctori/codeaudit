@@ -1,4 +1,5 @@
 import type { LangPack, RawCall, RawChunk, RawFileFacts, RawImport } from "../lang/pack";
+import { classifyUsage, type EffectTableUsage } from "../core/effectUsage";
 import { type Chunk, UNKNOWN_TARGET, type Effect } from "../core/types";
 import { chunkId } from "../core/hash";
 
@@ -32,6 +33,8 @@ interface FileIndex {
 
 export interface LinkOutput {
   readonly chunks: Chunk[];
+  /** 效应表使用率（迭代21 数学解 B——link 期计数，scan 装配为 stats.effectTableUsage）。 */
+  readonly effectTableUsage: EffectTableUsage[];
 }
 
 export function link(
@@ -166,6 +169,12 @@ export function link(
 
   // ---- 第二遍：解析调用、计算直接效应 ----
   const out: Chunk[] = [];
+  // 效应表使用率计数（迭代21 数学解 B）：hit=槽位命中，miss=槽位咨询未中（module 未中 1:1 对应未知站点）
+  const tableHit = new Map<string, number>();
+  const tableMiss = new Map<string, number>();
+  const bump = (m: Map<string, number>, k: string): void => {
+    m.set(k, (m.get(k) ?? 0) + 1);
+  };
 
   for (const [file, fi] of files) {
     for (const [key, rc] of fi.chunkByKey) {
@@ -189,6 +198,7 @@ export function link(
         if (typeof rule === "string") {
           // 模块整体效应类（fs: "fs"、http: "net"、sqlite3: "db"…）
           direct.add(rule);
+          bump(tableHit, `module:${module}`);
           return true;
         }
         if (Array.isArray(rule) && member !== null) {
@@ -199,19 +209,27 @@ export function link(
             const prefix = parts.slice(0, i).join(".");
             if (rule.includes(prefix)) {
               direct.add("io");
+              bump(tableHit, `module:${module}`);
               return true;
             }
             // 成员带效应类后缀（"randomBytes:random" / "now:clock"）或纯标记（"member:p"）
             const tagged = rule.find((r) => r.startsWith(prefix + ":"));
             if (tagged) {
               const cls = tagged.slice(prefix.length + 1);
-              if (cls === "p") return true;
+              if (cls === "p") {
+                bump(tableHit, `module:${module}`);
+                return true;
+              }
               direct.add(cls as Effect);
+              bump(tableHit, `module:${module}`);
               return true;
             }
           }
         }
-        if (fi.pack.pureModules.has(module)) return true;
+        if (fi.pack.pureModules.has(module)) {
+          bump(tableHit, `module:${module}`);
+          return true;
+        }
         return false;
       };
 
@@ -221,6 +239,8 @@ export function link(
           addEffect: (e) => direct.add(e),
           markUnknown: () => { unknownSites++; calls.add(UNKNOWN_TARGET); },
           markDynamic: () => { unknownSites++; calls.add(UNKNOWN_TARGET); },
+          hitTable: (k) => bump(tableHit, k),
+          missTable: (k) => bump(tableMiss, k),
           addUnknownCall: (call) => unknownCalls.push({ attr: call.attr, obj: call.obj, root: rootOf(call) }),
           addArgEdges: (names, hof) => {
             for (const n of names) {
@@ -289,7 +309,7 @@ export function link(
     }
   }
 
-  return { chunks: out };
+  return { chunks: out, effectTableUsage: classifyUsage(packs, tableHit, tableMiss) };
 }
 
 interface Sink {
@@ -297,6 +317,10 @@ interface Sink {
   addEffect(effect: Effect): void;
   markUnknown(): void;
   markDynamic(): void;
+  /** 效应表槽位命中（迭代21 B）：slot 形如 module:fs / global:Debug / builtin:print。 */
+  hitTable(slot: string): void;
+  /** 效应表槽位咨询未中（miss——module 类 1:1 对应未知站点，补表候选）。 */
+  missTable(slot: string): void;
   addUnknownCall(call: RawCall): void;
   addArgEdges(names: readonly string[], hof: string): void;
   effectFromModule(module: string, member: string | null): boolean;
@@ -446,6 +470,7 @@ function resolveCall(
         return;
       }
       if (sink.effectFromModule(imp.module, null)) return;
+      sink.missTable(`module:${imp.module}`); // 迭代21 B：module 咨询未中 = 补表候选
       sink.addUnknownCall(call);
       sink.markUnknown();
       return;
@@ -468,6 +493,7 @@ function resolveCall(
         if (pack.hofCallsArgs.has(imp.imported)) sink.addArgEdges(call.argFns, imp.imported);
         return;
       }
+      sink.missTable(`module:${imp.module}`); // 迭代21 B
       sink.addUnknownCall(call);
       sink.markUnknown();
       return;
