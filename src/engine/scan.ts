@@ -250,7 +250,9 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
           if (!c.calls.has(UNKNOWN_TARGET)) return c;
           const calls = new Set(c.calls);
           calls.delete(UNKNOWN_TARGET);
-          return { ...c, calls };
+          // 迭代18（标注工作流驱动）：移除 ? 必须同步减 unknownSites——否则 graphMetrics.unknownEdges /
+          // evidence.missingSiteRate 在标注后失真（真实项目实测：标注后 unknownEdges 不变）
+          return { ...c, calls, unknownSites: Math.max(0, c.unknownSites - 1) };
         })
       : chunks2;
   const { verdicts, cycleCount, staleEdges, invariantViolations } = analyze(analyzedChunks);

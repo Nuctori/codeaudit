@@ -176,17 +176,23 @@ export function link(
           return true;
         }
         if (Array.isArray(rule) && member !== null) {
-          if (rule.includes(member)) {
-            direct.add("io");
-            return true;
-          }
-          // 成员带效应类后缀（"randomBytes:random" / "now:clock"）或纯标记（"member:p"）
-          const tagged = rule.find((r) => r.startsWith(member + ":"));
-          if (tagged) {
-            const cls = tagged.slice(member.length + 1);
-            if (cls === "p") return true;
-            direct.add(cls as Effect);
-            return true;
+          // 两级成员链前缀回退（迭代18 旧宇宙驱动）：os.environ.get → 逐级查 "environ.get"→"environ"
+          // （environ 在表=io——环境变量映射整体访问）；os.path.join → "path.join" 命中 :p
+          const parts = member.split(".");
+          for (let i = parts.length; i >= 1; i--) {
+            const prefix = parts.slice(0, i).join(".");
+            if (rule.includes(prefix)) {
+              direct.add("io");
+              return true;
+            }
+            // 成员带效应类后缀（"randomBytes:random" / "now:clock"）或纯标记（"member:p"）
+            const tagged = rule.find((r) => r.startsWith(prefix + ":"));
+            if (tagged) {
+              const cls = tagged.slice(prefix.length + 1);
+              if (cls === "p") return true;
+              direct.add(cls as Effect);
+              return true;
+            }
           }
         }
         if (fi.pack.pureModules.has(module)) return true;
@@ -331,7 +337,9 @@ function resolveCall(
   }
 
   // 1. self/this 方法调用 → 所在类（同名冲突时诚实记未知）
-  if (call.obj !== null && pack.selfNames.includes(call.obj)) {
+  //    多级链（self.client.post 的 attr="client.post" 含 "."）不在此分支——落到 2.5 frameworkIo
+  //    （迭代18：Locust 压测客户端模式）；否则会被当作不存在的类成员记 ?
+  if (call.obj !== null && pack.selfNames.includes(call.obj) && !call.attr.includes(".")) {
     if (caller.ownerClass) {
       const q = `${caller.ownerClass}.${call.attr}`;
       if (!fi.ambiguous.has(q)) {
@@ -360,8 +368,9 @@ function resolveCall(
     }
   }
 
-  // 2.5 框架命名空间（egg ctx.model.* / ctx.service.* → io 边界；遮蔽/参数同名则跳过判定）
-  if (call.obj !== null && !caller.assigned.includes(call.obj)) {
+  // 2.5 框架命名空间（egg ctx.model.* / ctx.service.* → io 边界；遮蔽/参数同名则跳过判定）。
+  // selfNames 豁免（迭代18）：self 是参数会进 assigned——self.client.post 是实例属性访问非本地遮蔽
+  if (call.obj !== null && (!caller.assigned.includes(call.obj) || pack.selfNames.includes(call.obj))) {
     // Object.hasOwn 守卫：frameworkIo 是普通对象字面量，裸下标/`in` 会命中继承的
     // Object.prototype 键（hasOwnProperty/toString/constructor…）→ truthy → for...of 函数崩溃（DoS）
     const prefixes = Object.hasOwn(pack.frameworkIo, call.obj) ? pack.frameworkIo[call.obj] : undefined;
@@ -402,8 +411,13 @@ function resolveCall(
         sink.markUnknown();
         return;
       }
-      if (member !== null && sink.effectFromModule(imp.module, member)) {
-        if (pack.hofCallsArgs.has(member)) sink.addArgEdges(call.argFns, member); // functools.reduce(cb, …)
+      // 两级成员链（迭代18 旧宇宙驱动）：os.environ.get → 效应表查全链 "environ.get"
+      // （effectFromModule 前缀回退命中 "environ"=io）；os.path.join → "path.join":p
+      const effMember = call.obj !== null && call.obj.startsWith(imp.module + ".")
+        ? `${call.obj.slice(imp.module.length + 1)}.${call.attr}`
+        : member;
+      if (effMember !== null && sink.effectFromModule(imp.module, effMember)) {
+        if (pack.hofCallsArgs.has(effMember)) sink.addArgEdges(call.argFns, effMember); // functools.reduce(cb, …)
         return;
       }
       if (sink.effectFromModule(imp.module, null)) return;
