@@ -86,6 +86,17 @@ const impureGlobals: Record<string, Effect | readonly string[]> = {
 	JsonUtility: "state", // FromJson/ToJson（保守 state——序列化）
 	XmlSerializer: "fs",
 	Serialization: "fs",
+	// 迭代19 补充（InitDeity 标注后形态驱动）
+	Assert: "io", // UnityEngine.Assertions——断言失败抛异常（保守 io）
+	DOTween: "state", // 第三方补间动画（修改对象状态）
+	DOTweenAnimation: "state",
+	EditorGUILayout: "io", // Unity 编辑器 GUI
+	EditorGUI: "io",
+	GUI: "io",
+	GUILayout: "io",
+	Debugger: "io", // System.Diagnostics
+	UniTask: "state", // 异步任务
+	GCHandle: "state",
 	// .NET IO/网络/DB
 	File: "fs", // ReadAllText/WriteAllText/Exists
 	FileStream: "fs",
@@ -230,6 +241,11 @@ const frameworkIo: Record<string, readonly string[]> = {
   // Unity 隐式 this 组件属性（MonoBehaviour 里 gameObject = this.gameObject——迭代19）
   gameObject: ["SetActive", "GetComponent", "transform", "layer", "tag", "name", "AddComponent"],
   transform: ["position", "rotation", "localPosition", "localScale", "Translate", "Rotate", "SetParent", "SetAsLastSibling", "GetComponent"],
+  // System 命名空间前缀（迭代19）：System.Console.WriteLine → obj="System"、attr="Console.WriteLine"
+  System: [
+    "Console", "Environment", "Diagnostics", "IO", "Net", "Data", "Threading",
+    "Process", "GC", "Reflection", "Text", "Globalization", "Runtime",
+  ],
 };
 
 /** C# chunk 节点：类/方法/构造/局部函数。属性访问器第一版不建（自动属性无逻辑）。 */
