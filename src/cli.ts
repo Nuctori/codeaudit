@@ -309,12 +309,14 @@ async function main(): Promise<void> {
       .sort(byImpact);
     const curve = annotationCurve(budget, order, unknownKeys);
     const total = curve[0] ?? 0;
+    const u = unknownKeys.size;
     const pts = [0, 0.1, 0.25, 0.5, 0.75, 1].map((p) => {
       const k = Math.min(order.length, Math.round(p * order.length));
       const rem = curve[k] ?? 0;
-      // 分母 = stats.chunks（全 chunk）——与 proof Θ（UNKNOWN 分母）语义不同（迭代14 视角 5 裁决：
-      // 两指标各自合法；CLI 回答"占全项目剩余多少"，Θ 回答"证明完整度"）。"标多少到 X%"按此分母解读。
-      return `标${k}条→${rem} (${((rem / report.stats.chunks) * 100).toFixed(1)}%)`;
+      // 分母 = 全部 UNKNOWN |U|（迭代15 分母统一——对齐 proof Θ 语义：标 k 条 → rem/|U|，
+      // 与 Θ(k) = 1−rem/|U| 同源；chunks 基是两倍分母、语义不同已被视角 5 裁决废除）。
+      // 悬垂边/parseError 在 |U| 内 → 终值 >0 显示正确（与 staleEdges 注记自洽）。
+      return `标${k}条→${rem} (${u > 0 ? ((rem / u) * 100).toFixed(1) : "0.0"}%)`;
     });
     console.error(`unknowns -> ${args.unknowns} (${unknowns.length} 条, 全标后 ${total}→${curve[curve.length - 1] ?? 0})`);
     // staleEdges>0 时悬垂边 UNKNOWN 不可标注释放（目标不存在，只能重扫修复）——曲线终值低于 stats.unknown 属此因
