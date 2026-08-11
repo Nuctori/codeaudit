@@ -10,7 +10,7 @@
 - `R_state` 因子：回归风险六因子（状态写改动 → stateDeps 读者耦合）
 - `ChangeRisk.evidence`：证据质量（unknownRate/parseErrorRate/missingSiteRate——证明系统最小方案）
 - CLI 可解释性层：grade action 行 + 证据置信度警告 + 拓扑人类解读
-- GitHub Actions CI（build + 测试 + 自扫描门禁）
+- GitHub Actions CI（build + 测试 + 自扫描健康检查）
 
 ### 修复
 

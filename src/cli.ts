@@ -234,11 +234,13 @@ async function main(): Promise<void> {
     // --topology：json 顶层加拓扑字段（additive，现有 schema 消费者不受影响；迭代14 视角 3）
     const payload = args.topology ? { ...out, topology: graphMetrics(report.verdicts) } : out;
     // --sources：json 顶层加效应源字段（R2-1：与 topology 同款 additive；否则 json 模式静默忽略）
+    // 迭代17 视角 1 修正：direct.size>0 守卫——chain=0 IMPURE 含悲观未知源（direct=[]，如 Extractor.visit
+    // 的 ? 归零链），非"直接调 io/net/random/state 的源头"
     const payload2 = args.sources
       ? {
           ...payload,
           sources: report.verdicts
-            .filter((v) => v.purity === Purity.IMPURE && v.chain === 0)
+            .filter((v) => v.purity === Purity.IMPURE && v.chain === 0 && v.chunk.direct.size > 0)
             .sort((a, b) => b.chunk.calls.size - a.chunk.calls.size || (a.chunk.key < b.chunk.key ? -1 : 1))
             .map((v) => ({ name: v.chunk.name, file: v.chunk.file, line: v.chunk.line, calls: v.chunk.calls.size })),
         }
@@ -262,10 +264,11 @@ async function main(): Promise<void> {
       if (t.dagDepth > 0) console.log(`  ➜ 调用图最深路径 ${t.dagDepth} 层（结构深度——效应传染深度看 chain 列）`);
     }
     if (args.sources) {
-      // 效应源清单（迭代16 --sources）：chain=0 IMPURE——直接调 io/net/random/state 的"背锅者"，
-      // 按调用点数量排序（源头越忙 = 污染扩散面越大）
+      // 效应源清单（迭代16 --sources；迭代17 视角 1 修正）：chain=0 IMPURE **且 direct 非空**——
+      // 直接调 io/net/random/state 的源头（"背锅者"）；排除悲观未知源（? 归零链但 direct=[]）。
+      // 按出度（已解析调用点）降序 = 源头的直接调用负载；扩散面（调用者反向闭包）看 --changed 的 impact
       const srcs = report.verdicts
-        .filter((v) => v.purity === Purity.IMPURE && v.chain === 0)
+        .filter((v) => v.purity === Purity.IMPURE && v.chain === 0 && v.chunk.direct.size > 0)
         .sort((a, b) => b.chunk.calls.size - a.chunk.calls.size || (a.chunk.key < b.chunk.key ? -1 : 1));
       console.log(
         `\n效应源（chain=0 IMPURE，直接调 io/net/random/state 的源头；${srcs.length} 个）：`,
