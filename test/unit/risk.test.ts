@@ -35,8 +35,6 @@ function v(
 		chain: opts.chain ?? (purity === Purity.PURE ? Infinity : 0),
 		chainDev: opts.chain ?? Infinity,
 		chainCertain: true,
-		inDegree: 0,
-		outDegree: 0,
 		chainPath: [],
 		throwsTypes: [],
 		stateDeps: [],

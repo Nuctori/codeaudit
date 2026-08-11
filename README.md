@@ -27,6 +27,7 @@ npm test             # 194 个测试：单元 + 多语言 E2E + 合成大库 + �
 node dist/cli.js scan ./src
 node dist/cli.js scan ./src --format json
 node dist/cli.js scan ./src --top 20
+node dist/cli.js scan ./src --topology          # 拓扑健康度（密度/环/深度/自环 + 人类解读）
 node dist/cli.js scan ./src --unknowns unknowns.json   # 导出未知符号供 AI 标注
 node dist/cli.js scan ./src --strict                   # 存在 IMPURE 时退出码 1（CI 门禁）
 ```
@@ -109,7 +110,7 @@ src/
 
 | 语言 | chunk | import 解析 | 备注 |
 | ------ | ------- | ------------ | ------ |
-| Python | 函数/类/方法 | 绝对/相对导入、星号导入回退 | `global`/`nonlocal` 状态写暂未建模 |
+| Python | 函数/类/方法 | 绝对/相对导入、星号导入回退 | `global`/`nonlocal` 状态写已建模（→ state 效应） |
 | TypeScript | 函数/方法/类/箭头函数常量 | 相对路径、桶文件再导出、默认导出 | tsconfig paths 别名暂不支持 |
 | TSX | 同上 | 同上 | 独立 tsx 语法 |
 | JavaScript | 同上 | ESM + `require()` | |

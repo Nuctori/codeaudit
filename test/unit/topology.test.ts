@@ -105,6 +105,11 @@ describe("graphMetrics（迭代14 视角 3 实施）", () => {
 		const m = graphMetrics(r.verdicts);
 		expect(m.cyclicComponents).toBe(r.stats.cycles);
 		expect(m.selfLoopCount).toBe(0);
+		// evidence 与 risk.ts 同源口径（迭代15 视角 5 发现 F）
+		expect(m.evidence.unknownRate).toBeGreaterThanOrEqual(0);
+		expect(m.evidence.unknownRate).toBeLessThanOrEqual(1);
+		expect(m.evidence.missingSiteRate).toBeGreaterThanOrEqual(0);
+		expect(m.evidence.parseErrorRate).toBeGreaterThanOrEqual(0);
 		rmSync(dir, { recursive: true, force: true });
 	});
 

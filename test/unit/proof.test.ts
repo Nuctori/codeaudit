@@ -30,8 +30,6 @@ function v(
 		chain: purity === Purity.PURE ? Infinity : 0,
 		chainDev: Infinity,
 		chainCertain: true,
-		inDegree: 0,
-		outDegree: 0,
 		chainPath: [],
 		throwsTypes: [],
 		stateDeps: [],

@@ -168,8 +168,6 @@ export function analyze(chunks: readonly Chunk[]): AnalyzeOutput {
       chain: a.chain,
       chainDev: d.chain,
       chainCertain: a.chain === d.chain,
-      inDegree: audit.inDeg.get(c.key) ?? 0,
-      outDegree: c.calls.size - (c.calls.has(UNKNOWN_TARGET) ? 1 : 0),
       chainPath: a.chainPath,
       throwsTypes: a.throwsTypes,
       stateDeps: stateDeps.get(c.key) ?? [],

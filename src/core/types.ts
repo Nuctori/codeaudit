@@ -81,8 +81,6 @@ export interface Verdict {
    * false 表示结论依赖未知符号，需要标注。
    */
   readonly chainCertain: boolean;
-  readonly inDegree: number;
-  readonly outDegree: number;
 }
 
 export interface ScanStats {

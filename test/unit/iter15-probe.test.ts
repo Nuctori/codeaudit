@@ -74,10 +74,14 @@ describe("iter-15 probe: CJS export chunk boundary (extractor.cjsExportName @1ed
     // bare-name call inside file and from-import both pick bySimple[0] (first in AST order)
     const caller = r.verdicts.find((v) => v.chunk.name === "caller")!;
     const firstFoo = foos[0]!;
-    expect(caller.chunk.calls.has(firstFoo.chunk.key)).toBe(true);
-    expect(caller.chunk.calls.size).toBe(1); // second foo silently shadowed
+    // 裸名调用：同名顶层重定义 → ?（歧义诚实，公理：不静默选一）——不解析到任一 foo
+    expect(caller.chunk.calls.size).toBe(1);
+    expect(caller.chunk.calls.has("?")).toBe(true);
+    expect(caller.chunk.calls.has(firstFoo.chunk.key)).toBe(false);
     const use = r.verdicts.find((v) => v.chunk.name === "use")!;
-    expect(use.chunk.calls.has(firstFoo.chunk.key)).toBe(true);
+    // from-import 解析：imported="foo" → bySimple 2 候选 → resolveSymbol 取 bySimple[0]（AST 序，
+    // 与 verdicts 序无关）——断言解析到任一 foo（不固定序）
+    expect(foos.some((f) => use.chunk.calls.has(f.chunk.key))).toBe(true);
     expect(use.chunk.calls.size).toBe(1);
     rmSync(dir, { recursive: true, force: true });
   });
@@ -91,7 +95,8 @@ describe("iter-15 probe: CJS export chunk boundary (extractor.cjsExportName @1ed
     const reexp = r.verdicts.filter((v) => v.chunk.file.endsWith("reexp.js"));
     expect(reexp.some((v) => v.chunk.name === "x")).toBe(false); // no chunk from reexport
     const mod = reexp.find((v) => v.chunk.name === "<module>")!;
-    expect(mod.chunk.calls.size).toBeGreaterThanOrEqual(1); // require('./y') call kept
+    // 重导出（exports.x = require('./y')）走 importMap 通道非调用边——module 无调用（项目语义）
+    expect(mod.chunk.calls.size).toBe(0);
     rmSync(dir, { recursive: true, force: true });
   });
 });

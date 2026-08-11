@@ -65,7 +65,8 @@ export class Extractor {
       // 状态写检测（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 /
       // 任意外部对象属性写（user.status = "banned"，obj 非局部新建）→ state 效应。
       // 位置化（迭代8 视角2）：返回位置列表（"self.x" / "user.status" / "counter"）供读方传播匹配。
-      const writes = this.stateWritePos(node, stack[stack.length - 1]!);
+      // CJS 导出赋值（cjsExportName 命中）是模块级导出定义非 chunk 体状态写——跳过（迭代15 视角 2 探针发现）
+      const writes = cjsName === null ? this.stateWritePos(node, stack[stack.length - 1]!) : [];
       for (const w of writes) {
         const t = stack[stack.length - 1]!;
         if (!t.stateWrites.includes(w)) t.stateWrites.push(w);

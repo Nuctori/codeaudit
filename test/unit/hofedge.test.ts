@@ -79,4 +79,24 @@ describe("HOF 异步边（D-092）", () => {
 		expect(main!.chunk.calls.has("?")).toBe(false);
 		rmSync(dir, { recursive: true, force: true });
 	});
+
+	it("F2：参数重绑非外部状态写（迭代15 修复）", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "hof6-"));
+		writeFileSync(
+			join(dir, "t.js"),
+			"function rebind(x) { x = x + 1; return x; }\n" +
+			"function objWrite(o) { o.count = 5; return o; }\n" +
+			"module.exports = { rebind, objWrite };\n",
+		);
+		const r = await scanProject(dir, { useCache: false });
+		const rebind = r.verdicts.find((v) => v.chunk.name === "rebind")!;
+		const objWrite = r.verdicts.find((v) => v.chunk.name === "objWrite")!;
+		// 值重绑（x = x+1）纯局部——参数重绑不再判外部写（F2）
+		expect(rebind.chunk.stateWrites).toEqual([]);
+		expect(rebind.purity).toBe(0);
+		// 参数对象属性写（o.count = 5）仍是外部状态写（obj 非局部新建）
+		expect(objWrite.chunk.stateWrites).toContain("o.count");
+		expect(objWrite.purity).toBeGreaterThan(0);
+		rmSync(dir, { recursive: true, force: true });
+	});
 });
