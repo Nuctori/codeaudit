@@ -376,3 +376,29 @@ D-082（迭代 12 收敛）、D-083（拓扑采纳）、D-084（7cab482 测试�
 
 
 
+
+## 迭代 14 复审（5 视角，聚焦未决项正确解决）
+
+- 视角 1（未决项数学设计）：**不收敛（3 未决项均未解决）**——R_state 正确设计（s=|broken(Δ)|/|R| 入 L ∏ 保守上界 + impact'=Back∪broken 入 C；单调性完备证明；探针 1 写者+278 无调用边读者 risk 0→50 HIGH——必须拓宽 impact 才有判别力，仅 ∏ 入 L 只到 0.53）；budgetToTarget 分母统一方案（CLI 分母改 |U| + proof order 收窄为 ?-源）；D 矩阵无校准数据（语料 cell 无跨版本翻转记录）→ 四序公理文档化裁决 + README 阈值漂移（README 仍 30/60/85，代码已 15/35/60）
+- 视角 2（最简性）：**收敛**——S1-S3 全做（S1 复用 changedImpact 唯一陷阱：必须 changed+affected 计数非 affectedChunks；S2 annotationCurve 初值改全量累计 weight 对齐 cli/proof；S3 共享比较器向公理5对齐）、D1-D5 全删（D3 并入 S2 复活 import）
+- 视角 3（拓扑 graphMetrics 实施）：**收敛**——可实施 API 完整（nodes/knownEdges/unknownEdges/selfLoopCount(F4)/cyclicComponents(=stats.cycles)/dagDepth(边数口径)/density(扣自环)/layer+chain 直方图(∞单列桶)/evidence）；算法逐条对照既有实现（tarjan 逆拓扑契约、analyze runOnce 边口径）；测试计划 8 例（自环/链树/完全图/随机 DAG 对拍/cycles 一致性）
+- 视角 4（Step1-2+证明系统验证）：**收敛但 1 major**——**F1：setTimeout 异步边死配置**（hofAlwaysArgs 在 link.ts 零消费——impureBuiltins 分支从不调用 addArgEdges，S4 声称未实现；定时器回调反向闭包不可见）；evidence.unknownRate 同源同口径 ✓；阈值边界 ✓；swagger 188→180 由解构绑定修复解释（-8 impure）
+- 视角 5（终裁）：**收敛**——未决项分类（R_state/分母/D 矩阵→文档化、最简性→可选清扫、拓扑→采纳）；前 4 视角 3 个被 120s 超时杀死后 resume 补位，终裁基于源码级交叉验证
+
+### 未决项最终处置（用户「思考如何正确解决」→ 实施）
+
+- **R_state：实施**（D-094 覆写终裁文档化分类）——视角 1 数学实证（278 读者 risk=0 真实盲区，终裁理由只覆盖写者侧）；s 入 L + impact' 入 C；单调性测试 + 278 读者场景测试；阈值与 R_state 联合体接受保守膨胀（文档化）
+- **budgetToTarget 分母：文档化**（视角 5 裁决）——CLI（chunks 基）与 Θ（UNKNOWN 基）两指标各自合法，CLI 注释声明语义
+- **D 矩阵/权重：文档化裁决**（四序公理组 + 基数裁决声明 + 校准路径=配对扫描 git 历史；(W,阈值,R_state) 联合体纪律）
+- **拓扑 graphMetrics：实施**（D-083 落地）——topology.ts 纯函数 + index 导出 + --topology 旗标（json additive + text 摘要）+ 8 单测；自扫实测：125 nodes/88 edges/密度 0.006/自环 8/深度 7
+- **最简性 S1-S3/D1-D5：记录待下轮**（S1 与 R_state 交集已减小——R_state 需 backSeen 集合）
+
+### 本迭代修复
+
+- F1/D-092：定时器异步边触发门 hofAlwaysArgs ∪ hofCallsArgs（link.ts 效应表两分支）+ hofedge.test.ts 4 例回归（193/193）
+- 解构绑定 declaredNames（73aa6e1，迭代 13 已含）；证据质量 evidence 字段 + 阈值 15/35/60（73aa6e1）
+- README 六因子 + 阈值 15/35/60 同步；D 矩阵公理组注释（54c3df8）
+
+### 决策链
+
+D-086（Step1-2 落地）、D-087（证据字段+阈值重标+解构绑定）、D-088（迭代 14 5 视角）、D-089（终裁文档化分类）、D-090（R_state 实施，审计判偏离）、D-091（拓扑实施，审计判偏离——旗标已补）、D-092（setTimeout 修复无效——已由 D-093 修正）、D-093（异步边门修正）、D-094（R_state 覆写裁决）
