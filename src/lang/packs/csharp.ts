@@ -265,9 +265,16 @@ const frameworkIo: Record<string, readonly string[]> = {
   gameObject: ["SetActive", "GetComponent", "transform", "layer", "tag", "name", "AddComponent"],
   transform: ["position", "rotation", "localPosition", "localScale", "Translate", "Rotate", "SetParent", "SetAsLastSibling", "GetComponent"],
   // System 命名空间前缀（迭代19）：System.Console.WriteLine → obj="System"、attr="Console.WriteLine"
+  // 迭代21 T4 修正：只列 io 边界类——纯类型（Math/String/Guid 等）移除（frameworkIo 固定 io，
+  // 纯类型进前缀会假 IMPURE 毒化判别力——F19；纯类落 ? 诚实）
   System: [
     "Console", "Environment", "Diagnostics", "IO", "Net", "Data", "Threading",
-    "Process", "GC", "Reflection", "Text", "Globalization", "Runtime",
+    "Process", "GC", "Reflection", "Text", "Globalization", "Runtime", "RuntimeTypeHandle",
+  ],
+  // UnityEngine 命名空间前缀（迭代21 T4：missSlots global:UnityEngine 265 驱动）——只列 io/state 类
+  UnityEngine: [
+    "Object", "Application", "SceneManager", "GameObject", "Component", "Transform",
+    "Debug", "Physics", "Input", "Screen", "Resources", "Camera", "QualitySettings",
   ],
 };
 
