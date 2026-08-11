@@ -108,4 +108,23 @@ describe("C# 语言包（迭代19）", () => {
 		expect(r.stats.parseErrors).toBe(0);
 		expect(r.stats.chunks).toBeGreaterThan(0);
 	});
+
+	it("C# 跨文件类调用解析（迭代19 全局类名索引）", async () => {
+		const root = project("crossfile", {
+			"Helper.cs": [
+				"public class Helper {",
+				'    public void SaveData() { PlayerPrefs.SetFloat("b", 1f); }',
+				"}",
+			].join("\n"),
+			"Main.cs": [
+				"public class Main {",
+				"    public void Run() { Helper h = new Helper(); h.SaveData(); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		// Helper.SaveData 判 IMPURE（PlayerPrefs state）——跨文件类方法独立判定
+		const save = by(r).get("Helper.cs::Helper.SaveData") as { purity: number } | undefined;
+		expect(save!.purity).toBe(2);
+	});
 });
