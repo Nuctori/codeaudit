@@ -32,6 +32,7 @@ const impureBuiltins: Record<string, Effect> = {
 const impureGlobals: Record<string, Effect | readonly string[]> = {
 	// Unity 核心
 	Debug: "io", // Debug.Log/Warning/Error
+	Console: "io", // System.Console（迭代21：Console.WriteLine 的 obj=Console 走 impureGlobals——此前只在 impureBuiltins）
 	PlayerPrefs: "state", // SetFloat/GetFloat/DeleteAll——持久化存档
 	Application: "io", // OpenURL/Quit/RequestUserAuthorization
 	WWW: "net",

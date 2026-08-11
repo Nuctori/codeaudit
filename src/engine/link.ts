@@ -540,6 +540,22 @@ function resolveCall(
       return;
     }
   } else {
+    // 全局类名解析（迭代19 C# 跨文件类调用）——**优先于效应表（迭代21 正确化）**：
+    // 项目内类 NetCall 撞效应表条目 NetCall: "net"——项目类优先（真实实现），表条目是通用库名。
+    // 遮蔽守卫：调用方局部赋值或模块级重绑（conn = make_evil() 遮蔽 import）→ 不解析
+    // 语言隔离（迭代19 复审 F1）：只解析同语言类——跨语言同名类不串味
+    const cls = globalClasses.get(call.obj);
+    if (cls && cls.length === 1 && cls[0]!.lang === pack.name &&
+        !caller.assigned.includes(call.obj) && !fi.moduleAssigned.has(call.obj)) {
+      const tf = files.get(cls[0]!.file);
+      if (tf) {
+        const q = `${call.obj}.${call.attr}`;
+        if (!tf.ambiguous.has(q)) {
+          const hit = tf.byQualified.get(q);
+          if (hit) { sink.addEdge(hit); return; }
+        }
+      }
+    }
     // hasOwn 守卫：impureGlobals 普通对象字面量，继承键（constructor 等）→ undefined（纪律与 B1 同源）
     const rule = Object.hasOwn(pack.impureGlobals, call.obj) ? pack.impureGlobals[call.obj] : undefined;
     if (typeof rule === "string") {
