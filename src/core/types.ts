@@ -92,6 +92,8 @@ export interface ScanStats {
   readonly pure: number;
   readonly impure: number;
   readonly unknown: number;
+  /** 被拒标注（迭代21 数学解 A）：PURE 标注但 analyze 后判定非 PURE（未生效/矛盾）——逐实例报告防静默。 */
+  readonly annotationRejected: readonly { id: string; file: string; reason: string }[];
   /** chain 不确定的 chunk 占比（0..1），工具对代码库的"无知程度"。 */
   readonly unknownRate: number;
   /** 强连通分量中大小 > 1 的个数（调用环数）。 */

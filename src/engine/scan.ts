@@ -251,8 +251,11 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
           const calls = new Set(c.calls);
           calls.delete(UNKNOWN_TARGET);
           // 迭代18（标注工作流驱动）：移除 ? 必须同步减 unknownSites——否则 graphMetrics.unknownEdges /
-          // evidence.missingSiteRate 在标注后失真（真实项目实测：标注后 unknownEdges 不变）
-          return { ...c, calls, unknownSites: Math.max(0, c.unknownSites - 1) };
+          // evidence.missingSiteRate 在标注后失真（真实项目实测：标注后 unknownEdges 不变）。
+          // 迭代21 数学解（交叉审计 A）：一条 PURE 标注 = **全部**调用点确证（suggested_prompt 契约）——
+          // 多站点（unknownSites=2）只减 1 会让判定翻 PURE 但记账不自洽（calls 无 ? 而 sites>0）；
+          // 置 0 修复记账不变量 calls.has("?") === (unknownSites > 0)
+          return { ...c, calls, unknownSites: 0 };
         })
       : chunks2;
   const { verdicts, cycleCount, staleEdges, invariantViolations } = analyze(analyzedChunks);
@@ -260,6 +263,26 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
   const impure = verdicts.filter((v) => v.purity === Purity.IMPURE).length;
   const unknown = verdicts.filter((v) => v.purity === Purity.UNKNOWN).length;
   const uncertain = verdicts.filter((v) => !v.chainCertain).length;
+
+  // 标注一致性校验（迭代21 数学解 A）：PURE 标注的 chunk 在 analyze 后必须判 PURE——
+  // 否则标注未生效（stale-edge/parseError/传播型/矛盾）→ 逐实例报告（防静默 no-op + 语料污染）
+  const pureAnnIds = new Set<string>();
+  if (ann && ann.size > 0) {
+    for (const [k, v] of ann) if (v === "PURE") pureAnnIds.add(k.split("\u0000")[1] ?? k);
+  }
+  const annotationRejected = pureAnnIds.size > 0
+    ? verdicts
+        .filter((v) => v.purity !== Purity.PURE && pureAnnIds.has(v.chunk.id))
+        .map((v) => ({
+          id: v.chunk.id,
+          file: v.chunk.file,
+          reason: v.chunk.parseError
+            ? "parseError（H1 守卫：内容不可信，PURE 不可撤销降级）"
+            : v.purity === Purity.IMPURE
+              ? "判定矛盾（标注 PURE 但效应闭包非空）"
+              : "未生效（stale-edge/传播型 UNKNOWN——应标调用链上游的 ? 源）",
+        }))
+    : [];
 
   return {
     root,
@@ -273,6 +296,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
       pure: verdicts.length - impure - unknown,
       impure,
       unknown,
+      annotationRejected,
       unknownRate: verdicts.length === 0 ? 0 : uncertain / verdicts.length,
       cycles: cycleCount,
       cachedFiles,

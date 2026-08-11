@@ -204,7 +204,24 @@ async function main(): Promise<void> {
     }
     if (annotations && annotations.size > 0) {
       const before = summarize(corpus);
-      corpus = updateCorpus(corpus, report.verdicts.map((v) => v.chunk), annotations);
+      // 语料防污染（迭代21 数学解 A）：被拒标注（annotationRejected）不得写入语料——
+      // PURE 落在工具已证 IMPURE 的 chunk 是 no-op+矛盾标签，priorFor 会据矛盾标签给错误先验
+      const rejectedIds = new Set(report.stats.annotationRejected.map((r) => r.id));
+      const acceptedAnn = new Map<string, "PURE" | "IMPURE">();
+      for (const [k, v] of annotations) {
+        const id = k.split("\u0000")[1] ?? k;
+        if (!rejectedIds.has(id)) acceptedAnn.set(k, v);
+      }
+      if (acceptedAnn.size > 0) {
+        corpus = updateCorpus(corpus, report.verdicts.map((v) => v.chunk), acceptedAnn);
+      }
+      if (report.stats.annotationRejected.length > 0) {
+        console.error(
+          `codeaudit: ${report.stats.annotationRejected.length} 条标注被拒（未生效/矛盾——不写入语料）：` +
+          report.stats.annotationRejected.slice(0, 5).map((r) => `${r.file}（${r.reason}）`).join("；") +
+          (report.stats.annotationRejected.length > 5 ? `…` : ""),
+        );
+      }
       const after = summarize(corpus);
       if (after.total > before.total) {
         try {

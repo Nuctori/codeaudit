@@ -78,11 +78,44 @@ describe("迭代18 真实项目驱动修复", () => {
 		const before = r0.verdicts.find((v) => v.chunk.name === "f")!;
 		const unknownSitesBefore = before.chunk.unknownSites;
 		expect(unknownSitesBefore).toBeGreaterThan(0);
-		// 标 PURE（移除 ? 并减 unknownSites）
+		// 标 PURE（移除 ? 并置 0——迭代21 数学解：一条标注=全部调用点确证）
 		const ann = new Map<string, "PURE" | "IMPURE">([[before.chunk.id, "PURE"]]);
 		const r1 = await scanProject(root, { useCache: false, annotations: ann });
 		const after = r1.verdicts.find((v) => v.chunk.name === "f")!;
-		expect(after.chunk.unknownSites).toBeLessThan(unknownSitesBefore);
+		expect(after.chunk.unknownSites).toBe(0);
 		expect(after.chunk.calls.has("?")).toBe(false);
+	});
+
+	it("多站点 PURE 记账不变量（迭代21 数学解 A：置 0 而非 -1）", async () => {
+		const root = project("ann2", {
+			"a.js":
+				"function f() { return a.one() + b.two(); }\nmodule.exports = { f };\n",
+		});
+		const r0 = await scanProject(root, { useCache: false });
+		const before = r0.verdicts.find((v) => v.chunk.name === "f")!;
+		expect(before.chunk.unknownSites).toBeGreaterThanOrEqual(2); // 两个未知调用点
+		const ann = new Map<string, "PURE" | "IMPURE">([[before.chunk.id, "PURE"]]);
+		const r1 = await scanProject(root, { useCache: false, annotations: ann });
+		const after = r1.verdicts.find((v) => v.chunk.name === "f")!;
+		// 一条 PURE 标注 = 全部调用点确证：记账不变量 calls.has("?") === (unknownSites > 0)
+		expect(after.chunk.unknownSites).toBe(0);
+		expect(after.chunk.calls.has("?")).toBe(false);
+	});
+
+	it("被拒标注报告（迭代21 数学解 A）：PURE 落 IMPURE chunk → annotationRejected", async () => {
+		const root = project("rej", {
+			"a.js":
+				"function f() { return console.log('x'); }\nmodule.exports = { f };\n",
+		});
+		const r0 = await scanProject(root, { useCache: false });
+		const f = r0.verdicts.find((v) => v.chunk.name === "f")!;
+		expect(f.purity).toBe(2); // IMPURE（console io）
+		const ann = new Map<string, "PURE" | "IMPURE">([[f.chunk.id, "PURE"]]);
+		const r1 = await scanProject(root, { useCache: false, annotations: ann });
+		expect(r1.stats.annotationRejected.length).toBeGreaterThan(0);
+		expect(r1.stats.annotationRejected[0]!.reason).toContain("矛盾");
+		// 被拒标注不改变判定
+		const after = r1.verdicts.find((v) => v.chunk.name === "f")!;
+		expect(after.purity).toBe(2);
 	});
 });
