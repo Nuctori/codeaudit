@@ -21,7 +21,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 206 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 213 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -119,6 +119,7 @@ src/
 | TypeScript | 函数/方法/类/箭头函数常量 | 相对路径、桶文件再导出、默认导出 | tsconfig paths 别名暂不支持 |
 | TSX | 同上 | 同上 | 独立 tsx 语法 |
 | JavaScript | 同上 | ESM + `require()` | |
+| C# | 类/方法/构造/局部函数（Unity 支持） | using 别名 | Unity/.NET 类名效应表（Debug/PlayerPrefs/File/GameObject 等）；隐式 this（类内裸名=方法）；中文标识符部分文件解析失败 → 方向安全 UNKNOWN |
 
 新语言 = 实现一个 `LangPack`（数据表 + 两个行为函数），核心引擎零改动。
 
@@ -143,7 +144,7 @@ src/
 
 ## 测试
 
-206 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
+213 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。

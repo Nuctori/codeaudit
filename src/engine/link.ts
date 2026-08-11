@@ -364,8 +364,16 @@ function resolveCall(
         sink.markUnknown(); // 同名顶层重定义：不静默选一
         return;
       }
-      // 仅方法候选：裸名调用不指向方法 → 落到后续分支（import/效应表/未知）
     }
+    if (pack.implicitThis && caller.ownerClass) {
+      // C# 隐式 this（迭代19）：类内裸名调用 = 本类方法（Game.Start 调 LoadGame() 无 this. 前缀）
+      const q = `${caller.ownerClass}.${call.attr}`;
+      if (!fi.ambiguous.has(q)) {
+        const key = fi.byQualified.get(q);
+        if (key) { sink.addEdge(key); return; }
+      }
+    }
+    // 仅方法候选：裸名调用不指向方法 → 落到后续分支（import/效应表/未知）
   }
 
   // 2.5 框架命名空间（egg ctx.model.* / ctx.service.* → io 边界；遮蔽/参数同名则跳过判定）。

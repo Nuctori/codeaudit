@@ -2,6 +2,7 @@ import { type ScanOptions, scan } from "./engine/scan";
 import { pythonPack } from "./lang/packs/python";
 import { typescriptPack, tsxPack } from "./lang/packs/typescript";
 import { javascriptPack } from "./lang/packs/javascript";
+import { csharpPack } from "./lang/packs/csharp";
 import { initParser, loadLanguage } from "./loader";
 import { changedImpact, type ChangeImpact } from "./core/influence";
 import type { ScanReport } from "./core/types";
@@ -11,6 +12,7 @@ export const defaultPacks = [
 	typescriptPack,
 	tsxPack,
 	javascriptPack,
+	csharpPack,
 ];
 
 /** 编程式 API：一行扫描。 */
@@ -59,7 +61,7 @@ export type {
 	RawCall,
 	RawImport,
 } from "./lang/pack";
-export { pythonPack, typescriptPack, tsxPack, javascriptPack };
+export { pythonPack, typescriptPack, tsxPack, javascriptPack, csharpPack };
 export {
 	changedImpact,
 	annotationBudget,

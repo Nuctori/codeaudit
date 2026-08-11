@@ -120,6 +120,8 @@ export interface LangPack {
   readonly builtinMethodReturns: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** 框架命名空间（如 egg 的 ctx）：对象名 → 成员前缀列表，命中视为 io 边界（ctx.model.* / ctx.service.*）。 */
   readonly frameworkIo: Readonly<Record<string, readonly string[]>>;
+  /** 隐式 this（C#：类内裸名方法调用 = this 方法；TS/Python 需显式 this/self）。迭代19。 */
+  readonly implicitThis: boolean;
 
   // ---- 行为侧 ----
   /** 从 AST 提取 import 记录（含再导出）。 */

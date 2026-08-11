@@ -256,6 +256,7 @@ export const typescriptPack: LangPack = {
   builtinMethodReturns,
 
   // egg.js 惯例：ctx.model（sequelize DB）/ ctx.service（业务层）/ ctx.app —— 均为 io 边界
+  implicitThis: false,
   frameworkIo: { ctx: ["model", "service", "app"] },
   extractImports: extractEsmImports,
   resolveModule: (module, fromFile, projectFiles) =>

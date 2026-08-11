@@ -430,7 +430,7 @@ export class Extractor {
     const flat = flattenCallTarget(fn);
     if (flat === null) {
       // 接收者事实：字面量 / 链式（"x".strip().upper() 的 upper 接收者是 strip 的返回类型）/ 构造器
-      if (fn.type === "attribute" || fn.type === "member_expression") {
+      if (fn.type === "attribute" || fn.type === "member_expression" || fn.type === "member_access_expression") {
         const obj = fn.childForFieldName("object") ?? fn.children[0];
         // Python attribute 无命名字段（children: [obj, ., name]）；TS member_expression 有 property 字段
         const attr = fn.childForFieldName("attribute") ?? fn.childForFieldName("property") ?? fn.children[fn.children.length - 1];
@@ -460,7 +460,7 @@ export class Extractor {
     }
     if (obj.type === "call" || obj.type === "call_expression") {
       const fn = obj.childForFieldName("function") ?? obj.children[0];
-      if (fn && (fn.type === "attribute" || fn.type === "member_expression")) {
+      if (fn && (fn.type === "attribute" || fn.type === "member_expression" || fn.type === "member_access_expression")) {
         const innerObj = fn.childForFieldName("object") ?? fn.children[0];
         const innerAttr = fn.childForFieldName("attribute") ?? fn.childForFieldName("property") ?? fn.children[fn.children.length - 1];
         if (innerObj && innerAttr && (innerAttr.type === "identifier" || innerAttr.type === "property_identifier")) {
@@ -615,13 +615,21 @@ function flattenCallTarget(node: SyntaxNode): string | null {
   ) {
     return node.text;
   }
-  if (node.type === "attribute" || node.type === "member_expression") {
+  if (node.type === "attribute" || node.type === "member_expression" || node.type === "member_access_expression") {
     const obj = node.childForFieldName("object") ?? node.children[0];
     const attr =
-      node.childForFieldName("attribute") ?? node.childForFieldName("property");
+      node.childForFieldName("attribute") ?? node.childForFieldName("property") ?? node.childForFieldName("name");
     if (!obj || !attr) return null;
     const objText = flattenCallTarget(obj);
     if (objText === null) return null;
+    // C# 泛型成员（迭代19）：Resources.Load<GameObject> → 剥 type_argument_list 取方法名
+    if (attr.type === "generic_name") {
+      const id = attr.childForFieldName("name") ?? attr.children.find((c) => c.type === "identifier");
+      if (id && (id.type === "identifier" || id.type === "property_identifier")) {
+        return objText + "." + id.text;
+      }
+      return null;
+    }
     if (attr.type === "identifier" || attr.type === "property_identifier") {
       return objText + "." + attr.text;
     }

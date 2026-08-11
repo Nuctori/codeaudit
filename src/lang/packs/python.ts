@@ -164,6 +164,7 @@ export const pythonPack: LangPack = {
   literalReceivers,
   builtinTypeEffects,
   builtinMethodReturns,
+  implicitThis: false,
   frameworkIo: {
     // Locust 压测客户端（迭代18 旧宇宙驱动）：self.client.get/post/... → net（段级前缀——
     // call.obj 是首段 "self"、attr 是剩余链 "client.post"；2.5 分支 startsWith 匹配）。
