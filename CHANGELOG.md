@@ -1,8 +1,10 @@
 # Changelog
 
-## [Unreleased] — 迭代 22-27（真实校准 + 门禁 + 状态耦合图 + 效应表收紧 + 状态耦合精度修复 + C# 状态提取精度 + 声明名抑制/下标写 + 声明名抑制收尾）
+## [Unreleased] — 迭代 22-28（真实校准 + 门禁 + 状态耦合图 + 效应表收紧 + 状态耦合精度修复 + C# 状态提取精度 + 声明名抑制/下标写 + 声明名抑制收尾 + 效应表注入）
 
 ### 新增
+
+- 效应表注入（F16，迭代28）：`scanProject` opts 增 `effectOverrides`——按语言名索引的链接侧表 override（impureBuiltins/pureBuiltins/impureModules/pureModules/impureGlobals/pureGlobals/frameworkIo/builtinTypeEffects/hofCallsArgs/hofAlwaysArgs 10 表）；键只增不删、标量覆盖、数组并集、builtinTypeEffects 两层深合并；提取侧表（literalReceivers 等参与缓存）白名单拒绝；无 override 短路零行为变化；`applyEffectOverrides`/`validateEffectOverride`/`loadEffectOverrides` 导出（CLI --effect-table 预留）
 
 - `--gate` 合入门禁（F5，Debtmap 借鉴）：与 `--changed` 联用，`grade ≥ HIGH`（风险≥35）时退出码 1——CI 阻止高危改动合入；`LOW/MEDIUM` → 0；`invalid` → 1（不静默放行）；无 `--changed` 时报错 exit 2（不静默失效）
 - `fitBaseRate(corpora)` 分层贝叶斯基率（pipeline.md 四落地）：跨项目语料 → `BaseRateModel{mu, kappa, projects}`——μ 替代硬编码 `GLOBAL_THETA0`；矩估计闭合解（加权均值 + 方差反解 κ），`projects < 2` 冷启动回退现状

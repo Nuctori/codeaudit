@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { join, relative, normalize, extname, sep } from "node:path";
 import type Parser from "web-tree-sitter";
 import type { LangPack, RawFileFacts, TreeSitterLanguage } from "../lang/pack";
+import { applyEffectOverrides, validateEffectOverride } from "../lang/effectOverride";
 import { Extractor } from "../lang/extractor";
 import { link } from "./link";
 import { analyze } from "../core/analyze";
@@ -23,6 +24,10 @@ export interface ScanOptions {
   readonly ParserCtor: typeof Parser;
   /** 人工/AI 标注回读：chunk.id → 判定。PURE 移除该 chunk 自身 `?`；IMPURE 加直接 io 效应。 */
   readonly annotations?: ReadonlyMap<string, "PURE" | "IMPURE">;
+  /** 效应表注入（F16，迭代28）：按语言名索引的链接侧表 override（impureBuiltins 等 10 表）。
+   *  键只增不删、标量覆盖、数组并集、builtinTypeEffects 两层深合并；提取侧表白名单拒绝。
+   *  无 override / 空对象 → 零行为变化（短路原 pack 引用）。 */
+  readonly effectOverrides?: Readonly<Record<string, Partial<import("../lang/effectOverride").EffectTables>>>;
 }
 
 const CACHE_VERSION = 6; // v6：stateWrites 布尔→数组 + stateReads 新增（旧 v5 缓存拒 → 全量重扫） // v5：schema 通道；提取行为变更走自动指纹（computeFingerprint），不再手动 bump
@@ -221,7 +226,17 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
     }
   }
 
+  // 效应表注入（F16，迭代28）：校验 + link 前合并克隆——link.ts 一个字节不改（link 消费 ReadonlyMap）。
+  // 提取/缓存/指纹不受影响（合并只发生在 link 前；链接侧表不缓存每次扫描重跑）。
   const packsByName = new Map(opts.packs.map((p) => [p.name, p]));
+  if (opts.effectOverrides) {
+    const errs = validateEffectOverride(opts.effectOverrides, opts.packs);
+    if (errs.length > 0) throw new Error("effectOverrides 非法：\n  " + errs.join("\n  "));
+    for (const [lang, ov] of Object.entries(opts.effectOverrides)) {
+      const pack = packsByName.get(lang);
+      if (pack) packsByName.set(lang, applyEffectOverrides(pack, ov));
+    }
+  }
   const { chunks, effectTableUsage } = link(facts, packsByName);
   // H1：parseError 文件（hasError 或 extract 异常）chunk 内容不可信——tree-sitter 错误恢复可能吞掉
   // 真实调用（未闭合字符串把后续 import/调用吸进字符串节点）→ 整体降级 UNKNOWN（"?" 经 eff 集传导给调用者）

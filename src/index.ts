@@ -6,6 +6,7 @@ import { csharpPack } from "./lang/packs/csharp";
 import { initParser, loadLanguage } from "./loader";
 import { changedImpact, type ChangeImpact } from "./core/influence";
 import type { ScanReport } from "./core/types";
+import type { EffectTables } from "./lang/effectOverride";
 
 export const defaultPacks = [
 	pythonPack,
@@ -23,6 +24,8 @@ export async function scanProject(
 		cacheDir?: string;
 		/** 标注回读：chunk.id → PURE/IMPURE（AI 标注闭环的注入端）。 */
 		annotations?: ReadonlyMap<string, "PURE" | "IMPURE">;
+		/** 效应表注入（F16，迭代28）：按语言名索引的链接侧表 override。键只增不删、数组并集。 */
+		effectOverrides?: Readonly<Record<string, Partial<EffectTables>>>;
 	},
 ): Promise<ScanReport> {
 	const ParserCtor = await initParser();
@@ -34,6 +37,7 @@ export async function scanProject(
 		loadLanguage,
 		ParserCtor,
 		annotations: opts?.annotations,
+		effectOverrides: opts?.effectOverrides,
 	};
 	return scan(options);
 }
@@ -62,6 +66,8 @@ export type {
 	RawImport,
 } from "./lang/pack";
 export { pythonPack, typescriptPack, tsxPack, javascriptPack, csharpPack };
+export type { EffectTables } from "./lang/effectOverride";
+export { applyEffectOverrides, validateEffectOverride, loadEffectOverrides } from "./lang/effectOverride";
 export {
 	changedImpact,
 	annotationBudget,

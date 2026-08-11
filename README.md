@@ -21,7 +21,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 273 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 282 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -52,9 +52,18 @@ console.log(impact.summary); // { changedFiles, unmatchedFiles, changedChunks, a
 for (const a of impact.affected) {
   console.log(`${"  ".repeat(a.depth)}${a.file}::${a.name}  ← 调 ${a.viaName ?? "-"}`);
 }
+
+// 效应表注入（迭代28 F16）：扩展效应表不改库代码——按语言名索引的链接侧表 override
+// （键只增不删、数组并集；提取侧表如 literalReceivers 会被校验拒绝——参与缓存会静默失效）
+const injected = await scanProject("./src", {
+  effectOverrides: {
+    csharp: { impureGlobals: { MySdk: "net" } },              // 外部 SDK 类 → net 效应
+    python: { frameworkIo: { client: ["post", "get"] } },      // 扩展现有键不重列内置前缀
+  },
+});
 ```
 
-导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `riskOfChange` / `forwardClosure` / `gradeOf` / `gateExit` / `fitBaseRate` / `priorFor` / `emptyCorpus` / `updateCorpus` / `mergeCorpus` / `summarize` / `siteShapeInfo` / `isCorpus` / `graphMetrics` / `proofCompleteness` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` / `compareReports` + `defaultPacks` + 类型（`BaseRateModel`/`CorpusFile`/`CorpusSite`/`Prior`/`ChangeImpact`/`ImpactedChunk`/`ChangeRisk`/`ProofCompleteness`/`GraphMetrics`/`VerdictDelta`/`Verdict`/`Chunk`/`ScanReport`/`ScanStats`/`LangPack`/`Purity`）。
+导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `riskOfChange` / `forwardClosure` / `gradeOf` / `gateExit` / `fitBaseRate` / `priorFor` / `emptyCorpus` / `updateCorpus` / `mergeCorpus` / `summarize` / `siteShapeInfo` / `isCorpus` / `graphMetrics` / `proofCompleteness` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` / `compareReports` / `applyEffectOverrides` / `validateEffectOverride` / `loadEffectOverrides` + `defaultPacks` + 类型（`BaseRateModel`/`CorpusFile`/`CorpusSite`/`Prior`/`ChangeImpact`/`ImpactedChunk`/`ChangeRisk`/`ProofCompleteness`/`GraphMetrics`/`VerdictDelta`/`Verdict`/`Chunk`/`ScanReport`/`ScanStats`/`LangPack`/`Purity`/`EffectTables`）。
 
 ## 回归风险控制（`--changed`）
 
@@ -148,7 +157,7 @@ src/
 
 ## 测试
 
-273 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
+282 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。

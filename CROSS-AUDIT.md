@@ -506,3 +506,15 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **测试 +4**（csharp-lang T1 C# tuple_pattern 解构名 + foreach 变量不裸读且集合 arr 读保留 / T2 TS catch 变量 + 解构声明名计数 / T3 Python except-as 变量不裸读且 Exception 类型名不动 / T4 JS catch 变量，修复前均失败——防回归有效），273/273 全绿
 - **复审（verify 节点）**：5 抑制规则全部经真实 web-tree-sitter 解析验证（4 语言 × 15 构造）；值读零误伤（tuple_expression≠tuple_pattern、array≠array_pattern 的 children[0] 位置守卫实证）；④ in 位置判断保留集合读；⑤ catch_clause 唯一 identifier 子节点 + C# typed catch 经 ① name 字段 + Python as_pattern_target 覆盖 except-as/except*-as/with-as 全部绑定目标；273/273 独立复跑 + tsc 0 + README 门禁 OK。无 blocker
 - **下轮待办（残余记录）**：① TS/JS object-pattern 声明名（`const {n: o} = obj` 的 o）与 for-of 解构名（`for (const [a,b] of pairs)`）仍裸读（迭代 26 既有行为，声明范围外）；② 方案 B（assignedNames 收 pattern 名连解构 use 读一起抑制）P3；③ Python `self[k]=1` 弱键 "self" + TS `this[k]=v` 零写盲区 P3；④ 读侧不对称（裸字段读不映射 self，需类型解析）
+
+## 迭代 28（效应表注入平台化：F16 最小版）
+
+- **长期待办 F16 落地**（F16 效应表注入平台化——效应表是硬编码在语言包的人工维护数据，D3 债：Unity 效应表人工维护；用户项目需扩展效应表而不改库代码）：`src/lang/effectOverride.ts`（新）——`EffectTables` 类型（**链接侧 10 表白名单**：impureBuiltins/pureBuiltins/impureModules/pureModules/impureGlobals/pureGlobals/frameworkIo/builtinTypeEffects/hofCallsArgs/hofAlwaysArgs）+ `validateEffectOverride`（语言名校验/表名白名单含提取侧拒绝/值形状校验含 record-array 双形态）+ `applyEffectOverrides`（**键只增不删**：Record 键合并 + 数组并集 + Set 并集 + builtinTypeEffects 两层深合并 + 空 override 短路原引用）+ `loadEffectOverrides`（JSON 加载，CLI 预留）
+- **注入形态**（按语言名索引的 override 映射，非全局 Partial<LangPack>）：跨语言键语义不同（Debug/System 是 C#、self/client 是 Python）——全局 override 会把条目塞进所有语言，同一键跨语言含义不同是方向错误源；语言隔离纪律先例 link.ts:594 `lang === pack.name` 守卫
+- **生效路径**：scan.ts ScanOptions 增 `effectOverrides?` 字段，link 前 validate（非法 → throw）+ apply 合并克隆入 packsByName——**link.ts 零改动**、提取/缓存/指纹零影响（链接侧表不缓存每次重跑，注入零缓存失效无需 bump CACHE_VERSION）；提取侧表（literalReceivers/builtinMethodReturns/chunkNodes 等参与缓存）**白名单显式拒绝**防缓存命中静默失效
+- **index.ts**：scanProject opts 透传 effectOverrides + 导出 EffectTables/applyEffectOverrides/validateEffectOverride/loadEffectOverrides
+- **测试 +9**（unit/effectOverride 6：Record 键合并+标量覆盖内置键全保留、frameworkIo 数组并集不重列内置前缀、Set 并集、builtinTypeEffects 两层深合并、空 override 短路原引用、校验拒绝未知语言/提取侧表/非法效应类/合法形态；e2e/effecttable 3：注入 impureGlobals MySdk:net → 外部 SDK 调用 UNKNOWN→IMPURE direct 含 net、空 override 两次扫描逐位一致、非法语言 scanProject rejects），282/282 全绿
+- **实现裁决 2 个**（worker 实证）：① record-array 双形态校验（impureGlobals/impureModules 值支持标量效应类与成员数组两种形态，初版只验数组被单测捕获已修）；② E2E 用**非项目内** `MySdk.Send()`（项目类走 globalClasses 优先解析，效应表不命中——注入真实用例需绕开类解析）
+- **merge 方向安全**：键只增不删 → override 不可能误删内置表；数组并集 → 扩展现有键（frameworkIo this）不重列内置前缀（重列 = 抄写漂移 = 漏前缀 = 假纯根源）；短路 → 无 override 返回原 pack 引用（零行为变化的静态保证）
+- **复审（verify 节点）**：4 项主查实证（merge 追加不删内置/生效路径真实接线/无 override 逐位不变/282 独立复跑）；n1 重复注释已删（index.ts:19）；**n2 已修**——`"set"` 形态校验空操作 + mergeSet 对 JSON 对象形态原生 TypeError，加固为 Set/数组/对象键三形态 + 补 3 断言；n3 记录不修（校验时机偏晚非正确性）；无 blocker
+- **下轮待办**：① CLI `--effect-table <json>`（loadEffectOverrides 已就绪，需新建 spawn 测试基础设施 ~1h）；② 语言事实义务转移风险（用户误标 io→纯 = 假纯方向不安全——缓解：校验挡形状错别字 + README 文档义务 + --table-usage corpus-inactive 可见未命中条目）；③ 无删除能力（override 只能追加，删内置表需改库——设计裁决，防误删）
