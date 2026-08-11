@@ -37,6 +37,6 @@
 
 ## 5. 复审发现（需下轮跟进）
 
-1. **报告口径漂移**：CODEAUDIT-TECH-DEBT.md 声称 2656 条标注，标注文件实测 2654（删除 2 条假 io 后未回写报告）——建议补一行注明。
-2. **B 报告（效应表使用率）设计**已完成（/tmp/effect-usage.md，run-56040 产出），未实施——列入技术债 C 类。
+1. **报告口径漂移**：已修复（b04cfb18e6）——CODEAUDIT-TECH-DEBT.md section 六 2656/3457 → 2654/3449，与标注文件（2654 条）及复扫（9548/10803/3449）对齐。
+2. **B 报告（效应表使用率）**已实施（755f731，effectTableUsage 三分类：provably-dead/corpus-inactive/consulted-but-miss + missSlots）。
 3. 阈值重验（run-64936）结论成立：C# 效应表过度判定**不**推高风险分布（max 11.7 < 15），阈值无需重标。
