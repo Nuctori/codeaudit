@@ -49,6 +49,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--sources") args.sources = true;
     else if (a === "--changed") args.changed = (rest[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
+    else if (a === "--version" || a === "-v") { console.log(VERSION); process.exit(0); }
     else if (a.startsWith("-")) {
       throw new Error("未知选项 " + a); // main().catch → exitCode 2
     }

@@ -21,7 +21,9 @@
     "codeaudit": "dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "scripts",
+    "docs"
   ],
   "engines": {
     "node": ">=18"

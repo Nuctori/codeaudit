@@ -360,7 +360,7 @@ export const csharpPack: LangPack = {
 	nestingNodes,
 	selfNames,
 	impureBuiltins,
-	pureBuiltins: new Set<string>(),
+	pureBuiltins: new Set<string>(["nameof"]), // C# 编译期名字提取（迭代21 T4：missSlots 463 站点——纯）
 	impureModules,
 	pureModules,
 	impureGlobals,

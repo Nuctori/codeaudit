@@ -1,4 +1,4 @@
-import type { LangPack, RawCall, RawChunk, RawFileFacts, RawImport } from "../lang/pack";
+import { type LangPack, type RawCall, type RawChunk, type RawFileFacts, type RawImport, UNRESOLVED_TARGET } from "../lang/pack";
 import { classifyUsage, type EffectTableUsage } from "../core/effectUsage";
 import { type Chunk, UNKNOWN_TARGET, type Effect } from "../core/types";
 import { chunkId } from "../core/hash";
@@ -427,6 +427,7 @@ function resolveCall(
       for (const p of prefixes) {
         if (call.attr === p || call.attr.startsWith(p + ".")) {
           sink.addEffect("io");
+          sink.hitTable(`frame:${call.obj}`); // 迭代21 B：frameworkIo 命中计数
           return;
         }
       }
@@ -558,13 +559,16 @@ function resolveCall(
       // 未解析回调记 ?（S4）；否则回调在反向闭包/回归风险不可见
       if (pack.hofAlwaysArgs.has(call.attr) || pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr);
       sink.addEffect(b);
+      sink.hitTable(`builtin:${call.attr}`); // 迭代21 B
       return;
     }
     if (pack.pureBuiltins.has(call.attr)) {
       // HOF（map/filter/sorted…）会调用函数实参：回调效应必须保留，否则假纯
       if (pack.hofAlwaysArgs.has(call.attr) || pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr);
+      sink.hitTable(`builtin:${call.attr}`); // 迭代21 B
       return;
     }
+    if (call.attr !== UNRESOLVED_TARGET) sink.missTable(`builtin:${call.attr}`); // 迭代21 B：裸名双未中 → 补表候选
   } else {
     // 全局类名解析（迭代19 C# 跨文件类调用）——**优先于效应表（迭代21 正确化）**：
     // 项目内类 NetCall 撞效应表条目 NetCall: "net"——项目类优先（真实实现），表条目是通用库名。
@@ -586,22 +590,33 @@ function resolveCall(
     const rule = Object.hasOwn(pack.impureGlobals, call.obj) ? pack.impureGlobals[call.obj] : undefined;
     if (typeof rule === "string") {
       sink.addEffect(rule); // 模块/全局整体效应类（console: "io"）
+      sink.hitTable(`global:${call.obj}`); // 迭代21 B
       return;
     }
     if (Array.isArray(rule)) {
-      if (rule.includes(call.attr)) { sink.addEffect("io"); return; }
+      if (rule.includes(call.attr)) {
+        sink.addEffect("io");
+        sink.hitTable(`global:${call.obj}`); // 迭代21 B
+        return;
+      }
       const tagged = rule.find((r) => r.startsWith(call.attr + ":"));
       if (tagged) {
         const cls = tagged.slice(call.attr.length + 1);
-        if (cls === "p") return; // 纯标记（与 effectFromModule 同语义，A7 原子性守卫，迭代7 发现B）
+        if (cls === "p") {
+          sink.hitTable(`global:${call.obj}`); // 迭代21 B
+          return; // 纯标记（与 effectFromModule 同语义，A7 原子性守卫，迭代7 发现B）
+        }
         sink.addEffect(cls); // "now:clock" / "random:random"
+        sink.hitTable(`global:${call.obj}`); // 迭代21 B
         return;
       }
     }
     if (pack.pureGlobals.has(call.obj)) {
       if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr); // Array.from(xs, cb)
+      sink.hitTable(`global:${call.obj}`); // 迭代21 B
       return;
     }
+    if (call.obj !== UNRESOLVED_TARGET) sink.missTable(`global:${call.obj}`); // 迭代21 B：对象双未中 → 补表候选
   }
 
   // 5. 星号导入回退；其余裸名记未知，对象方法记动态分派
