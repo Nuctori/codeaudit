@@ -21,12 +21,14 @@ interface CliArgs {
   changed: string[] | null;
   /** 拓扑健康度（--topology；迭代14 视角 3）。 */
   topology: boolean;
+  /** 效应源清单（--sources；chain=0 IMPURE——直接调 io/net/random/state 的"背锅者"，迭代16）。 */
+  sources: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
     dir: ".", format: "text", top: null, unknowns: null, annotations: null, corpus: null,
-    noCache: false, strict: false, changed: null, topology: false,
+    noCache: false, strict: false, changed: null, topology: false, sources: false,
   };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
@@ -44,6 +46,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--no-cache") args.noCache = true;
     else if (a === "--strict") args.strict = true;
     else if (a === "--topology") args.topology = true;
+    else if (a === "--sources") args.sources = true;
     else if (a === "--changed") args.changed = (rest[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
     else if (a.startsWith("-")) {
@@ -67,6 +70,7 @@ function printHelp(): void {
   --corpus <file>      标注语料文件（默认 .codeaudit/corpus.json；累积先验供 suggested_prompt）
   --no-cache           禁用增量缓存
   --topology           拓扑健康度：密度/环/深度/自环 + 人类解读（json 模式顶层加 topology 字段）
+  --sources            效应源清单：chain=0 IMPURE——直接调 io/net/random/state 的源头（背锅者，按调用点排序）
   --strict             存在 IMPURE chunk 时退出码为 1
   --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
   -h, --help           显示帮助
@@ -246,6 +250,22 @@ async function main(): Promise<void> {
       if (t.selfLoopCount > 0) console.log(`  ➜ ${t.selfLoopCount} 个自递归 chunk（自我调用——重构时注意终止性）`);
       if (t.cyclicComponents > 0) console.log(`  ➜ ${t.cyclicComponents} 个循环依赖（SCC>1——初始化/销毁顺序风险）`);
       if (t.dagDepth > 0) console.log(`  ➜ 调用图最深路径 ${t.dagDepth} 层（结构深度——效应传染深度看 chain 列）`);
+    }
+    if (args.sources) {
+      // 效应源清单（迭代16 --sources）：chain=0 IMPURE——直接调 io/net/random/state 的"背锅者"，
+      // 按调用点数量排序（源头越忙 = 污染扩散面越大）
+      const srcs = report.verdicts
+        .filter((v) => v.purity === Purity.IMPURE && v.chain === 0)
+        .sort((a, b) => b.chunk.calls.size - a.chunk.calls.size || (a.chunk.key < b.chunk.key ? -1 : 1));
+      console.log(
+        `\n效应源（chain=0 IMPURE，直接调 io/net/random/state 的源头；${srcs.length} 个）：`,
+      );
+      for (const v of srcs.slice(0, args.top ?? 15)) {
+        console.log(
+          `  ${String(v.chunk.calls.size).padStart(3)} 调用  ${v.chunk.name.padEnd(36)} ${v.chunk.file}:${v.chunk.line}`,
+        );
+      }
+      if (srcs.length > (args.top ?? 15)) console.log(`  … 共 ${srcs.length} 个（--top N 查看更多）`);
     }
     console.log(
       `codeaudit ${VERSION} — ${s.chunks} chunks, ${s.files} files, ` +

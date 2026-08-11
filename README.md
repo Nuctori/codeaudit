@@ -28,6 +28,7 @@ node dist/cli.js scan ./src
 node dist/cli.js scan ./src --format json
 node dist/cli.js scan ./src --top 20
 node dist/cli.js scan ./src --topology          # 拓扑健康度（密度/环/深度/自环 + 人类解读）
+node dist/cli.js scan ./src --sources           # 效应源清单（chain=0 IMPURE——直接调 io/net/random/state 的"背锅者"）
 node dist/cli.js scan ./src --unknowns unknowns.json   # 导出未知符号供 AI 标注
 node dist/cli.js scan ./src --strict                   # 存在 IMPURE 时退出码 1（CI 门禁）
 ```
