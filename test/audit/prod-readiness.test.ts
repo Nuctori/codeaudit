@@ -67,6 +67,9 @@ describe("迭代16 生产就绪测试（历史 Med 盲区）", () => {
     const r = await scanProject(root, { useCache: false });
     // 深度 6 上限：10 层链应解析失败 → main 调 deep 记 ?（诚实未知，不崩溃）
     expect(r.stats.parseErrors).toBe(0);
+    const main = by(r).get("main.ts::main") as { chunk: { calls: Set<string> } } | undefined;
+    expect(main).toBeDefined();
+    expect(main!.chunk.calls.has("?")).toBe(true); // 深链解析失败 → ?（R2-2 断言强化）
     teardown();
   });
 

@@ -64,7 +64,7 @@ function printHelp(): void {
 
 选项:
   --format text|json   输出格式（默认 text）
-  --top N              只显示前 N 条治理项（非纯；text 与 json 同语义）
+  --top N              只显示前 N 条治理项（非纯；text 与 json 同语义；--sources 共用此上限）
   --unknowns <file>    导出未解析符号清单（按影响面排序，含 id 锚点，供 AI 标注）
   --annotations <file> 回读 AI 标注（[{id, verdict:"PURE"|"IMPURE"}]，按 chunk.id 匹配，减少未知）
   --corpus <file>      标注语料文件（默认 .codeaudit/corpus.json；累积先验供 suggested_prompt）
@@ -233,7 +233,17 @@ async function main(): Promise<void> {
       : report;
     // --topology：json 顶层加拓扑字段（additive，现有 schema 消费者不受影响；迭代14 视角 3）
     const payload = args.topology ? { ...out, topology: graphMetrics(report.verdicts) } : out;
-    console.log(JSON.stringify(payload, (k, v) =>
+    // --sources：json 顶层加效应源字段（R2-1：与 topology 同款 additive；否则 json 模式静默忽略）
+    const payload2 = args.sources
+      ? {
+          ...payload,
+          sources: report.verdicts
+            .filter((v) => v.purity === Purity.IMPURE && v.chain === 0)
+            .sort((a, b) => b.chunk.calls.size - a.chunk.calls.size || (a.chunk.key < b.chunk.key ? -1 : 1))
+            .map((v) => ({ name: v.chunk.name, file: v.chunk.file, line: v.chunk.line, calls: v.chunk.calls.size })),
+        }
+      : payload;
+    console.log(JSON.stringify(payload2, (k, v) =>
       v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v, 2));
   } else {
     const s = report.stats;
