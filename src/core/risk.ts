@@ -51,6 +51,15 @@ export interface ChangeRisk {
 	/** 反向闭包大小（**含 Δ 自身**——与 changedImpact.affectedChunks 的 depth≥1 口径不同，迭代2 文档化）。 */
 	readonly affectedChunks: number;
 	readonly unmatchedFiles: number;
+	/** 证据质量（证明系统最小方案，迭代13 视角 1/3）：上层指标附输入质量——误差界 = O(missingSiteRate + k·parseErrorRate)。 */
+	readonly evidence: {
+		/** chain 不确定占比（与 scan 的 unknownRate 同源：chainCertain=false / verdicts）。 */
+		readonly unknownRate: number;
+		/** parseError 文件占比（内容不可信 → 指标低估结构复杂度）。 */
+		readonly parseErrorRate: number;
+		/** 未解析站点率（ΣunknownSites / Σ(calls+unknownSites)）——图指标单侧下界误差（定理1）。 */
+		readonly missingSiteRate: number;
+	};
 }
 
 /** 退化矩阵 D：key 稳定 chunk 的判定翻转风险（行=旧，列=新；0=无险）。 */
@@ -83,9 +92,11 @@ const W = { impact: 0.5, cycle: 0.3, depth: 0.2 } as const;
 
 export function gradeOf(risk: number): ChangeRisk["grade"] {
 	if (risk < 0) return "invalid";
-	if (risk < 30) return "low";
-	if (risk < 60) return "medium";
-	if (risk < 85) return "high";
+	// 阈值按实测分布重标（迭代13 视角 1：1233 模拟改动集 0 high/critical，risk 集中 [0,35]——
+	// 30/60/85 三个阈值两个死区；LOW<15/MEDIUM 15-35/HIGH 35-60/CRITICAL ≥60 按分位校准）
+	if (risk < 15) return "low";
+	if (risk < 35) return "medium";
+	if (risk < 60) return "high";
 	return "critical";
 }
 
@@ -215,7 +226,22 @@ export function riskOfChange(
 	const likelihood = 1 - (1 - purity) * (1 - fog);
 	const consequence = W.impact * impact + W.cycle * cycle + W.depth * depth;
 	const risk = 100 * likelihood * consequence;
-	const maxReachable = 100; // L×C 归一化后满值可达（阈值 85 非死区）
+	const maxReachable = 100; // L×C 归一化后满值可达（阈值已按实测分位重标 15/35/60）
+
+	// 证据质量（证明系统最小方案，迭代13）：从 verdicts 纯派生，零 stats 依赖
+	const uncertain = verdicts.filter((v) => !v.chainCertain).length;
+	let totalSites = 0;
+	let missingSites = 0;
+	for (const v of verdicts) {
+		totalSites += v.chunk.calls.size + v.chunk.unknownSites;
+		missingSites += v.chunk.unknownSites;
+	}
+	const parseErrFiles = verdicts.filter((v) => v.chunk.parseError).length;
+	const evidence = {
+		unknownRate: n > 0 ? uncertain / n : 0,
+		parseErrorRate: n > 0 ? parseErrFiles / n : 0,
+		missingSiteRate: totalSites > 0 ? missingSites / totalSites : 0,
+	};
 
 	if (unmatchedFiles > 0) {
 		return {
@@ -228,6 +254,7 @@ export function riskOfChange(
 			changedChunks: changed.length,
 			affectedChunks: backSeen.size,
 			unmatchedFiles,
+			evidence,
 		};
 	}
 	return {
@@ -240,5 +267,6 @@ export function riskOfChange(
 		changedChunks: changed.length,
 		affectedChunks: backSeen.size,
 		unmatchedFiles,
+		evidence,
 	};
 }

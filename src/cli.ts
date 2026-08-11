@@ -164,6 +164,7 @@ async function main(): Promise<void> {
         `深度 ${f.depth.toFixed(2)} 迷雾 ${f.fog.toFixed(2)}）`,
       );
       out(`  改动 ${r.changedChunks} chunk / 受影响调用者 ${r.affectedChunks} / L=${r.likelihood.toFixed(2)} C=${r.consequence.toFixed(2)}`);
+      out(`  证据质量：未知率 ${(r.evidence.unknownRate * 100).toFixed(1)}% / parseError ${(r.evidence.parseErrorRate * 100).toFixed(1)}% / 未解析站点 ${(r.evidence.missingSiteRate * 100).toFixed(1)}%`);
     }
   }
 

@@ -151,13 +151,13 @@ describe("forwardClosure", () => {
 });
 
 describe("gradeOf", () => {
-	it("阈值 30/60/85", () => {
+	it("阈值 15/35/60（按实测分布重标，迭代13）", () => {
 		expect(gradeOf(-1)).toBe("invalid");
-		expect(gradeOf(29.9)).toBe("low");
-		expect(gradeOf(30)).toBe("medium");
-		expect(gradeOf(59.9)).toBe("medium");
-		expect(gradeOf(60)).toBe("high");
-		expect(gradeOf(84.9)).toBe("high");
-		expect(gradeOf(85)).toBe("critical");
+		expect(gradeOf(14.9)).toBe("low");
+		expect(gradeOf(15)).toBe("medium");
+		expect(gradeOf(34.9)).toBe("medium");
+		expect(gradeOf(35)).toBe("high");
+		expect(gradeOf(59.9)).toBe("high");
+		expect(gradeOf(60)).toBe("critical");
 	});
 });

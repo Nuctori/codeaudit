@@ -242,13 +242,22 @@ export class Extractor {
     return out;
   }
 
-  /** 本 chunk 内声明名（variable_declarator 的 let/const/var 定义；Python 赋值非声明不收集）——裸标识符写外部性判定。 */
+  /** 本 chunk 内声明名（variable_declarator 的 let/const/var 定义，含解构绑定；Python 赋值非声明不收集）——裸标识符写外部性判定。 */
   private declaredNames(root: SyntaxNode): string[] {
     const out: string[] = [];
+    const collectPattern = (n: SyntaxNode): void => {
+      if (n.type === "shorthand_property_identifier_pattern" || n.type === "identifier" || n.type === "property_identifier") {
+        out.push(n.text);
+      } else {
+        for (const c of n.children) collectPattern(c);
+      }
+    };
     const walk = (n: SyntaxNode): void => {
       if (n.type === "variable_declarator") {
         const left = n.childForFieldName("name") ?? n.children[0];
-        if (left && (left.type === "identifier" || left.type === "property_identifier")) out.push(left.text);
+        if (!left) return;
+        if (left.type === "identifier" || left.type === "property_identifier") out.push(left.text);
+        else collectPattern(left); // const {a} = obj / const [x] = arr（计算理论 Note：解构绑定是局部声明）
       }
       for (const c of n.children) walk(c);
     };
