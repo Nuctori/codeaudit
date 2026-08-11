@@ -165,10 +165,10 @@
 | 语言 | Med | 裸 `Date()`/`new Date()` 时钟读取判纯；performance.now/setTimeout 不一致 | Date 移出 pureBuiltins（→UNKNOWN）、加入 pureGlobals（Date.parse/UTC 纯）；performance.now、定时器入表 |
 | 语言 | Med | Python uuid 熵读取 UNKNOWN vs TS v4 IMPURE | python uuid: ["uuid1","uuid4"] |
 | 语言 | 低 | list.copy/dict.copy/array slice/concat/charCodeAt 表缺口（假 UNKNOWN 噪音） | effects/returns 补齐 |
-| 语言 | — | len/str/int 强制转换协议残余（__len__/__str__ 可带 io） | 文档化有意边界（README 已知限制 + python.ts 注释）——移除则 unknown-rate 爆炸 |
+| 语言 | — | len/str/int 强制转换协议残余（**len**/**str** 可带 io） | 文档化有意边界（README 已知限制 + python.ts 注释）——移除则 unknown-rate 爆炸 |
 | 安全 | Med | cache/corpus JSON.parse 无大小上限 → 恶意仓库 OOM DoS | parse 前 statSync 64MB 上限 |
 | 安全 | Med | validFacts 数量预算无字节预算（8MB normText 穿透） | normText 1MB 上限 |
-| 安全 | Low | mergeCorpus 裸赋值 __proto__ 原型污染（bump 已修，merge 漏） | 复用 hasOwn+defineProperty |
+| 安全 | Low | mergeCorpus 裸赋值 **proto** 原型污染（bump 已修，merge 漏） | 复用 hasOwn+defineProperty |
 | 安全 | Low | --unknowns 直写非原子（语料/缓存均原子，此处不一致） | tmp+rename + 父目录 mkdir |
 | 性能 | High | Python 绝对导入 O(F×M_distinct)（100k 文件外推 9-11 分钟） | byLast 末段路径索引（resolveModule 可选参数，O(F+M)） |
 | 性能 | Med | link 每 chunk 双 sha256；scan+extractor 文件级双 sha256 | WeakMap id 复用 + contentHash 透传 |
@@ -325,7 +325,7 @@
 | --- | --- | --- |
 | riskOfChange L×C | fcde5ca + b86ed03 | 五因子（impact 反向闭包/purity 双通道/cycle 对数/SCC 平凡排除/depth 饱和/fog 计数单调）+ L=1-(1-p)(1-f)（可证保守上界）、C=0.5i+0.3c+0.2d、risk=100·L·C、阈值 30/60/85、invalid 契约 |
 | forwardClosure | fcde5ca | 正向可达闭包（R_fog/proof 加权唯一新计算，O(V+E)） |
-| proofCompleteness | 5245e5b + b86ed03 | Θ/MPS 派生报告层：annotationCurve 释放语义（deps 倒计时）、|Fwd(c)| 枢纽加权、budgetToTarget 边界 |
+| proofCompleteness | 5245e5b + b86ed03 | Θ/MPS 派生报告层：annotationCurve 释放语义（deps 倒计时）、 | Fwd(c) | 枢纽加权、budgetToTarget 边界 |
 | CLI --changed | 5245e5b + b0812a8 + 315b4c3 | 相对 root 路径语义（git diff cwd 路径）、invalid exit 1 |
 
 ## 5 独立审计（用户要求，全部运行）
@@ -368,15 +368,6 @@ HEAD 315b4c3，176/176，swagger 稳定（151/365/282）；回归风险控制经
 
 D-082（迭代 12 收敛）、D-083（拓扑采纳）、D-084（7cab482 测试闭环）、D-085（证明系统 + 新设计 5 视角审计 in-flight）
 
-
-
-
-
-
-
-
-
-
 ## 迭代 14 复审（5 视角，聚焦未决项正确解决）
 
 - 视角 1（未决项数学设计）：**不收敛（3 未决项均未解决）**——R_state 正确设计（s=|broken(Δ)|/|R| 入 L ∏ 保守上界 + impact'=Back∪broken 入 C；单调性完备证明；探针 1 写者+278 无调用边读者 risk 0→50 HIGH——必须拓宽 impact 才有判别力，仅 ∏ 入 L 只到 0.53）；budgetToTarget 分母统一方案（CLI 分母改 |U| + proof order 收窄为 ?-源）；D 矩阵无校准数据（语料 cell 无跨版本翻转记录）→ 四序公理文档化裁决 + README 阈值漂移（README 仍 30/60/85，代码已 15/35/60）
@@ -415,8 +406,8 @@ D-086（Step1-2 落地）、D-087（证据字段+阈值重标+解构绑定）、
 - **极小性（视角 5）**：A（src/core/*.js 689 行构建产物误提交——已删）、B（Verdict inDegree/outDegree 死字段——已删）、C（F2 回归测试——已补）、D（README global/nonlocal 矛盾——已修）、E（--topology 文档——已补 help/README）、F（GraphMetrics.evidence 断言——已补）
 
 ### 决策链
-D-097（迭代 15 剩余工作执行——最简性+盲区+可解释性+极小性闭环）
 
+D-097（迭代 15 剩余工作执行——最简性+盲区+可解释性+极小性闭环）
 
 ## 迭代 16（生产就绪轮：真实项目验证 + 能力增量 + CI + 测试盲区 + 发布验证）
 
@@ -428,8 +419,8 @@ D-097（迭代 15 剩余工作执行——最简性+盲区+可解释性+极小�
 - **文档同步**：README 导出清单补全（forwardClosure/gradeOf/graphMetrics/defaultPacks/ScanStats/GraphMetrics）；axioms 四·七补阈值-因子联合体
 
 ### 决策链
-D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭环）
 
+D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭环）
 
 ## 迭代 18（真实项目驱动审计修复循环：旧宇宙标注工作流重播）
 
@@ -438,7 +429,6 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **标注工作流重播**（用户：全标）：869 条（IMPURE 109/PURE 760：ApiClient._request IMPURE、NotImplementedError 占位 722 PURE、TDOpenHarmonyProxy 分析 SDK 108 IMPURE）→ unknown-rate **73.3%→14.4%**、unknownEdges 7940→6394；剩余 284 为动态分派诚实未知（self.api.* 设计边界）
 - **全图**：拓扑结构不变（标注不建边——判定层语义），未知边反映标注
 - 回归测试 4 例（iter18-real-driven），210/210
-
 
 ## 迭代 19（C# 语言包——InitDeity Unity 真实项目驱动，工具最大盲区闭合）
 
@@ -449,8 +439,6 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **诚实局限**：中文标识符 parse-error 77 文件（WorldRegion.草木之森——wasm Unicode 缺陷，方向安全 UNKNOWN）；协程/LINQ 链/事件订阅第一版不建模；<unresolved> 2206（不可拍平调用设计边界）
 - 测试 +6（csharp-lang 6 例），216/216
 
-
-
 ## 迭代 20-21（标注清零 + 数学解 + 生产就绪 DAG）
 
 - **迭代 20**：中文标识符 wasm 硬限制确认（外部债 D1）；工具修复 4 项（predefined_type/conditional_access/Unity 裸全局/string 纯）；标注 928+ 条 → InitDeity unknown 8159→5124（-37%）
@@ -459,3 +447,13 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **发散 AI（22 发现）**：F13 files 加 scripts/docs、F14 --version、F16 效应表注入（平台化）、F19 pathlib 拆表、F20 :p 审计（Path.cwd/home 假纯闭合）
 - **DAG 生产就绪**：T1 forks 池、T2 标注护栏、T3 真实 fixture（8 文件 8 断言）、T4 missSlots 补表（nameof/System/UnityEngine 前缀）、T5 链式诚实结论（设计边界）、T6 resolveCall 拆分
 - InitDeity：unknown 8159→5761（工具+标注-29%）、226/226
+
+
+## 迭代 22（真实校准 + 合入门禁 + InitDeity 重构验证）
+
+- **F9 分层基率落地**（pipeline.md 四/六兑现，corpus 面 API 首度导出）：`fitBaseRate(corpora)` → `BaseRateModel{mu,kappa,projects}`——μ 加权均值（**不纯率**语义，与 GLOBAL_THETA0=0.25 同口径裁决）、κ=μ(1−μ)/Var−1 方差反解、冷启动 `projects<2 → {mu:0.25,kappa:12,projects:0}`（含 []/单项目/空项目）；`priorFor(corpus, site, baseRate?)` 第三参（`baseRate?.mu ?? 0.25`，缺省路径逐位兼容）；index.ts 补齐 `emptyCorpus/updateCorpus/mergeCorpus/summarize/siteShapeInfo/isCorpus` 导出
+- **实测**：InitDeity 语料（method 表 4264 样本 1847P/2417I，纯率 0.433）单项目 → 冷启动（projects=1<2，判定正确）；+swaggerSim(65条51P) 双项目 → `{mu:0.5616, kappa:133.8, projects:2}`（μ 被大样本主导，κ 显项目间方差）；fitted κ 不接 priorFor（显式设计决定——priorFor 在单项目内做 method→cell 两层收缩，无项目层可接）
+- **F5 --gate 落地**（Debtmap 外部参考）：`riskOfChange` grade ≥ HIGH → exit 1（比 --strict 语义正确——针对新引入 IMPURE）；gateExit 纯函数（high/critical/invalid→1、low/medium→0）入 risk.ts；`--gate` 无 `--changed` 报错 exit 2（不静默失效）；与 --strict 共存 `Math.max` 保序
+- **InitDeity 安全重构验证**（真实工程经验回流，严格限定审计清单内 2 项，未触碰 156 脏文件之外任何文件）：① SRList(IEnumerable) 构造器去 AddRange 内部环（一次性 List.ToArray 拷贝，语义等价论证）——chain 3→0，内部 3 环消除，字段写仍判 direct state；② ScreenShake.TestShake 删除（Vfx_Test 手测残留）——chunks 23800→23799、IMPURE 9449→9448；复扫对比 PURE 8590 不变
+- **工具盲区（下轮待办）**：① **ConvertToString ×47 direct io 假阳**——frameworkIo.System 前缀表含 Reflection/Runtime/Globalization，纯反射元数据读取被标 io（全库最大单类假阳，修复方向：收紧前缀或方法名白名单）；② 纯数据结构构造器字段写判 state（假 IMPURE，方向安全，效应表口径已知保守）；③ **基线不可复现**——2654 条标注文件丢失，无标注口径 UNKNOWN 5761 vs 基线 3449，需归档标注文件或接受无标注基线为新基准
+- **复审（verify 节点 4 轮独立复验）**：**BLOCKER 发现并修复**——impl 的 `--gate` 分支曾替换 `--topology` 分支（--topology 变未知选项 exit 2），主会话恢复三独立分支并补 CLI 回归测试「--topology 旗标仍可用」；fitBaseRate 数学 4 轮独立手算对拍逐位一致（T1 μ=0.6/κ=3.08510638；InitDeity 双项目 μ=0.56156/κ≈133.8）；247/247 全绿（24 文件）+ tsc 0 + README 门禁 OK

@@ -21,7 +21,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 236 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 247 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -31,6 +31,7 @@ node dist/cli.js scan ./src --topology          # 拓扑健康度（密度/环/�
 node dist/cli.js scan ./src --sources           # 效应源清单（chain=0 IMPURE——直接调 io/net/random/state 的"背锅者"）
 node dist/cli.js scan ./src --unknowns unknowns.json   # 导出未知符号供 AI 标注
 node dist/cli.js scan ./src --strict                   # 存在 IMPURE 时退出码 1（CI 门禁）
+node dist/cli.js scan ./src --changed a.ts --gate      # 合入门禁：回归风险 grade ≥ high 时退出码 1
 ```
 
 编程式 API：
@@ -52,7 +53,7 @@ for (const a of impact.affected) {
 }
 ```
 
-导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `riskOfChange` / `forwardClosure` / `gradeOf` / `graphMetrics` / `proofCompleteness` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` / `compareReports` + `defaultPacks` + 类型（`ChangeImpact`/`ImpactedChunk`/`ChangeRisk`/`ProofCompleteness`/`GraphMetrics`/`VerdictDelta`/`Verdict`/`Chunk`/`ScanReport`/`ScanStats`/`LangPack`/`Purity`）。
+导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `riskOfChange` / `forwardClosure` / `gradeOf` / `gateExit` / `fitBaseRate` / `priorFor` / `emptyCorpus` / `updateCorpus` / `mergeCorpus` / `summarize` / `siteShapeInfo` / `isCorpus` / `graphMetrics` / `proofCompleteness` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` / `compareReports` + `defaultPacks` + 类型（`BaseRateModel`/`CorpusFile`/`CorpusSite`/`Prior`/`ChangeImpact`/`ImpactedChunk`/`ChangeRisk`/`ProofCompleteness`/`GraphMetrics`/`VerdictDelta`/`Verdict`/`Chunk`/`ScanReport`/`ScanStats`/`LangPack`/`Purity`）。
 
 ## 回归风险控制（`--changed`）
 
@@ -64,13 +65,15 @@ codeaudit scan src --changed src/engine/scan.ts
 #   改动 6 chunk / 受影响调用者 10 / L=1.00 C=0.04
 #   ➜ 低风险（<15）可合入——非零风险，留意影响面内调用者
 #   ⚠ 未知率过高——判定覆盖面不足，建议先标注再作结论
+codeaudit scan src --changed src/engine/scan.ts --gate   # 合入门禁：HIGH/CRITICAL → exit 1；LOW/MEDIUM → 0；invalid → 1（不静默放行）
 ```
 
 完整库 API 示例见 [examples/api-demo.js](examples/api-demo.js)（扫描 + 影响面 + 回归风险 + 证明完整度 + 拓扑）。变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 - **六因子**（全部从扫描推导）：`impact`（反向可达闭包 ∪ 状态读者占比）、`purity`（纯度退化——key 稳定用退化矩阵、编辑/新增用现状纯度映射）、`cycle`（SCC 环内修改，平凡排除+对数压缩）、`depth`（效应链深，PURE/∞→0 饱和）、`fog`（正向影响面内 UNKNOWN 计数占比）、`state`（stateDeps 命中的读者占比——图调用边外耦合通道，迭代14）。
 - **聚合**：L×C 风险矩阵——`L = 1-(1-purity)(1-fog)(1-state)`（正相关下可证明的保守上界；state 与 fog/purity 无结构性相关，全静态解析的库可状态耦合极密）、`C = 0.5·impact+0.3·cycle+0.2·depth`（凸组合）、`Risk = 100·L·C`。阈值：<15 LOW / <35 MEDIUM / <60 HIGH / ≥60 CRITICAL（按实测分布重标，迭代13——真实语料 1233 模拟改动集 0 high/critical，30/60/85 两个死区；迭代15 复测含 R_state 后阈值保持有效）。路径不匹配 → `invalid`（不可评估，不静默放行）。
-- **库 API**：`riskOfChange(verdicts, changedFiles, {oldVerdicts?})` / `forwardClosure` / `proofCompleteness(verdicts, {weighted?, targetTheta?})`（证明完整度 Θ + 标注预算序——annotationCurve 派生报告层，非新数学）。
+- **库 API**：`riskOfChange(verdicts, changedFiles, {oldVerdicts?})` / `forwardClosure` / `proofCompleteness(verdicts, {weighted?, targetTheta?})`（证明完整度 Θ + 标注预算序——annotationCurve 派生报告层，非新数学）
+- **合入门禁（--gate，F5）**：与 `--changed` 联用，`grade ≥ HIGH`（风险≥35）时退出码 1——CI 阻止高危改动合入；`LOW/MEDIUM` → 0；`invalid`（文件未匹配）→ 1（与现状一致，不静默放行）。比 `--strict` 语义精确：门禁对准新引入的 IMPURE 影响半径而非存量。
 
 ## 输出解读
 
@@ -144,7 +147,7 @@ src/
 
 ## 测试
 
-236 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
+247 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。

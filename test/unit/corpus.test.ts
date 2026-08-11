@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  emptyCorpus, updateCorpus, mergeCorpus, priorFor, summarize, siteShapeInfo, isCorpus,
+  emptyCorpus, updateCorpus, mergeCorpus, priorFor, summarize, siteShapeInfo, isCorpus, fitBaseRate,
   MIN_TOTAL, MIN_CELL, PRIOR_THRESHOLD,
 } from "../../src/core/corpus";
 import type { Chunk } from "../../src/core/types";
@@ -182,5 +182,96 @@ describe("标注语料（corpus）", () => {
     const c = updateCorpus(emptyCorpus(), chunks, ann);
     expect(priorFor(c, { attr: "get", obj: null, root: "bare" })).not.toBeNull();
     expect(priorFor(c, { attr: "save", obj: null, root: "bare" })).toBeNull(); // n=5 < 10
+  });
+});
+
+describe("分层基率（fitBaseRate，迭代22）", () => {
+  // 项目语料工厂：n 个 (pure, impure) 混合标注 → method.get = {pure, impure}
+  function proj(pure: number, impure: number) {
+    const chunks: Chunk[] = [];
+    const ann = new Map<string, "PURE" | "IMPURE">();
+    for (let i = 0; i < pure; i++) {
+      chunks.push(chunk("p" + pure + "-" + i, [{ attr: "get", obj: null, root: "bare" }]));
+      ann.set("p" + pure + "-" + i, "PURE");
+    }
+    for (let i = 0; i < impure; i++) {
+      chunks.push(chunk("i" + impure + "-" + i, [{ attr: "get", obj: null, root: "bare" }]));
+      ann.set("i" + impure + "-" + i, "IMPURE");
+    }
+    return updateCorpus(emptyCorpus(), chunks, ann);
+  }
+
+  it("T1 对拍手算：μ 加权均值、κ 方差反解", () => {
+    // A=(30,10) n=40 θ̂=0.25；B=(40,40) n=80 θ̂=0.5；C=(10,70) n=80 θ̂=0.875
+    // μ=(10+40+70)/200=0.6；Var=0.2·0.35²+0.4·0.1²+0.4·0.275²=0.05875；κ=0.24/0.05875−1≈3.0851
+    const m = fitBaseRate([proj(30, 10), proj(40, 40), proj(10, 70)]);
+    expect(m.mu).toBeCloseTo(0.6, 9);
+    expect(m.kappa).toBeCloseTo(3.085106382978723, 9);
+    expect(m.projects).toBe(3);
+  });
+
+  it("T2 单调性/加权主导：大样本项目主导，μ 在 [min, max] 内（不纯率语义，对齐 T1 手算）", () => {
+    // A=(990,10) 不纯率 10/1000=0.01 n=1000、B=(1,1) 不纯率 0.5 n=2 →
+    // μ=(10+1)/1002≈0.01098——被 A 主导（简单均值 0.255）
+    const m = fitBaseRate([proj(990, 10), proj(1, 1)]);
+    expect(m.mu).toBeCloseTo((10 + 1) / 1002, 9);
+    // 向 A 追加 impure → 不纯率 μ 单调上升
+    const m2 = fitBaseRate([proj(990, 50), proj(1, 1)]);
+    expect(m2.mu).toBeGreaterThan(m.mu);
+    // 随机多组计数：μ ∈ [min θ̂, max θ̂] 恒成立（θ̂ 为不纯率）
+    for (let t = 0; t < 20; t++) {
+      const ps = [proj(3 + t, 1), proj(10, 5 + t), proj(2, 8)];
+      const mm = fitBaseRate(ps);
+      const thetas = ps.map((c) => { const s = summarize(c); return (s.total - s.pure) / s.total; });
+      expect(mm.mu).toBeGreaterThanOrEqual(Math.min(...thetas) - 1e-9);
+      expect(mm.mu).toBeLessThanOrEqual(Math.max(...thetas) + 1e-9);
+    }
+  });
+
+  it("T3 冷启动：<2 有计数项目（含空输入/空项目）→ 固定模型", () => {
+    expect(fitBaseRate([])).toEqual({ mu: 0.25, kappa: 12, projects: 0 });
+    expect(fitBaseRate([proj(500, 500)])).toEqual({ mu: 0.25, kappa: 12, projects: 0 }); // 单项目样本再大也冷启动
+    expect(fitBaseRate([proj(500, 500), emptyCorpus()])).toEqual({ mu: 0.25, kappa: 12, projects: 0 }); // 空项目不计入
+  });
+
+  it("T3b 角情况：畸形语料过滤、全同率 κ 钳上限、κ<0 钳 0", () => {
+    expect(fitBaseRate([proj(1, 0), { version: 1 } as never, proj(0, 1)])).toEqual(
+      fitBaseRate([proj(1, 0), proj(0, 1)]),
+    ); // 畸形语料被 isCorpus 过滤
+    const same = fitBaseRate([proj(40, 0), proj(80, 0)]);
+    expect(same.kappa).toBe(1e6); // Var=0 → 完全 pooling 钳上限
+    const diff = fitBaseRate([proj(0, 40), proj(40, 0)]); // 两项目率 0/1 极端对立
+    expect(diff.kappa).toBe(0); // 项目间差异 > Beta 可表达 → 无收缩
+  });
+
+  it("T4 接入生效：baseRate.mu 替代 GLOBAL_THETA0（冷单元格先验随 μ 移动）；缺省路径逐位一致", () => {
+    // 目标项目：method.get 有 40 条全 PURE（够 MIN_CELL），但 cell 格 (get,bare) 只放 1 条 IMPURE →
+    // nCell=1 < MIN_CELL → priorFor 返回 null……需要 cell ≥ MIN_CELL。构造：method.get 50 PURE、
+    // (get,bare) 格 10 条中 9 PURE 1 IMPURE → 格证据弱，θ̂ 主要受方法级收缩影响
+    const chunks: Chunk[] = [];
+    const ann = new Map<string, "PURE" | "IMPURE">();
+    for (let i = 0; i < 9; i++) {
+      chunks.push(chunk("g" + i, [{ attr: "get", obj: null, root: "bare" }]));
+      ann.set("g" + i, "PURE");
+    }
+    chunks.push(chunk("gx", [{ attr: "get", obj: null, root: "bare" }]));
+    ann.set("gx", "IMPURE");
+    for (let i = 0; i < 40; i++) {
+      chunks.push(chunk("m" + i, [{ attr: "other", obj: null, root: "bare" }]));
+      ann.set("m" + i, "PURE"); // 撑总量 ≥ MIN_TOTAL
+    }
+    const corpus = updateCorpus(emptyCorpus(), chunks, ann);
+    const site = { attr: "get", obj: null, root: "bare" };
+    const pDefault = priorFor(corpus, site)!;
+    expect(pDefault).not.toBeNull();
+    // 高不纯率模型（μ=0.6 不纯率）→ 方法级收缩更拉向 IMPURE → pPure 下降（μ=0.95 会落入分歧带 null，选 0.6 保持非空）
+    const pHigh = priorFor(corpus, site, { mu: 0.6, kappa: 12, projects: 3 })!;
+    expect(pHigh.pPure).toBeLessThan(pDefault.pPure);
+    // 低不纯率模型（μ=0.05）→ pPure 上升
+    const pLow = priorFor(corpus, site, { mu: 0.05, kappa: 12, projects: 3 })!;
+    expect(pLow.pPure).toBeGreaterThan(pDefault.pPure);
+    // 缺省路径与显式 0.25 模型逐位一致（向后兼容）
+    const pExplicit = priorFor(corpus, site, { mu: 0.25, kappa: 0, projects: 0 })!;
+    expect(pExplicit.pPure).toBe(pDefault.pPure);
   });
 });

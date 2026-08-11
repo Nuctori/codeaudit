@@ -75,8 +75,19 @@ export type {
 	AnnotationBudget,
 	VerdictDelta,
 } from "./core/influence";
-export { riskOfChange, forwardClosure, gradeOf } from "./core/risk";
+export { riskOfChange, forwardClosure, gradeOf, gateExit } from "./core/risk";
 export type { ChangeRisk } from "./core/risk";
+export {
+  fitBaseRate,
+  priorFor,
+  emptyCorpus,
+  updateCorpus,
+  mergeCorpus,
+  summarize,
+  siteShapeInfo,
+  isCorpus,
+} from "./core/corpus";
+export type { BaseRateModel, CorpusFile, CorpusSite, Prior } from "./core/corpus";
 export { graphMetrics } from "./core/topology";
 export type { GraphMetrics } from "./core/topology";
 export { proofCompleteness } from "./core/proof";

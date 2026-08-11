@@ -1,4 +1,4 @@
-import { type Chunk } from "./types";
+import type { Chunk } from "./types";
 
 /**
  * 标注语料（EVSI 先验的累积数据）。
@@ -62,6 +62,10 @@ const GLOBAL_THETA0 = 0.25; // 实证基率：来自 swagger-ui/src/core 标注�
 // 改进方向：项目级基率分层（项目随机效应）或可配置（见 docs/axioms.md 四·七）。
 const KAPPA1 = 12; // 方法级收缩
 const KAPPA2 = 8; // 接收者格收缩
+/** 分层基率 κ 上限（Var=0 全项目同率 → 数学上 +∞ pooling；钳到有限值保 JSON 可序列化）。 */
+const KAPPA_MAX = 1e6;
+/** 分层基率 μ 钳制区间（μ=0/1 时 μ(1−μ)=0 → κ 为 0/0；钳到 proper Beta 先验区间再反解）。 */
+const MU_CLAMP = [1e-3, 1 - 1e-3] as const;
 export const MIN_TOTAL = 30; // 冷启动阈值：总样本不足不提供概率
 export const MIN_CELL = 10; // 单格阈值
 export const PRIOR_THRESHOLD = 0.65; // p 触发阈值（建议 PURE）
@@ -158,7 +162,7 @@ export interface Prior {
  * 计算站点的先验建议：两层收缩。总样本不足 / 单格样本不足 / p 不显著 → null。
  * p = P(PURE) = 1 − θ̂_impure（θ̂ 为两层收缩的 impure 率）。
  */
-export function priorFor(corpus: CorpusFile, site: CorpusSite): Prior | null {
+export function priorFor(corpus: CorpusFile, site: CorpusSite, baseRate?: BaseRateModel): Prior | null {
   if (total(corpus) < MIN_TOTAL) return null; // 冷启动：不编数字
   // hasOwn 守卫：method/root 是普通对象，裸下标命中继承的 Object.prototype 键（toString 等）→ NaN 先验
   const m = Object.hasOwn(corpus.method, site.attr) ? corpus.method[site.attr] : undefined;
@@ -177,7 +181,8 @@ export function priorFor(corpus: CorpusFile, site: CorpusSite): Prior | null {
   // clamp 防御（cell 计数精确后 LOO 不会为负，保留兜底防数据畸形）
   const mImpureLOO = Math.max(0, m.impure - kCell);
   const mTotalLOO = Math.max(0, m.pure + m.impure - nCell);
-  const thetaM = (mImpureLOO + GLOBAL_THETA0 * KAPPA1) / (mTotalLOO + KAPPA1);
+  const theta0 = baseRate?.mu ?? GLOBAL_THETA0; // 分层基率（迭代22）：缺省回退 0.25 常量，向后兼容
+  const thetaM = (mImpureLOO + theta0 * KAPPA1) / (mTotalLOO + KAPPA1);
   // 角冲突守卫（迭代4 F2）：v1 时 root 桶边际可能 ≥ 方法总数（多 attr 共享 root），LOO 过度扣除导致
   // thetaM 由方法 impure 残差主导（方向失真）→ 回退 null。v2 cell 精确后正常入账数据不可达
   // （cell⊆method 恒成立，2000 轮随机 0 触发）——保留作畸形/毒化语料兜底（实测 10.7% 触发全安全回退）
@@ -197,6 +202,47 @@ export function summarize(corpus: CorpusFile): { total: number; pure: number; im
     impure += e.impure;
   }
   return { total: pure + impure, pure, impure };
+}
+
+/** 分层贝叶斯基率模型（跨项目先验；替代 GLOBAL_THETA0 常量，docs/pipeline.md 四）。 */
+export interface BaseRateModel {
+  /** 全局不纯率均值 μ（与 GLOBAL_THETA0=0.25 同语义；替代该常量）。 */
+  readonly mu: number;
+  /** 项目间收缩强度 κ（越大项目间差异越小）。 */
+  readonly kappa: number;
+  /** 参与拟合的有计数项目数。 */
+  readonly projects: number;
+}
+
+/**
+ * 分层基率矩估计（标准分层 Beta，无 MCMC 闭合解）：
+ * - 项目 j 观测不纯率 θ̂_j = impure_j/(pure_j+impure_j)，取 method 表边际（pipeline.md 四口径）
+ * - 权重 w_j = n_j/Σn（大样本项目主导）；μ = Σ w_j·θ̂_j（**不纯率**均值——
+ *   与 GLOBAL_THETA0=0.25（不纯率）同语义，priorFor 替换点 theta0 = baseRate?.mu 才成立）
+ * - 加权方差 Var = Σ w_j(θ̂_j−μ)²（矩估计口径，不加 Bessel 校正）
+ * - κ = μ(1−μ)/Var − 1（<0 钳到 0 = 无收缩；Var=0 → KAPPA_MAX）
+ * 冷启动：有计数项目 < 2 → {mu:0.25, kappa:12, projects:0}（与现状等价、向后兼容）。
+ */
+export function fitBaseRate(corpora: readonly CorpusFile[]): BaseRateModel {
+  // 畸形语料过滤（isCorpus 已有）；空 total 项目不计入 projects（无观测不参与拟合）
+  const projects: Array<{ n: number; theta: number }> = [];
+  for (const c of corpora) {
+    if (!isCorpus(c)) continue;
+    const { total: n, pure } = summarize(c);
+    if (n <= 0) continue;
+    projects.push({ n, theta: (n - pure) / n }); // 不纯率（与 GLOBAL_THETA0 同语义）
+  }
+  if (projects.length < 2) return { mu: 0.25, kappa: 12, projects: 0 }; // 冷启动（含输入 []）
+  const sumN = projects.reduce((s, p) => s + p.n, 0);
+  const mu = projects.reduce((s, p) => s + (p.n / sumN) * p.theta, 0);
+  const varTheta = projects.reduce((s, p) => s + (p.n / sumN) * (p.theta - mu) ** 2, 0);
+  // μ=0/1 → μ(1−μ)=0 → κ 0/0：先钳到 proper Beta 区间再反解
+  const muClamped = Math.min(MU_CLAMP[1], Math.max(MU_CLAMP[0], mu));
+  let kappa: number;
+  if (varTheta === 0) kappa = KAPPA_MAX; // 全项目同率 → 完全 pooling（数学 +∞，钳可序列化）
+  else kappa = (muClamped * (1 - muClamped)) / varTheta - 1;
+  if (kappa < 0) kappa = 0; // 项目间差异大于 Beta 可表达 → 回退完全独立
+  return { mu, kappa, projects: projects.length };
 }
 
 export interface SiteShapeInfo {

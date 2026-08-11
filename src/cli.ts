@@ -2,7 +2,7 @@
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { scanProject } from "./index";
-import { riskOfChange } from "./core/risk";
+import { riskOfChange, gateExit } from "./core/risk";
 import { graphMetrics } from "./core/topology";
 import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
 import { annotationBudget, annotationCurve, annotationCompare, unknownKeysOf } from "./core/influence";
@@ -17,6 +17,8 @@ interface CliArgs {
   corpus: string | null;
   noCache: boolean;
   strict: boolean;
+  /** 合入门禁（--gate；与 --changed 联用：grade ≥ high → exit 1）。 */
+  gate: boolean;
   /** 回归风险分析：改动文件集（--changed a.ts,b.py）。 */
   changed: string[] | null;
   /** 拓扑健康度（--topology；迭代14 视角 3）。 */
@@ -30,7 +32,7 @@ interface CliArgs {
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
     dir: ".", format: "text", top: null, unknowns: null, annotations: null, corpus: null,
-    noCache: false, strict: false, changed: null, topology: false, sources: false, tableUsage: false,
+    noCache: false, strict: false, gate: false, changed: null, topology: false, sources: false, tableUsage: false,
   };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
@@ -47,6 +49,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--corpus") args.corpus = rest[++i]!;
     else if (a === "--no-cache") args.noCache = true;
     else if (a === "--strict") args.strict = true;
+    else if (a === "--gate") args.gate = true;
     else if (a === "--topology") args.topology = true;
     else if (a === "--sources") args.sources = true;
     else if (a === "--table-usage") args.tableUsage = true;
@@ -57,6 +60,10 @@ function parseArgs(argv: string[]): CliArgs {
       throw new Error("未知选项 " + a); // main().catch → exitCode 2
     }
     else if (!a.startsWith("-")) args.dir = a;
+  }
+  // --gate 依赖 --changed：静默失效的门禁 = 安全剧场（CI 以为在门禁、实际 no-op）——报错 exit 2
+  if (args.gate && (args.changed === null || args.changed.length === 0)) {
+    throw new Error("--gate 需要 --changed <files>（门禁依赖改动文件集评估回归风险）");
   }
   return args;
 }
@@ -76,6 +83,7 @@ function printHelp(): void {
   --topology           拓扑健康度：密度/环/深度/自环 + 人类解读（json 模式顶层加 topology 字段）
   --sources            效应源清单：chain=0 IMPURE——直接调 io/net/random/state 的源头（背锅者，按调用点排序）
   --strict             存在 IMPURE chunk 时退出码为 1
+  --gate               与 --changed 联用：grade ≥ high（风险≥35）时退出码 1（合入门禁；invalid 不放行）
   --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
   -h, --help           显示帮助
 `);
@@ -190,6 +198,12 @@ async function main(): Promise<void> {
       if (r.evidence.unknownRate > 0.5) out(`  ⚠ 未知率过高——判定覆盖面不足，建议先标注再作结论`);
       if (r.evidence.parseErrorRate > 0) out(`  ⚠ ${(r.evidence.parseErrorRate * 100).toFixed(1)}% 文件解析失败——指标低估结构复杂度`);
       if (r.evidence.missingSiteRate > 0.5) out(`  ⚠ 未解析站点过半——图指标是下界，实际影响面可能更大`);
+      // 合入门禁（F5）：grade ≥ high → exit 1（与 --strict 可共存，Math.max 保序——任一拒绝即 1）
+      if (args.gate) {
+        const g = gateExit(r.grade);
+        out(`  [gate] ${r.grade.toUpperCase()} → ${g === 1 ? "拒绝合入 (exit 1)" : "放行"}`);
+        process.exitCode = Math.max(typeof process.exitCode === "number" ? process.exitCode : 0, g);
+      }
     }
   }
 

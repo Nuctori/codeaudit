@@ -120,6 +120,45 @@ describe("维度28: CLI 对抗", () => {
     expect(run(["scan", pure, "--no-cache", "--strict"]).code).toBe(0);
     expect(run(["scan", impure, "--no-cache", "--strict"]).code).toBe(1);
   });
+
+  it("--gate 无 --changed → exit 2（依赖校验，不静默失效）", () => {
+    const root = project("cli-gate-deps", { "a.py": "def f():\n    return 1\n" });
+    const r = run(["scan", root, "--no-cache", "--gate"]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain("--gate 需要 --changed");
+  });
+
+  it("--gate 低危改动 → 放行 0（low）", () => {
+    const root = project("cli-gate-low", { "a.py": "def f():\n    return 1\n" });
+    // changed 相对 cwd 解析——传入绝对路径（cli 内部转相对 root）
+    const r = run(["scan", root, "--no-cache", "--changed", join(root, "a.py"), "--gate"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("[gate] LOW");
+  });
+
+  it("--gate 高危改动（IMPURE 传播链）→ 拒绝 1（high）", () => {
+    const root = project("cli-gate-high", {
+      "a.ts": "export function f() { console.log('x'); }\n",
+      "b.ts": "import { f } from './a';\nexport function g() { f(); }\n",
+    });
+    const r = run(["scan", root, "--no-cache", "--changed", join(root, "a.ts"), "--gate"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("[gate] HIGH");
+  });
+
+  it("--gate invalid（改动文件未匹配）→ 拒绝 1（不静默放行）", () => {
+    const root = project("cli-gate-invalid", { "a.py": "def f():\n    return 1\n" });
+    const r = run(["scan", root, "--no-cache", "--changed", join(root, "nope.ts"), "--gate"]);
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("回归风险不可评估");
+  });
+
+  it("--topology 旗标仍可用（迭代22 回归护栏：--gate 分支不得顶掉兄弟分支）", () => {
+    const root = project("cli-topology-flag", { "a.py": "def f():\n    return 1\n" });
+    const r = run(["scan", root, "--no-cache", "--topology"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("拓扑");
+  });
 });
 
 describe("维度29: 全 fixture 确定性", () => {

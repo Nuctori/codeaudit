@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { riskOfChange, forwardClosure, gradeOf } from "../../src/core/risk";
+import { riskOfChange, forwardClosure, gradeOf, gateExit } from "../../src/core/risk";
 import { Purity, UNKNOWN_TARGET, type Verdict } from "../../src/core/types";
 
 function v(
@@ -157,6 +157,16 @@ describe("gradeOf", () => {
 		expect(gradeOf(35)).toBe("high");
 		expect(gradeOf(59.9)).toBe("high");
 		expect(gradeOf(60)).toBe("critical");
+	});
+});
+
+describe("gateExit（--gate 门禁映射，迭代22 F5）", () => {
+	it("low/medium 放行 0；high/critical/invalid 拒绝 1", () => {
+		expect(gateExit("low")).toBe(0);
+		expect(gateExit("medium")).toBe(0);
+		expect(gateExit("high")).toBe(1);
+		expect(gateExit("critical")).toBe(1);
+		expect(gateExit("invalid")).toBe(1); // 与 --changed 现状一致：不静默放行
 	});
 });
 

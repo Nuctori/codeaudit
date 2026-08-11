@@ -111,6 +111,11 @@ export function gradeOf(risk: number): ChangeRisk["grade"] {
 	return "critical";
 }
 
+/** --gate 合入门禁（F5，Debtmap 借鉴）：high/critical 拒绝合入；invalid 与现状一致不放行；low/medium 放行。 */
+export function gateExit(grade: ChangeRisk["grade"]): 0 | 1 {
+	return grade === "high" || grade === "critical" || grade === "invalid" ? 1 : 0;
+}
+
 /**
  * 回归风险（用户核心目标：通过现有关注点实现回归风险控制）。
  *
@@ -213,7 +218,7 @@ export function riskOfChange(
 	// （读者 r 不调用写者 w 也可能受影响：共享对象 user.status）。s 入 L（∏ 保守上界，
 	// 与 fog/purity 无结构性相关——全静态解析的库可状态耦合极密）；impact' 拓宽为 Back∪broken
 	let state = 0;
-	let brokenKeys = new Set<string>();
+	const brokenKeys = new Set<string>();
 	if (changedKeys.size > 0) {
 		const writeSet = new Set<string>();
 		for (const v of changed) for (const w of v.chunk.stateWrites) writeSet.add(w);
