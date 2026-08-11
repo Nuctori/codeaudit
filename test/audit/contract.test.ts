@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { scanProject } from "../../src/index";
 
 /**
@@ -27,6 +27,18 @@ function project(name: string, files: Record<string, string>): string {
 }
 
 describe("维度31: JSON 输出 schema", () => {
+  it("--changed json 模式 stdout 纯净（20b07ca 混合流修复回归）", () => {
+    const root = project("riskjson", { "a.ts": "export function f() { console.log('x'); }\n" });
+    const res = spawnSync("node", [CLI, "scan", ".", "--changed", "a.ts", "--format", "json", "--no-cache"], { encoding: "utf8", cwd: root });
+    // stdout 必须是纯净 JSON（风险报告在 stderr——混合流修复，20b07ca）
+    expect(() => JSON.parse(res.stdout)).not.toThrow();
+    const parsed = JSON.parse(res.stdout) as { verdicts?: unknown; stats?: unknown };
+    expect(parsed.verdicts).toBeDefined();
+    expect(parsed.stats).toBeDefined();
+    expect(res.stderr).toContain("回归风险"); // 风险报告在 stderr
+    expect(res.status).toBe(0);
+  });
+
   it("顶层字段与 verdict 字段齐全，Infinity/Set 正确序列化", async () => {
     const root = project("schema", {
       "a.py": "import os\ndef imp():\n    os.getcwd()\ndef pure_fn():\n    return 1\n",
