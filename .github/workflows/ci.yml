@@ -18,6 +18,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm test
+      # README 测试数与实测一致性门禁（D-079 纪律——防漂移复发）
+      - run: node scripts/check-readme-tests.cjs
       # 自扫描健康检查：工具必须能扫描自身且拓扑输出正常。
       # 注意不用 --strict——CLI/loader/extractor 自身处理 io 属正常，strict 留给消费者项目
       - run: node dist/cli.js scan src --no-cache --topology > /dev/null
