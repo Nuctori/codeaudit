@@ -313,6 +313,34 @@
 - **评审循环**：迭代 7/8/9 六视角，28.9 万 + 850 + 500 图对拍 0 失败；发现全部当轮闭环。
 - **终态**：HEAD bfb2156，162/162，swagger 稳定（151/365/282），CROSS-AUDIT 完整轨迹。
 
+---
+
+# 迭代 10/11 审计记录（2026-08-11，回归风险控制实现：用户核心目标）
+
+背景：用户「核心点是"通过目前的关注点，实现回归风险控制"，继续做开会实现的迭代。直到没意见」「5独立审计 不是3」。设计裁决（L×C 风险矩阵 + 证明义务派生层）后实施，5 独立审计迭代。
+
+## 已实施
+
+| 项 | 提交 | 内容 |
+| --- | --- | --- |
+| riskOfChange L×C | fcde5ca + b86ed03 | 五因子（impact 反向闭包/purity 双通道/cycle 对数/SCC 平凡排除/depth 饱和/fog 计数单调）+ L=1-(1-p)(1-f)（可证保守上界）、C=0.5i+0.3c+0.2d、risk=100·L·C、阈值 30/60/85、invalid 契约 |
+| forwardClosure | fcde5ca | 正向可达闭包（R_fog/proof 加权唯一新计算，O(V+E)） |
+| proofCompleteness | 5245e5b + b86ed03 | Θ/MPS 派生报告层：annotationCurve 释放语义（deps 倒计时）、|Fwd(c)| 枢纽加权、budgetToTarget 边界 |
+| CLI --changed | 5245e5b + b0812a8 + 315b4c3 | 相对 root 路径语义（git diff cwd 路径）、invalid exit 1 |
+
+## 5 独立审计（用户要求，全部运行）
+
+- 视角 1（概率/聚合）：发现 fog 双计（0.5→1.0 高估）、unmatchedFiles 单位错（file vs chunk，静默旁路 invalid）、O(V²)——全修
+- 视角 2（proofCompleteness）：2 blocker（释放语义与 annotationCurve 不一致→θ 系统性低估/1 不可达；budgetToTarget 浮点边界）——全修
+- 视角 3（端到端）：收敛；Note（--changed 与 --json 混合流、invalid exit 0）——invalid exit 已修
+- 视角 4（一致性）：proofCompleteness 非换名（释放语义错）——已修；affectedChunks 口径/fog 注释残留/README——已文档化
+- 视角 5（终裁）：**收敛、可上线、核心目标达成**——5 因子全部从现有扫描数据派生（零外部数据）、CLI 开箱即用、proofCompleteness 升级审计工具为证明完整度会计层；2 个 Low 应修（invalid exit code、README 测试数）已补
+
+## 终态
+
+HEAD 315b4c3，176/176，swagger 稳定（151/365/282）；回归风险控制经 5 独立审计收敛，无 blocker，可上线。
+
+
 
 
 
