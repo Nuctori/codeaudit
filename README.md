@@ -36,7 +36,7 @@ node dist/cli.js scan ./src --strict                   # 存在 IMPURE 时退出
 编程式 API：
 
 ```ts
-import { scanProject, analyzeChange } from "codeaudit";
+import { scanProject, analyzeChange } from "@nuctori/codeaudit";
 
 // 扫描（纯度判定 + 传染链）
 const report = await scanProject("./src", { useCache: true });
