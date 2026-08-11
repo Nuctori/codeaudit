@@ -97,6 +97,15 @@ const impureGlobals: Record<string, Effect | readonly string[]> = {
 	Debugger: "io", // System.Diagnostics
 	UniTask: "state", // 异步任务
 	GCHandle: "state",
+	// 等待/协程（迭代19 深挖）：Task.Delay/WaitForSeconds 是时钟等待；StartCoroutine 是协程生命周期
+	Task: "clock",
+	WaitForSeconds: "clock",
+	WaitForSecondsRealtime: "clock",
+	WaitUntil: "clock",
+	WaitWhile: "clock",
+	WaitForEndOfFrame: "clock",
+	StartCoroutine: "state",
+	StopCoroutine: "state",
 	// .NET IO/网络/DB
 	File: "fs", // ReadAllText/WriteAllText/Exists
 	FileStream: "fs",
