@@ -51,3 +51,5 @@ export type { LangPack, RawFileFacts, RawChunk, RawCall, RawImport } from "./lan
 export { pythonPack, typescriptPack, tsxPack, javascriptPack };
 export { changedImpact, annotationBudget, annotationCurve, influenceAnalysis, compareReports } from "./core/influence";
 export type { ChangeImpact, ImpactedChunk, AnnotationBudget, VerdictDelta } from "./core/influence";
+export { riskOfChange, forwardClosure, gradeOf } from "./core/risk";
+export type { ChangeRisk } from "./core/risk";
