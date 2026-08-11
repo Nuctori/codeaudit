@@ -151,17 +151,19 @@ async function main(): Promise<void> {
     // 路径语义：git diff 输出相对 cwd，chunk.file 相对 root——统一转相对 root
     const changedPaths = args.changed.map((p) => relative(root, resolve(p)).split(sep).join("/"));
     const r = riskOfChange(report.verdicts, new Set(changedPaths));
+    // json 模式下走 stderr（避免与 JSON 输出混合流破坏 parse；迭代12 交叉复审修复）
+    const out = (msg: string): void => (args.format === "json" ? console.error(msg) : console.log(msg));
     if (r.grade === "invalid") {
       console.error(`codeaudit: 回归风险不可评估——${r.unmatchedFiles} 个改动文件未匹配任何 chunk（路径形态/无源码）`);
       process.exitCode = 1; // 与 --strict 门禁一致：不静默放行（终裁 A1）
     } else {
       const f = r.factors;
-      console.log(
+      out(
         `回归风险 ${r.risk.toFixed(1)}/100 [${r.grade.toUpperCase()}]  ` +
         `（影响 ${f.impact.toFixed(2)} 纯度 ${f.purity.toFixed(2)} 环 ${f.cycle.toFixed(2)} ` +
         `深度 ${f.depth.toFixed(2)} 迷雾 ${f.fog.toFixed(2)}）`,
       );
-      console.log(`  改动 ${r.changedChunks} chunk / 受影响调用者 ${r.affectedChunks} / L=${r.likelihood.toFixed(2)} C=${r.consequence.toFixed(2)}`);
+      out(`  改动 ${r.changedChunks} chunk / 受影响调用者 ${r.affectedChunks} / L=${r.likelihood.toFixed(2)} C=${r.consequence.toFixed(2)}`);
     }
   }
 
