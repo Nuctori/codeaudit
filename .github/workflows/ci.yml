@@ -1,0 +1,24 @@
+---
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - run: npm test
+      # 自扫描门禁：自身代码不得含 IMPURE（保持库自身干净——dogfooding）
+      - run: node dist/cli.js scan src --strict --no-cache
+      # 库 API 冒烟：require 可加载
+      - run: node -e "require('./dist/index.js')"
