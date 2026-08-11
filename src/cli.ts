@@ -5,7 +5,7 @@ import { scanProject } from "./index";
 import { riskOfChange } from "./core/risk";
 import { graphMetrics } from "./core/topology";
 import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
-import { annotationBudget, annotationCurve } from "./core/influence";
+import { annotationBudget, annotationCurve, annotationCompare, unknownKeysOf } from "./core/influence";
 import { emptyCorpus, updateCorpus, priorFor, summarize, siteShapeInfo, isCorpus, PRIOR_THRESHOLD, type CorpusFile } from "./core/corpus";
 
 interface CliArgs {
@@ -263,12 +263,8 @@ async function main(): Promise<void> {
     // 影响面排序：只导出自身含 `?` 的源（纯传播型 UNKNOWN 标它无意义）。
     // 键 = UNKNOWN 密集影响面（反向可达闭包内 UNKNOWN chunk 数，与曲线释放目标一致；
     // 总影响面作平手）。全闭包（含 PURE/IMPURE）影响面大 ≠ 解除 UNKNOWN 多（统计评审迭代2 #3）。
-    const unknownKeys = new Set(
-      report.verdicts.filter((v) => v.purity === Purity.UNKNOWN).map((v) => v.chunk.key),
-    );
-    const impact = (k: string): number => (budget.released.get(k) ?? []).filter((x) => unknownKeys.has(x)).length;
-    const byImpact = (a: string, b: string): number =>
-      impact(b) - impact(a) || (budget.influence.get(b) ?? 0) - (budget.influence.get(a) ?? 0);
+    const unknownKeys = unknownKeysOf(report.verdicts);
+    const byImpact = annotationCompare(budget, unknownKeys);
     const unknowns = report.verdicts
       .filter((v) => v.purity === Purity.UNKNOWN && v.chunk.calls.has(UNKNOWN_TARGET))
       .sort((a, b) => byImpact(a.chunk.key, b.chunk.key))

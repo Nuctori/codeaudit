@@ -1,5 +1,6 @@
 import { type Chunk, UNKNOWN_TARGET, Purity, type Verdict } from "./types";
 import { tarjan } from "./tarjan";
+import { changedImpact } from "./influence";
 
 /** 正向可达闭包（回归风险 R_fog / 证明完整度 Fwd 加权用）：从 seeds 沿调用边 BFS，返回 key → 深度。 */
 export function forwardClosure(
@@ -47,7 +48,6 @@ export interface ChangeRisk {
 	/** L×C 两轴（调试/报告用）。 */
 	readonly likelihood: number;
 	readonly consequence: number;
-	readonly maxReachable: number;
 	readonly changedChunks: number;
 	/** 反向闭包大小（**含 Δ 自身**——与 changedImpact.affectedChunks 的 depth≥1 口径不同，迭代2 文档化）。 */
 	readonly affectedChunks: number;
@@ -114,13 +114,14 @@ export function gradeOf(risk: number): ChangeRisk["grade"] {
 /**
  * 回归风险（用户核心目标：通过现有关注点实现回归风险控制）。
  *
- * R(Δ) 五因子（全部从 codeaudit 原生数据推导，零外部数据）：
- * - impact：反向可达闭包占比（复用 changedImpact 数学）
+ * R(Δ) 六因子（全部从 codeaudit 原生数据推导，零外部数据）：
+ * - impact：反向可达闭包 ∪ 状态读者占比（复用 changedImpact 数学）
  * - purity：纯度退化（key 稳定 → 退化矩阵 D；key 变化 → 现状纯度映射）
  * - cycle：SCC 环内修改（平凡 SCC 排除 + 对数压缩）
  * - depth：效应链深（PURE/∞ → 0；饱和 0..5）
  * - fog：正向影响面内 UNKNOWN 计数占比（含 Δ 自身未知点；计数单调）
- * 聚合：L×C 风险矩阵——L = 1-(1-purity)(1-fog)（正相关 → 可证明的保守上界），
+ * - state：stateDeps 命中的读者占比（图调用边外耦合通道，迭代14 视角 1）
+ * 聚合：L×C 风险矩阵——L = 1-(1-purity)(1-fog)(1-state)（正相关 → 可证明的保守上界），
  * C = 0.5·impact + 0.3·cycle + 0.2·depth（凸组合）；Risk = 100·L·C。
  */
 export function riskOfChange(
@@ -131,12 +132,11 @@ export function riskOfChange(
 	const chunks = verdicts.map((v) => v.chunk);
 	const byKey = new Map(chunks.map((c) => [c.key, c]));
 	const n = chunks.length;
-	const UNKNOWN_COUNT = verdicts.filter(
-		(v) => v.purity === Purity.UNKNOWN,
-	).length;
+	// D5：UNKNOWN_COUNT/unknownKeys 单遍合一（迭代14 视角 2）
 	const unknownKeys = new Set(
 		verdicts.filter((v) => v.purity === Purity.UNKNOWN).map((v) => v.chunk.key),
 	);
+	const UNKNOWN_COUNT = unknownKeys.size;
 
 	// 改动文件匹配（反斜杠/./ 归一化，与 changedImpact 同款）
 	const norm = new Set<string>();
@@ -149,26 +149,12 @@ export function riskOfChange(
 	const changed = verdicts.filter((v) => norm.has(v.chunk.file));
 	const changedKeys = new Set(changed.map((v) => v.chunk.key));
 
-	// R_impact：反向闭包占比（沿 caller 边 BFS——谁调用改动集）
-	const callers = new Map<string, string[]>();
-	for (const v of verdicts) {
-		for (const t of v.chunk.calls) {
-			if (t === UNKNOWN_TARGET) continue;
-			const arr = callers.get(t);
-			if (arr) arr.push(v.chunk.key);
-			else callers.set(t, [v.chunk.key]);
-		}
-	}
-	const backSeen = new Set(changedKeys);
-	const backQueue = [...changedKeys];
-	for (let i = 0; i < backQueue.length; i++) {
-		for (const caller of callers.get(backQueue[i]!) ?? []) {
-			if (!backSeen.has(caller)) {
-				backSeen.add(caller);
-				backQueue.push(caller);
-			}
-		}
-	}
+	// R_impact：反向闭包（S1 复用 changedImpact——同 caller 边/同跳 ?/同含 seed，
+	// 迭代14 视角 2 实证逐步骤同构；changed+affected 即含 Δ 自身的全闭包）
+	const ci = changedImpact(verdicts, norm);
+	const backSeen = new Set<string>();
+	for (const c of ci.changed) backSeen.add(c.key);
+	for (const c of ci.affected) backSeen.add(c.key);
 	const impact = n > 0 ? backSeen.size / n : 0;
 
 	// R_cycle：SCC 环大小（平凡 SCC 排除 + 对数压缩）
@@ -260,7 +246,6 @@ export function riskOfChange(
 	const likelihood = 1 - (1 - purity) * (1 - fog) * (1 - state);
 	const consequence = W.impact * impactWide + W.cycle * cycle + W.depth * depth;
 	const risk = 100 * likelihood * consequence;
-	const maxReachable = 100; // L×C 归一化后满值可达（阈值已按实测分位重标 15/35/60）
 
 	// 证据质量（证明系统最小方案，迭代13）：从 verdicts 纯派生，零 stats 依赖
 	const uncertain = verdicts.filter((v) => !v.chainCertain).length;
@@ -284,7 +269,6 @@ export function riskOfChange(
 			factors: { impact: impactWide, purity, cycle, depth, fog, state },
 			likelihood,
 			consequence,
-			maxReachable,
 			changedChunks: changed.length,
 			affectedChunks: affectedUnion.size,
 			unmatchedFiles,
@@ -297,7 +281,6 @@ export function riskOfChange(
 		factors: { impact: impactWide, purity, cycle, depth, fog, state },
 		likelihood,
 		consequence,
-		maxReachable,
 		changedChunks: changed.length,
 		affectedChunks: affectedUnion.size,
 		unmatchedFiles,

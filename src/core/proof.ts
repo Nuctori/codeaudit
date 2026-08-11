@@ -1,5 +1,5 @@
 import { type Verdict, Purity } from "./types";
-import { annotationBudget, annotationCurve } from "./influence";
+import { annotationBudget, annotationCurve, annotationCompare, unknownKeysOf } from "./influence";
 import { forwardClosure } from "./risk";
 
 /**
@@ -12,8 +12,6 @@ import { forwardClosure } from "./risk";
 export interface ProofCompleteness {
 	/** 证明完整度 [0,1]：1 − Σg·w / Σw（w = |Fwd(c)| 加权或 1）。 */
 	readonly theta: number;
-	/** 剩余 UNKNOWN 加权缺口 [0,1]（1 − theta）。 */
-	readonly gap: number;
 	/** 标注预算序（influence 降序、key 升序确定性 tiebreak）——非"最小"集，贪心近似。 */
 	readonly order: readonly string[];
 	/** 预算曲线：order 每个前缀后的剩余 UNKNOWN 加权数。 */
@@ -34,9 +32,7 @@ export function proofCompleteness(
 ): ProofCompleteness {
 	const chunks = verdicts.map((v) => v.chunk);
 	const budget = annotationBudget(chunks);
-	const unknownKeys = new Set(
-		verdicts.filter((v) => v.purity === Purity.UNKNOWN).map((v) => v.chunk.key),
-	);
+	const unknownKeys = unknownKeysOf(verdicts);
 	const total = unknownKeys.size;
 
 	// 加权：每个 UNKNOWN chunk 单独的正向闭包大小 |Fwd(c)|（下游影响面权重——
@@ -56,42 +52,13 @@ export function proofCompleteness(
 	const totalWeight = opts?.weighted
 		? [...unknownKeys].reduce((s, k) => s + weightOf(k), 0)
 		: total;
-	const order = [...unknownKeys].sort((a, b) => {
-		const ra = (budget.released.get(a) ?? []).filter((x) =>
-			unknownKeys.has(x),
-		).length;
-		const rb = (budget.released.get(b) ?? []).filter((x) =>
-			unknownKeys.has(x),
-		).length;
-		if (ra !== rb) return rb - ra;
-		const ia = budget.influence.get(a) ?? 0;
-		const ib = budget.influence.get(b) ?? 0;
-		if (ia !== ib) return ib - ia;
-		return a < b ? -1 : a > b ? 1 : 0;
-	});
+	const order = [...unknownKeys].sort(annotationCompare(budget, unknownKeys));
 
-	// 曲线：标注前缀后的剩余加权 UNKNOWN——复用 annotationCurve 的释放语义（deps 倒计时，
-	// w 的全部未知源标完才释放；源自含于 released(u)，标注自身即计一个源——迭代2 BLOCKER-1 修复）
-	const need = new Map<string, number>();
-	for (const k of unknownKeys) need.set(k, budget.deps.get(k) ?? 0);
-	let rem = 0;
-	for (const k of unknownKeys) rem += weightOf(k);
-	const curve: number[] = [rem];
-	const annotated = new Set<string>();
-	for (const u of order) {
-		if (annotated.has(u)) continue;
-		annotated.add(u);
-		for (const w of budget.released.get(u) ?? []) {
-			const n = need.get(w);
-			if (n === undefined) continue;
-			const nn = n - 1;
-			need.set(w, nn);
-			if (nn === 0) rem -= weightOf(w);
-		}
-		curve.push(rem);
-	}
-	// 曲线末点：全部标注后
-	while (curve.length <= order.length) curve.push(curve[curve.length - 1]!);
+	// 曲线：复用 annotationCurve 的释放语义（S2，迭代14 视角 2）——w 的全部未知源标完才释放
+	// （源自含于 released(u)，标注自身即计一个源——迭代2 BLOCKER-1 修复）；weighted 传 fwdWeight。
+	// 初值 = 全量累计 weight（含 deps=0 的 UNKNOWN，与 θ 口径一致；annotationCurve 每轮 push → 长度恒 order.length+1）
+	const wMap = opts?.weighted ? fwdWeight : undefined;
+	const curve = annotationCurve(budget, order, unknownKeys, wMap);
 
 	const theta =
 		totalWeight > 0 ? 1 - curve[curve.length - 1]! / totalWeight : 1;
@@ -119,7 +86,6 @@ export function proofCompleteness(
 
 	return {
 		theta,
-		gap: 1 - theta,
 		order,
 		curve,
 		budgetToTarget,

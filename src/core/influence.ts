@@ -1,4 +1,4 @@
-import { type Chunk, UNKNOWN_TARGET } from "./types";
+import { type Chunk, UNKNOWN_TARGET, Purity, type Verdict } from "./types";
 import { tarjan } from "./tarjan";
 
 /**
@@ -216,6 +216,34 @@ export interface ChangeImpact {
  * depth = 到最近改动 chunk 的调用层数；via/viaName = 影响路径首跳上"本 chunk 直接调用的被调用者"
  * （证据：我调了什么才受影响）。与标注影响面（influence）同一反向闭包数学，方向互补——「改动 N 个函数，影响哪些调用者」。
  */
+/**
+ * UNKNOWN chunk key 集（S3，迭代14 视角 2）：verdicts 单遍过滤——risk/proof/cli 三处共享。
+ */
+export function unknownKeysOf(verdicts: readonly Verdict[]): Set<string> {
+  const out = new Set<string>();
+  for (const v of verdicts) if (v.purity === Purity.UNKNOWN) out.add(v.chunk.key);
+  return out;
+}
+
+/**
+ * 标注序比较器（S3，迭代14 视角 2）：released∩UNKNOWN 数降序 → influence 降序 → key 升序（公理5 确定性 tiebreak）。
+ * proof 与 cli 共享——cli 平手序由 analyze 稳定序变 key asc，向公理 5 对齐。
+ */
+export function annotationCompare(
+  budget: AnnotationBudget,
+  unknownKeys: ReadonlySet<string>,
+): (a: string, b: string) => number {
+  return (a, b) => {
+    const ra = (budget.released.get(a) ?? []).filter((x) => unknownKeys.has(x)).length;
+    const rb = (budget.released.get(b) ?? []).filter((x) => unknownKeys.has(x)).length;
+    if (ra !== rb) return rb - ra;
+    const ia = budget.influence.get(a) ?? 0;
+    const ib = budget.influence.get(b) ?? 0;
+    if (ia !== ib) return ib - ia;
+    return a < b ? -1 : a > b ? 1 : 0;
+  };
+}
+
 export function changedImpact(
   verdicts: readonly { chunk: Chunk }[],
   changedFiles: ReadonlySet<string>,
@@ -272,20 +300,24 @@ export function changedImpact(
 }
 
 /**
- * 标注曲线：按给定顺序（源 key 列表）逐条标注，返回每个前缀后的剩余 UNKNOWN chunk 数。
+ * 标注曲线：按给定顺序（源 key 列表）逐条标注，返回每个前缀后的剩余 UNKNOWN 缺口。
  * 精确（非估计）：chunk w 在 S(w) ⊆ 已标注集时被释放；曲线[0] = 初始剩余，
  * 曲线[k] = 标注前 k 条后的剩余。标注顺序应取影响面贪心序（budget.influence 降序）。
  * target 限定计数对象（传当前 UNKNOWN chunk 集；缺省 = 全部有未知依赖的 chunk）。
+ * weight（迭代14 视角 2 S2）：加权缺口——w 释放时扣 weight(w)（缺省 = 每项 1，即计数口径）。
+ * 初值 = 全量累计 weight（**含 deps=0 的 UNKNOWN**——stale 边致 UNKNOWN 真实存在；
+ * 只计 deps>0 会让 θ 在 stale 场景漂移，与 proof 口径不一致，视角 2 修正）。
  */
 export function annotationCurve(
   budget: AnnotationBudget,
   order: readonly string[],
   target?: ReadonlySet<string>,
+  weight?: ReadonlyMap<string, number>,
 ): number[] {
   const need = new Map(budget.deps);
   const counted = target ?? new Set(need.keys());
   let remaining = 0;
-  for (const k of counted) if ((need.get(k) ?? 0) > 0) remaining++;
+  for (const k of counted) remaining += weight?.get(k) ?? 1;
   const curve: number[] = [remaining];
   const annotated = new Set<string>();
   for (const u of order) {
@@ -295,7 +327,7 @@ export function annotationCurve(
         if (!counted.has(w)) continue; // 目标之外的 chunk（IMPURE 带未知依赖）不计数
         const n = (need.get(w) ?? 0) - 1;
         need.set(w, n);
-        if (n === 0) remaining--;
+        if (n === 0) remaining -= weight?.get(w) ?? 1;
       }
     }
     curve.push(remaining);
