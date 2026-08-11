@@ -33,10 +33,14 @@ export class Extractor {
     const stack: MutableChunk[] = [moduleChunk];
 
     const visit = (node: SyntaxNode): void => {
-      const isChunk = this.pack.chunkNodes.includes(node.type);
+      // CJS 导出函数 chunk（迭代15 解构 require 盲区）：exports.handler = function(){} /
+      // module.exports.handler = fn → 建命名 chunk（名 = 成员名），from-import 语义
+      // （imported="handler"）可解析；否则导出函数只有 <module> 伪 chunk，解构 require 回调全落 ?
+      const cjsName = this.cjsExportName(node);
+      const isChunk = this.pack.chunkNodes.includes(node.type) || cjsName !== null;
       let pushed = false;
       if (isChunk) {
-        const name = this.chunkName(node);
+        const name = cjsName ?? this.chunkName(node);
         if (name !== null) {
           const mc = fresh(
             name,
@@ -341,6 +345,23 @@ export class Extractor {
   }
 
   /** 状态写检测：self.x = / this.x = / global、nonlocal 声明 → state 效应。 */
+
+  /** CJS 导出函数 chunk（迭代15 解构 require 盲区）：exports.handler = function(){} /
+   *  module.exports.handler = fn → 成员名（非函数字面量 RHS 不建——identifier 导出走既有
+   *  function_declaration chunk）。module.exports = fn（默认导出）左值是 exports 自身 → null。 */
+  private cjsExportName(node: SyntaxNode): string | null {
+    if (node.type !== "assignment_expression") return null;
+    const left = node.childForFieldName("left") ?? node.children[0] ?? null;
+    if (!left || left.type !== "member_expression") return null;
+    const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
+    const attr = left.childForFieldName("property") ?? left.children[left.children.length - 1] ?? null;
+    if (!obj || !attr || attr.type !== "property_identifier") return null;
+    const isExports = obj.text === "exports" || obj.text === "module.exports";
+    if (!isExports) return null;
+    const value = node.childForFieldName("right") ?? node.children[node.children.length - 1] ?? null;
+    if (value === null || !/function/.test(value.type)) return null;
+    return attr.text;
+  }
 
   /** chunk 展示名：优先 name 字段；变量声明的箭头函数取变量名；赋值 RHS 的 Python lambda 取变量名。 */
   private chunkName(node: SyntaxNode): string | null {

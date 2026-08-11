@@ -43,19 +43,40 @@ describe("HOF 异步边（D-092）", () => {
 		rmSync(dir, { recursive: true, force: true });
 	});
 
-	it("changedImpact 含定时器调度（迭代14 视角 4 发现：handler.ts 改动 → main 在影响面）", async () => {
+	it("changedImpact 含定时器调度（迭代14 视角 4 发现：handler 改动 → main 在影响面）", async () => {
 		const dir = mkdtempSync(join(tmpdir(), "hof4-"));
 		writeFileSync(
-			join(dir, "main.ts"),
-			"import { handler } from './handler';\nsetTimeout(handler, 100);\n",
+			join(dir, "main.js"),
+			"const { handler } = require('./handler');\nsetTimeout(handler, 100);\n",
 		);
+		// CJS 导出函数 chunk（迭代15 修复）：exports.handler = fn → 命名 chunk，from-import 可解析
 		writeFileSync(
-			join(dir, "handler.ts"),
-			"export function handler() { return 1; }\n",
+			join(dir, "handler.js"),
+			"exports.handler = function handler() { return 1; };\n",
 		);
 		const r = await scanProject(dir, { useCache: false });
-		const impact = changedImpact(r.verdicts, new Set(["handler.ts"]));
-		expect(impact.affected.some((c) => c.file.endsWith("main.ts"))).toBe(true);
+		const impact = changedImpact(r.verdicts, new Set(["handler.js"]));
+		expect(impact.affected.some((c) => c.file.endsWith("main.js"))).toBe(true);
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	it("CJS 解构 require 回调建边（迭代15 盲区修复）", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "hof5-"));
+		writeFileSync(
+			join(dir, "main.js"),
+			"const { go, run: renamed } = require('./handler');\nsetTimeout(go, 10);\nsetTimeout(renamed, 10);\n",
+		);
+		writeFileSync(
+			join(dir, "handler.js"),
+			"exports.go = function go() { return 1; };\nexports.run = function run() { return 2; };\n",
+		);
+		const r = await scanProject(dir, { useCache: false });
+		const main = r.verdicts.find((v) => v.chunk.file.endsWith("main.js"));
+		const go = r.verdicts.find((v) => v.chunk.name === "go");
+		const run = r.verdicts.find((v) => v.chunk.name === "run");
+		expect(main!.chunk.calls.has(go!.chunk.key)).toBe(true);
+		expect(main!.chunk.calls.has(run!.chunk.key)).toBe(true);
+		expect(main!.chunk.calls.has("?")).toBe(false);
 		rmSync(dir, { recursive: true, force: true });
 	});
 });
