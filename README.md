@@ -52,7 +52,7 @@ for (const a of impact.affected) {
 }
 ```
 
-导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `riskOfChange` / `proofCompleteness` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` / `compareReports` + 类型（`ChangeImpact`/`ImpactedChunk`/`ChangeRisk`/`ProofCompleteness`/`VerdictDelta`/`Verdict`/`Chunk`/`ScanReport`/`LangPack`/`Purity`）。
+导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `riskOfChange` / `forwardClosure` / `gradeOf` / `graphMetrics` / `proofCompleteness` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` / `compareReports` + `defaultPacks` + 类型（`ChangeImpact`/`ImpactedChunk`/`ChangeRisk`/`ProofCompleteness`/`GraphMetrics`/`VerdictDelta`/`Verdict`/`Chunk`/`ScanReport`/`ScanStats`/`LangPack`/`Purity`）。
 
 ## 回归风险控制（`--changed`）
 
