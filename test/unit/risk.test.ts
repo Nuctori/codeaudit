@@ -161,3 +161,39 @@ describe("gradeOf", () => {
 		expect(gradeOf(60)).toBe("critical");
 	});
 });
+
+describe("R_state（迭代14 视角 1）", () => {
+  const writer = (key: string, writes: string[]) =>
+    ({ chunk: { key, file: key + ".js", startLine: 1, endLine: 2, calls: new Set<string>(), unknownSites: 0, stateWrites: writes, parseError: false }, purity: 0, chain: 0, chainCertain: true, stateDeps: [] });
+  const reader = (key: string, deps: string[]) =>
+    ({ chunk: { key, file: key + ".js", startLine: 1, endLine: 2, calls: new Set<string>(), unknownSites: 0, stateWrites: [], parseError: false }, purity: 0, chain: 0, chainCertain: true, stateDeps: deps });
+
+  it("状态写改动 → 图调用边外耦合被捕获（278 读者场景 risk>0）", () => {
+    const verdicts = [writer("W", ["user.status"]), ...Array.from({ length: 278 }, (_, i) => reader("R" + i, ["user.status"]))];
+    const r = riskOfChange(verdicts, new Set(["W.js"]));
+    expect(r.risk).toBeGreaterThan(0);
+    expect(r.factors.state).toBe(1);
+    expect(r.factors.impact).toBeCloseTo(279 / 279);
+  });
+
+  it("单调性：Δ 增大 → state/impact 不降", () => {
+    const verdicts = [
+      writer("W1", ["user.status"]),
+      writer("W2", ["user.role"]),
+      reader("R1", ["user.status"]),
+      reader("R2", ["user.role"]),
+    ];
+    const r1 = riskOfChange(verdicts, new Set(["W1.js"]));
+    const r2 = riskOfChange(verdicts, new Set(["W1.js", "W2.js"]));
+    expect(r2.factors.state).toBeGreaterThanOrEqual(r1.factors.state);
+    expect(r2.factors.impact).toBeGreaterThanOrEqual(r1.factors.impact);
+    expect(r2.risk).toBeGreaterThanOrEqual(r1.risk);
+  });
+
+  it("无读者/无状态写 → state=0，不改变既有行为", () => {
+    const verdicts = [writer("W", []), reader("R", [])];
+    const r = riskOfChange(verdicts, new Set(["W.js"]));
+    expect(r.factors.state).toBe(0);
+    expect(r.risk).toBe(0);
+  });
+});

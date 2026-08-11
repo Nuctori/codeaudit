@@ -1,4 +1,4 @@
-import { ScanOptions, scan } from "./engine/scan";
+import { type ScanOptions, scan } from "./engine/scan";
 import { pythonPack } from "./lang/packs/python";
 import { typescriptPack, tsxPack } from "./lang/packs/typescript";
 import { javascriptPack } from "./lang/packs/javascript";
@@ -53,5 +53,7 @@ export { changedImpact, annotationBudget, annotationCurve, influenceAnalysis, co
 export type { ChangeImpact, ImpactedChunk, AnnotationBudget, VerdictDelta } from "./core/influence";
 export { riskOfChange, forwardClosure, gradeOf } from "./core/risk";
 export type { ChangeRisk } from "./core/risk";
+export { graphMetrics } from "./core/topology";
+export type { GraphMetrics } from "./core/topology";
 export { proofCompleteness } from "./core/proof";
 export type { ProofCompleteness } from "./core/proof";

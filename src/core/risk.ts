@@ -37,11 +37,12 @@ export interface ChangeRisk {
 	readonly risk: number;
 	readonly grade: "low" | "medium" | "high" | "critical" | "invalid";
 	readonly factors: {
-		readonly impact: number; // R_impact：反向闭包占比 |Back(Δ)|/|C|
+		readonly impact: number; // R_impact'：反向闭包 ∪ 状态读者（Back ∪ broken）/|C|
 		readonly purity: number; // R_purity：退化矩阵 D（key 稳定）∪ 现状纯度映射（key 变化）
 		readonly cycle: number; // R_cycle：I(|SCC|≥2)·log₂(1+|SCC|)/log₂(1+|C|)
 		readonly depth: number; // R_depth：PURE/∞→0，min(1, ch_audit/5)
 		readonly fog: number; // R_fog：Fwd∩UNKNOWN/全局UNKNOWN（计数单调，seed 已在 Fwd 内单计）
+		readonly state: number; // R_state：stateDeps 命中的读者占比 |broken|/|R|（迭代14 视角 1）
 	};
 	/** L×C 两轴（调试/报告用）。 */
 	readonly likelihood: number;
@@ -62,7 +63,17 @@ export interface ChangeRisk {
 	};
 }
 
-/** 退化矩阵 D：key 稳定 chunk 的判定翻转风险（行=旧，列=新；0=无险）。 */
+/** 退化矩阵 D：key 稳定 chunk 的判定翻转风险（行=旧，列=新；0=无险）。
+ *
+ * 文档化裁决（迭代14 视角 1）：语料 cell 是标注结果计数，不含跨版本翻转记录 → 无校准数据。
+ * 常量满足四序公理（不可由单一两参数公式精确复现——序是约束、基数是裁决值）：
+ *  1. 恢复零风险：n=PURE ⇒ D=0（改进不升险）；
+ *  2. 背叛严重度随旧纯度单调：PURE→IMPURE 1.0 > UNKNOWN→IMPURE 0.5；PURE→UNKNOWN 0.6 > IMPURE→UNKNOWN 0.3；
+ *  3. 新脏度单调（固定 o=PURE）：UNKNOWN 0.6 < IMPURE 1.0；
+ *  4. 跨锚序：PURE→UNKNOWN 0.6 > UNKNOWN→IMPURE 0.5（背叛认证纯度 > 证实既有怀疑）；UNKNOWN→IMPURE 0.5 > IMPURE→UNKNOWN 0.3。
+ * 基数被 ∏-保守 L（L≥max 通道）与阈值重标吸收；未来校准路径 = 配对扫描 git 历史（oldVerdicts 已支持），
+ * 需 key 稳定翻转数据（稀有、单项目偏置）。权重 0.5/0.3/0.2 同理：序 = 爆炸半径 > 耦合放大 > 链深，
+ * 基数被 15/35/60 阈值吸收——(W, 阈值, R_state) 是联合体，改任一须重标。 */
 const D_MATRIX: Readonly<Record<number, Readonly<Record<number, number>>>> = {
 	[Purity.PURE]: {
 		[Purity.PURE]: 0,
@@ -212,6 +223,29 @@ export function riskOfChange(
 	}
 	// key 稳定但 old 有、判定未变 → 0（已有：r=0）；old 缺席的旧扫描 → 现状映射
 
+	// R_state（迭代14 视角 1）：状态写改动 → stateDeps 命中的读者——图调用边外耦合通道
+	// （读者 r 不调用写者 w 也可能受影响：共享对象 user.status）。s 入 L（∏ 保守上界，
+	// 与 fog/purity 无结构性相关——全静态解析的库可状态耦合极密）；impact' 拓宽为 Back∪broken
+	let state = 0;
+	let brokenKeys = new Set<string>();
+	if (changedKeys.size > 0) {
+		const writeSet = new Set<string>();
+		for (const v of changed) for (const w of v.chunk.stateWrites) writeSet.add(w);
+		let readers = 0;
+		for (const v of verdicts) {
+			if (v.stateDeps.length === 0) continue;
+			readers++;
+			if (!changedKeys.has(v.chunk.key) && v.stateDeps.some((d) => writeSet.has(d))) {
+				brokenKeys.add(v.chunk.key);
+			}
+		}
+		state = readers > 0 ? brokenKeys.size / readers : 0;
+	}
+	// impact'：反向闭包 ∪ 状态读者（broken 已排除 Δ）——状态耦合场景有判别力（探针 278 读者 0→50）
+	const affectedUnion = new Set(backSeen);
+	for (const k of brokenKeys) affectedUnion.add(k);
+	const impactWide = n > 0 ? affectedUnion.size / n : 0;
+
 	// R_fog：正向影响面内 UNKNOWN 计数占比（裁决公式 |Fwd∩U|/|U|——seed 已在 Fwd 内，无需额外计入 Δ；
 	// 计数单调：Δ 增大 → Fwd 增大 → 计数不降）
 	let fog = 0;
@@ -222,9 +256,9 @@ export function riskOfChange(
 		fog = Math.min(1, fogUnknown / UNKNOWN_COUNT);
 	}
 
-	// 聚合：L×C
-	const likelihood = 1 - (1 - purity) * (1 - fog);
-	const consequence = W.impact * impact + W.cycle * cycle + W.depth * depth;
+	// 聚合：L×C（R_state 入 L——∏ 保守上界；impact' 入 C）
+	const likelihood = 1 - (1 - purity) * (1 - fog) * (1 - state);
+	const consequence = W.impact * impactWide + W.cycle * cycle + W.depth * depth;
 	const risk = 100 * likelihood * consequence;
 	const maxReachable = 100; // L×C 归一化后满值可达（阈值已按实测分位重标 15/35/60）
 
@@ -247,12 +281,12 @@ export function riskOfChange(
 		return {
 			risk: -1,
 			grade: "invalid",
-			factors: { impact, purity, cycle, depth, fog },
+			factors: { impact: impactWide, purity, cycle, depth, fog, state },
 			likelihood,
 			consequence,
 			maxReachable,
 			changedChunks: changed.length,
-			affectedChunks: backSeen.size,
+			affectedChunks: affectedUnion.size,
 			unmatchedFiles,
 			evidence,
 		};
@@ -260,12 +294,12 @@ export function riskOfChange(
 	return {
 		risk,
 		grade: gradeOf(risk),
-		factors: { impact, purity, cycle, depth, fog },
+		factors: { impact: impactWide, purity, cycle, depth, fog, state },
 		likelihood,
 		consequence,
 		maxReachable,
 		changedChunks: changed.length,
-		affectedChunks: backSeen.size,
+		affectedChunks: affectedUnion.size,
 		unmatchedFiles,
 		evidence,
 	};

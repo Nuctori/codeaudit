@@ -487,7 +487,13 @@ function resolveCall(
   // 4. 效应表
   if (call.obj === null) {
     const b = Object.hasOwn(pack.impureBuiltins, call.attr) ? pack.impureBuiltins[call.attr] : undefined;
-    if (b) { sink.addEffect(b); return; }
+    if (b) {
+      // 异步边（迭代14 视角 4 F1 修复）：setTimeout/setInterval/queueMicrotask 在效应表 io，
+      // 但回调参数必须建边——未解析回调记 ?（S4）；否则回调在反向闭包/回归风险不可见
+      if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr);
+      sink.addEffect(b);
+      return;
+    }
     if (pack.pureBuiltins.has(call.attr)) {
       // HOF（map/filter/sorted…）会调用函数实参：回调效应必须保留，否则假纯
       if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr);

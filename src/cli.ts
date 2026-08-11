@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "no
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { scanProject } from "./index";
 import { riskOfChange } from "./core/risk";
+import { graphMetrics } from "./core/topology";
 import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
 import { annotationBudget, annotationCurve } from "./core/influence";
 import { emptyCorpus, updateCorpus, priorFor, summarize, siteShapeInfo, isCorpus, PRIOR_THRESHOLD, type CorpusFile } from "./core/corpus";
@@ -18,12 +19,14 @@ interface CliArgs {
   strict: boolean;
   /** 回归风险分析：改动文件集（--changed a.ts,b.py）。 */
   changed: string[] | null;
+  /** 拓扑健康度（--topology；迭代14 视角 3）。 */
+  topology: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
     dir: ".", format: "text", top: null, unknowns: null, annotations: null, corpus: null,
-    noCache: false, strict: false, changed: null,
+    noCache: false, strict: false, changed: null, topology: false,
   };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
@@ -40,6 +43,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--corpus") args.corpus = rest[++i]!;
     else if (a === "--no-cache") args.noCache = true;
     else if (a === "--strict") args.strict = true;
+    else if (a === "--topology") args.topology = true;
     else if (a === "--changed") args.changed = (rest[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
     else if (a.startsWith("-")) {
@@ -161,7 +165,7 @@ async function main(): Promise<void> {
       out(
         `回归风险 ${r.risk.toFixed(1)}/100 [${r.grade.toUpperCase()}]  ` +
         `（影响 ${f.impact.toFixed(2)} 纯度 ${f.purity.toFixed(2)} 环 ${f.cycle.toFixed(2)} ` +
-        `深度 ${f.depth.toFixed(2)} 迷雾 ${f.fog.toFixed(2)}）`,
+        `深度 ${f.depth.toFixed(2)} 迷雾 ${f.fog.toFixed(2)} 状态 ${f.state.toFixed(2)}）`,
       );
       out(`  改动 ${r.changedChunks} chunk / 受影响调用者 ${r.affectedChunks} / L=${r.likelihood.toFixed(2)} C=${r.consequence.toFixed(2)}`);
       out(`  证据质量：未知率 ${(r.evidence.unknownRate * 100).toFixed(1)}% / parseError ${(r.evidence.parseErrorRate * 100).toFixed(1)}% / 未解析站点 ${(r.evidence.missingSiteRate * 100).toFixed(1)}%`);
@@ -210,10 +214,21 @@ async function main(): Promise<void> {
     const out = args.top !== null
       ? { ...report, verdicts: report.verdicts.filter((v) => v.purity !== Purity.PURE).slice(0, args.top) }
       : report;
-    console.log(JSON.stringify(out, (k, v) =>
+    // --topology：json 顶层加拓扑字段（additive，现有 schema 消费者不受影响；迭代14 视角 3）
+    const payload = args.topology ? { ...out, topology: graphMetrics(report.verdicts) } : out;
+    console.log(JSON.stringify(payload, (k, v) =>
       v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v, 2));
   } else {
     const s = report.stats;
+    if (args.topology) {
+      // 拓扑摘要（--topology text 模式；迭代14 视角 3）
+      const t = graphMetrics(report.verdicts);
+      console.log(
+        `拓扑：${t.nodes} nodes / ${t.knownEdges} edges / 密度 ${t.density.toFixed(3)} / ` +
+        `自环 ${t.selfLoopCount} / 环 ${t.cyclicComponents} / 深度 ${t.dagDepth} / ` +
+        `未知边 ${t.unknownEdges}`,
+      );
+    }
     console.log(
       `codeaudit ${VERSION} — ${s.chunks} chunks, ${s.files} files, ` +
       `unknown-rate ${(s.unknownRate * 100).toFixed(1)}%, cycles ${s.cycles}` +
@@ -301,6 +316,8 @@ async function main(): Promise<void> {
     const pts = [0, 0.1, 0.25, 0.5, 0.75, 1].map((p) => {
       const k = Math.min(order.length, Math.round(p * order.length));
       const rem = curve[k] ?? 0;
+      // 分母 = stats.chunks（全 chunk）——与 proof Θ（UNKNOWN 分母）语义不同（迭代14 视角 5 裁决：
+      // 两指标各自合法；CLI 回答"占全项目剩余多少"，Θ 回答"证明完整度"）。"标多少到 X%"按此分母解读。
       return `标${k}条→${rem} (${((rem / report.stats.chunks) * 100).toFixed(1)}%)`;
     });
     console.error(`unknowns -> ${args.unknowns} (${unknowns.length} 条, 全标后 ${total}→${curve[curve.length - 1] ?? 0})`);
