@@ -153,6 +153,7 @@ async function main(): Promise<void> {
     const r = riskOfChange(report.verdicts, new Set(changedPaths));
     if (r.grade === "invalid") {
       console.error(`codeaudit: 回归风险不可评估——${r.unmatchedFiles} 个改动文件未匹配任何 chunk（路径形态/无源码）`);
+      process.exitCode = 1; // 与 --strict 门禁一致：不静默放行（终裁 A1）
     } else {
       const f = r.factors;
       console.log(
