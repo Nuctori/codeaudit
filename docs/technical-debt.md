@@ -1,113 +1,52 @@
-# codeaudit 技术债分析
+# codeaudit 技术债摘要（迭代 19 后 / C# 语言包上线）
 
-> 基于 18 轮迭代审计（决策链 107 条、CROSS-AUDIT 18 节）、收敛结对两轮极小性扫描、旧宇宙/axios/express 真实项目实战。
-> 状态：HEAD `6583832`，210/210 测试，工作树干净，npm audit 0 漏洞。
-> 纪律：技术债分「有意债务」（设计裁决，有依据）与「无主债务」（漂移/堆积，应还）。
-
----
-
-## 一、无主债务（应尽快偿还）
-
-### D1. resolveCall 巨型函数（最高优先）
-
-- **现状**：`src/engine/link.ts` resolveCall cognitive 复杂度 **268**（阈值 15），553 行文件的主体；effectFromModule cognitive 也在涨。
-- **成因**：18 轮迭代的 30+ 次分支修复（selfNames/框架命名空间/Locust/异步边/两级成员链）全部堆进一个函数——每个修复"在正确位置加一个分支"。
-- **债**：每加一个语言特性/框架模式，认知负载指数上升；`[CODE HEALTH] consider extracting helpers` 已连续触发 10+ 次。
-- **偿还**：按调用语义拆 `resolveCall` → `resolveImport` / `resolveEffectTable` / `resolveDynamic`（每块 60-80 行）；**成本 2-4h，风险中等**（行为不变重构 + 现有 210 测试兜底）。
-
-### D2. CLI main() 巨型函数
-
-- **现状**：`src/cli.ts` main cognitive **103**（阈值 15），384 行文件；--changed/--topology/--sources/语料/曲线五段输出逻辑内联。
-- **偿还**：提取 `printRiskReport` / `printTopology` / `printSources` / `runAnnotationLoop`；**成本 1-2h**。
-
-### D3. extractor 大文件 + 重复文档注释
-
-- **现状**：`extractor.ts` 656 行（54KB）；迭代 15 视角 5 发现 G（:302-306 与 :307-312 同义双写注释、:349 孤立注释）**未清**。
-- **偿还**：删重复注释 + 按职责分段（绑定收集/调用提取/状态提取/命名）；**成本 1h**。
-
-### D4. 真实项目无回归 fixture
-
-- **现状**：旧宇宙（2818 chunks）、axios（352）、express（31）验证过一次，但**没有 fixture 或快照测试**——迭代 18 修的 3 个缺陷（os.environ/Locust/标注失真）未来无防回归网兜（iter18-real-driven 是 mini 探针，非真实规模）。
-- **债**：真实项目的长尾模式（生成式代码、动态分派、框架模式）无法复现回归。
-- **偿还**：把旧宇宙 `generated/` 的 ApiClient + 场景样本做成 fixture（~50 文件）→ `test/fixtures/` + 快照断言；**成本 2-3h**。
-
-### D5. 标注工作流 E2E 缺失
-
-- **现状**：annotations 回读只有单元测试（iter18 4 例）；`--unknowns → 标注 → 回读 → 语料累积 → 先验建议`全链路无端到端测试。
-- **偿还**：一条 e2e（导出 → 标 top-10 → 回读 → 断言 unknown-rate 下降 + 语料累积 + suggested_prompt 携带先验）；**成本 1h**。
+> 基于 19 轮迭代审计 + C# 语言包 6 轮实战（InitDeity 3028 文件）。HEAD `01dd226`，216/216。
+> 分类：**A. 形式正确性修复（已修）** / **B. 工程妥协（有意，方向安全）** / **C. 无主债（应还）** / **D. 外部债（非本仓库可修）**
 
 ---
 
-## 二、有意债务（设计裁决，有依据——偿还需先推翻裁决）
+## A. 形式正确性修复（迭代 19 复审发现，已闭环）
 
-### I1. 动态分派盲区（self.api.* / obj.method()）
-
-- **裁决**：诚实 `?`（A6 契约）——不可静态解析不伪造边（迭代 4 F1、迭代 12 计算理论：points-to 不可判定）。
-- **实测代价**：旧宇宙标注后剩余 284 unknown 主要是动态分派（设计边界非缺陷）。
-- **偿还路径**：类型层（TS 类型推断已见 docs/type-inference-design.md——165 行设计未实施）；**暂缓正确**。
-
-### I2. D 矩阵/权重基数无校准
-
-- **裁决**：四序公理约束 + 基数裁决（迭代 14 视角 1）——语料无跨版本翻转记录，无法校准。
-- **偿还路径**：配对扫描 git 历史（oldVerdicts 已支持）收集翻转率；**需数据**。
-
-### I3. 阈值-因子联合体
-
-- **裁决**：(W, 阈值, R_state) 是联合体，改任一须重标（axioms 四·七）——15/35/60 已按真实语料校准。
-- **偿还路径**：无——这是纪律不是债；唯一遗留是 `--strict` 门禁语义（CI 自检不用，消费者用）。
-
-### I4. 单项目语料基率泄漏
-
-- **裁决**：GLOBAL_THETA0=0.25 来自 swagger-ui 单项目（axioms 四·七）——getattr 先验误导 ApiClient（旧宇宙实测）。
-- **偿还路径**：项目级基率分层贝叶斯或可配置基率；**需多项目语料**。
-
-### I5. 外部包效应表人工维护
-
-- **裁决**：第三方库无源码递归，靠效应表 + 标注覆盖（README 已知限制）。
-- **实测**：TDOpenHarmonyProxy（@thinkingdata/analytics）108 方法 unknown——标注是设计解法（已演示）。
-- **偿还路径**：包效应表社区贡献/自动提取；**产品化选项**。
-
-### I6. CJS 对象字面量导出边界
-
-- **裁决**：`module.exports = {handler: fn}` 内部函数不建 chunk → 保守 `?`（迭代 15 记录）。
-- **偿还**：对象字面量方法提取（低成本，1h）——但会改变既有 CJS 建模；**低优先**。
-
-### I7. 锁图/并发检测
-
-- **裁决**：否决（迭代 13 信息论：死锁先验≈0、Python 锁身份不可判定、TSan 才是正路）。
-- **偿还**：无——归责动态工具。
-
----
-
-## 三、文档/流程债
-
-| # | 债 | 状态 |
+| # | 发现 | 状态 |
 | --- | --- | --- |
-| W1 | **README 测试数漂移**（4 次复发：178→193→198→203→206） | D-079 纪律已立但无自动校验——CI 加一步 `grep README 数字 == vitest 输出` 即根治 |
-| W2 | **docs/ 同步状态未知**：pipeline.md（117 行）/type-inference-design.md（165 行）/math-loop.md（85 行）——后两者可能是早期设计残留，未核对是否过时 | 需一轮文档同步审计 |
-| W3 | **AUDIT.md 仅 60 行**：32 维交叉审计记录 vs CROSS-AUDIT.md 404 行——两者重复且 AUDIT 可能未随迭代更新 | 合并或注明指向 |
-| W4 | **frameworkIo 硬编码模式**（egg ctx/Locust self.client）：每个框架一个硬编码前缀——通用性债 | 产品化时改配置化（per-project 框架文件） |
+| A1 | **跨语言类名污染**：C# Main.Run 把 Helper.Build() 解析到 Python Helper 类（同名不同语言→串入 io 效应） | 已修：globalClasses 带 lang，调用侧同语言匹配（829b410） |
+| A2 | **C# this 是 this_expression**（非 `this`）——this.gameObject 全 <unresolved>，frameworkIo["this"] 永不触发 | 已修：flattenCallTarget + this_expression（18d877f） |
+| A3 | **泛型方法剥除**：Resources.Load\<GameObject\> 的 generic_name 未处理 → <unresolved> | 已修（d300d78） |
+
+## B. 工程妥协（有意，方向安全——但降低判别力）
+
+| # | 妥协 | 语义 | 代价 |
+| --- | --- | --- | --- |
+| B1 | **效应表 70+ 类基数无校准** | 每类人工裁决（Debug io/PlayerPrefs state 明确；Path fs/Screen io/Transform state 保守） | 过度判定 → 假 IMPURE（方向安全，但 LOW 阈值分布偏移） |
+| B2 | **frameworkIo["this"] 20 组件 + gameObject/transform 隐式 this** | this.gameObject.SetActive → io（固定 io 非细分） | 组件链一律 io，无法区分读/写 |
+| B3 | **LINQ 链全 ?**（xs.Where(...).Select(...)） | 变量 receiver 动态 → 诚实 ? | 集合内存操作判 unknown（可标注 PURE） |
+| B4 | **事件订阅不建模**（+= / AddListener） | 回调方法独立判定，订阅方不建边 | 事件回调不传染（方向安全） |
+| B5 | **属性访问器不建 chunk**（自定义 getter/setter 有逻辑） | 自动属性无逻辑；自定义 getter 漏检 | 带逻辑的 getter 效应漏（方向安全——漏检方向） |
+| B6 | **隐式 this 与局部变量竞态**：裸名 gameObject 若局部变量遮蔽 → 仍判 io | 遮蔽守卫只查 assigned——C# 局部 gameObject 变量罕见 | 极小 |
+
+## C. 无主债（应还）
+
+| # | 债 | 成本 |
+| --- | --- | --- |
+| C1 | **resolveCall cognitive 290**（迭代 18 D1 未还 + C# 分支再加） | 2-4h |
+| C2 | **真实项目 fixture**（InitDeity/旧宇宙无回归快照——C# 修复无防回归网兜） | 2-3h |
+| C3 | **标注工作流 E2E**（unknowns→标注→回读→语料全链路无测试） | 1h |
+| C4 | **README 测试数漂移**（5 次复发——CI 校验 10min 根治） | 10min |
+| C5 | **效应表测试稀疏**：70+ 类只测 10 个（PlayerPrefs/File/GameObject/Resources/Debug/Task）——其余无断言 | 1h |
+
+## D. 外部债（非本仓库可修）
+
+| # | 债 | 影响 |
+| --- | --- | --- |
+| D1 | **tree-sitter-c_sharp Unicode 标识符缺陷**（中文枚举 `草木之森` → parse-error） | InitDeity 77 文件降级 UNKNOWN（方向安全）——wasm 升级或自行补丁 |
+| D2 | **协程构造 new WaitForSeconds 的 ?**（object_creation 提取盲区——new 构造器未解析） | 构造器调用记 ?（MoveCoroutine 仍正确判 io） |
+| D3 | **Unity 引擎本身不可扫**（UnityEngine.dll 无源码——效应表人工维护） | 靠效应表覆盖，新 Unity API 需补 |
 
 ---
 
-## 四、技术债画像（总览）
+## 总体评估
 
-```
-                  严重度
-   高  │  D1 resolveCall  ████████████████████
-       │  D4 无真实 fixture ████████████████
-   中  │  D2 CLI main     ██████████████
-       │  D5 标注 E2E     ████████████
-       │  D3 extractor    ██████████
-   低  │  W1 README 计数  ████████
-       │  W2/W3 docs 同步 ██████
-   有意 │  I1-I7 设计裁决  ████（有依据，非债）
-```
-
-**结论**：
-
-- **无主债务 ≈ 1 个工作日**（D1-D5 + W1，共 8-12h）——偿还后认知负载、回归保护、文档一致性全部到位。
-- **有意债务全部有裁决依据**（A6 契约/信息论/数据缺口）——不偿还也是正确工程决策，偿还需先推翻裁决或补数据。
-- 代码库当前**零 TODO/FIXME、零死字段（迭代 15 已清）、零构建产物误提交（迭代 15 A 已清）、210/210 绿**——债集中在**复杂度堆积**（迭代修复的必然结果）与**真实规模回归保护**（单次验证未固化）。
-
-**建议偿还顺序**：W1（CI 计数校验，10min 根治 4 次复发）→ D1/D2（复杂度拆分）→ D5（标注 E2E）→ D4（真实 fixture）→ W2/W3（文档同步审计）。
+- **形式正确性**：核心（SCC/效应格/A6/A7/内容寻址/前缀回退/语言隔离）全部有证明或复审闭环；迭代 19 的 3 个形式级缺陷（A1-A3）已修复并测试。
+- **工程妥协**：全部方向安全（假 IMPURE 不假纯）；B1-B6 是有意取舍，A7 效应原子 7 类契约下可解释。
+- **判别力损失**：LINQ/事件/属性（B3-B5）是 C# 判别力的主要损失——但全部诚实 ?（可标注）而非静默假纯。
+- **偿还顺序**：C4（10min）→ C1（复杂度拆分）→ C2（真实 fixture）→ C5（效应表测试）→ C3（E2E）。
