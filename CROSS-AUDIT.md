@@ -486,3 +486,13 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **测试 +4**（csharp-lang T1 初始化器不污染全局 / T2 ++写可见且局部不含 / T3 局部声明不假裸读 / T4 字段写 self 非全局 + 局部函数捕获不误映射，修复前均失败——防回归有效），265/265 全绿
 - **工具盲区处置**：① 对象初始化器/类字段裸写**已闭环**（本迭代）；② 读侧不对称（裸字段读不映射 self，需类型解析——精度/召回权衡，purity 判定不受影响）→ 待办；③ lambda 参数名裸读（声明名裸读抑制）、element_access 左值写 → 记录待办
 - **复审（verify 节点）**：逐项实证 a/b/c/d（declared/params 短路顺序、fallback 触发条件、isIncDec 操作符白名单、TS update_expression 未动）；修复前 T1-T4 4 败验证防回归有效；265/265 独立复跑 + tsc 0 + README 门禁 OK。无 blocker
+
+## 迭代 26（声明名裸读抑制 + 下标/元素访问左值写）
+
+- **迭代 25 残余待办处置**（audit §4.5/§4.6）：① 声明名（方法/类名）裸读抑制——跨全语言通用项，`identifier` 的 `parent.childForFieldName("name")?.id === node.id → []`（`.id` 判等防迭代 24 `===` 恒假陷阱；def foo/function foo/C# method name 不再当外部变量读）；② element_access/subscript 左值写（`arr[i]=v`/`this.arr[0]=x` 此前**完全不可见** = 假纯缺陷）——容器位置语义（非 "arr.⊤"：容器写精确/前缀双命中，读侧主模式不丢）；③ 裸字段读 self 映射明确不做（需类型解析）
+- **②b 同族落地**：`d[k].x = v`（member + element-access obj）→ readTarget null 后镜像读侧 `subscriptRoot(obj)` → `"d.⊤"`——**调用结果写 `f().x = v` 由此覆盖**（此前记待办），与读侧 `f().x` → `f.⊤` 对偶；限定 obj.type ≠ identifier 防裸 identifier 误报局部（`o.x=1` 的 o 在 assigned 不误报）
+- **实现陷阱 3 个**（worker 实证处理）：① subscriptRoot 对裸 identifier 直接返回文本会误报局部 → ②b 仅复杂 obj 启用；② Python for 变量 `item[k]=v` 局部（item 在 assigned——for_statement 是 Python assignmentTargets，declared 不含 for 变量）→ 非外部；③ C# 参数容器变异 `arr[0]=1` 是外部（params 短路不适用变异——裸重绑 F2 是局部但变异影响调用方）
+- **InitDeity 复扫验证**（--no-cache 只读）：stateCoupling 5919→**6591**（+672：下标/元素访问写此前完全不可见的**正确化**揭示，非误报——T1 回退实证 stateWrites 空即证）；新揭示 951 ⊤ 降级写方（近似耦合，README 已知限制注记）；top 写方变更（BuglyAgent._UnregisterExceptionHandler 1888 System.⊤ 事件注册、UICommon.Awake 1255 ICommonUI.⊤ 接口契约——真实契约/事件状态写）
+- **测试 +4**（csharp-lang T1 C# 下标写可见/self.items 门控 + Python for 变量局部、T2 Python for 局部 + TS 参数变异外部、T3 声明名不裸读、T4 d[k].x→d.⊤ + 局部 o.x 不误报，修复前均失败——防回归有效），269/269 全绿
+- **复审（verify 节点）**：三项主查实证（① 声明名抑制 .id 精确零误伤、② 容器位置语义写读对偶、③ 269/269 独立复跑 + T1-T4 stash 回退恰 4 败）；3 个 minor 修复（T3 类名断言瞄错 chunk→移到类 chunk、state.ts/impl.md `f().x=` 待办声明过时→校正、②b 局部 subscript 根边界→明示有界）；无 blocker
+- **下轮待办（残余记录）**：① C# variable_declarator 声明名裸读抑制（本轮只做 name 字段）；② 读侧不对称（裸字段读/裸 items[j] 读不映射 self，需类型解析——purity 判定不受影响）；③ Python `self[k]=1` 弱键 `"self"` 经前缀规则与全项目 self.x 读者耦合（与同名异对象同级，频率低）

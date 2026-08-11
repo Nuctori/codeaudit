@@ -202,6 +202,9 @@ export class Extractor {
       if (p && (p.type === "attribute" || p.type === "member_expression" ||
           p.type === "member_access_expression" || p.type === "conditional_access_expression" ||
           p.type === "member_binding_expression")) return [];
+      // 迭代26：声明名（def foo / function foo / method name）不是裸变量读——parent 的 name 字段
+      // 指向自身（.id 判等，iter24 教训：`===` 恒假）。参数名已由 params 排除，此抑制对参数冗余无害。
+      if (p && p.childForFieldName("name")?.id === node.id) return [];
       if (!chunk.params.includes(node.text) && !chunk.assigned.includes(node.text)) return [node.text];
       return [];
     }
@@ -394,19 +397,58 @@ export class Extractor {
     if (left.type === "attribute") {
       const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
       const attr = left.childForFieldName("attribute") ?? left.children[left.children.length - 1] ?? null;
-      return readTarget(obj, attr?.text);
+      const rt = readTarget(obj, attr?.text);
+      if (rt !== null) return rt;
+      // ②b（迭代26）：d[k].x = v（obj 是 subscript）→ 镜像读侧 subscriptRoot → "d.⊤"。
+      // 仅复杂 obj（subscript/call 链）启用——identifier 局部/外部已由 readTarget 正确判定，
+      // subscriptRoot 对裸 identifier 会误报局部（o.x=1 的 o 在 assigned → 不得产生写）。
+      const root = obj !== null && obj.type !== "identifier" && obj.type !== "property_identifier"
+        ? this.subscriptRoot(obj) : null;
+      return root !== null ? `${root}.⊤` : null;
     }
     if (left.type === "member_expression") {
       const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
       const attr = left.childForFieldName("property") ?? left.children[left.children.length - 1] ?? null;
-      return readTarget(obj, attr?.text);
+      const rt = readTarget(obj, attr?.text);
+      if (rt !== null) return rt;
+      const root = obj !== null && obj.type !== "identifier" && obj.type !== "property_identifier"
+        ? this.subscriptRoot(obj) : null;
+      return root !== null ? `${root}.⊤` : null;
     }
     // 迭代24 写侧对偶（审计 ⑦）：C# this.x = v / instance.Field = v 的 left 是 member_access_expression
     // （字段 expression/name）——此前只认 attribute/member_expression，C# 字段写完全不可见
     if (left.type === "member_access_expression") {
       const obj = left.childForFieldName("expression") ?? left.children[0] ?? null;
       const attr = left.childForFieldName("name") ?? left.children[left.children.length - 1] ?? null;
-      return readTarget(obj, attr?.text);
+      const rt = readTarget(obj, attr?.text);
+      if (rt !== null) return rt;
+      const root = obj !== null && obj.type !== "identifier" && obj.type !== "property_identifier"
+        ? this.subscriptRoot(obj) : null;
+      return root !== null ? `${root}.⊤` : null;
+    }
+    // 迭代26：下标/元素访问左值写（arr[i]=v / this.arr[0]=x / items[0]++）——此前全无写 = 假纯缺陷。
+    // 容器位置语义（审计裁决）：arr[i]=v → "arr"（容器本身，精确/前缀双命中）；非 "arr.⊤"
+    // （"arr.⊤" 写只匹配 "d.⊤" 读者，漏主模式——state.ts:41-59 实证）。
+    if (left.type === "subscript" || left.type === "subscript_expression" || left.type === "element_access_expression") {
+      const obj = left.childForFieldName("object") ?? left.childForFieldName("expression") ?? left.children[0] ?? null;
+      if (!obj) return null;
+      if (obj.type === "identifier" || obj.type === "property_identifier") {
+        if (chunk.kind === "module") return null; // 模块级数组初始化（定义非外部写）
+        if (chunk.params.includes(obj.text)) return obj.text; // 参数容器变异（arr[0]=1）影响调用方 → 外部
+        // C# 类成员方法内裸字段容器（items[0]=v）→ self.items（类内状态，与裸字段写 self.attr 对偶）；
+        // 方法内局部数组（declared 含）→ 非外部
+        if (this.pack.name === "csharp" && this.inClassMemberBody(obj)) {
+          return chunk.declared.includes(obj.text) ? null : `self.${obj.text}`;
+        }
+        // 与 readTarget 同判：局部容器（assigned 含且非参数，如 for 变量 item["x"]=v）→ 非外部
+        if (chunk.declared.includes(obj.text) || chunk.assigned.includes(obj.text)) return null;
+        return obj.text;
+      }
+      if (obj.type === "member_expression" || obj.type === "member_access_expression" || obj.type === "attribute") {
+        // this.arr[0]=x / user.arr[0]=x → 递归成员写语义（self.arr / user.arr）
+        return this.externalWritePos(obj, chunk);
+      }
+      return null;
     }
     return null;
   }

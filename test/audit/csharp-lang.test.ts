@@ -325,4 +325,74 @@ describe("C# 语言包（迭代19）", () => {
 		// 局部函数捕获方法局部 c → 不映射 self.c（与 TS 闭包语义一致——裸外部写）
 		expect(outer!.chunk.stateWrites).not.toContain("self.c");
 	});
+
+	it("迭代26 T1：C# 下标写可见（arr[0]=v → 参数容器外部写；items[0]=v → self.items；this.items[0]=v → self.items）", async () => {
+		const root = project("subscript-write", {
+			"S.cs": [
+				"public class Service {",
+				"    public int[] items;",
+				"    public void F(int[] arr) {",
+				"        arr[0] = 1;",
+				"        items[0] = 2;",
+				"        this.items[0] = 3;",
+				"    }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const f = by(r).get("S.cs::Service.F") as { chunk: { stateWrites: string[] } } | undefined;
+		expect(f).toBeDefined();
+		// 修复前：下标写完全不可见（假纯）；修复后：参数容器变异=外部写、C# 字段容器=self.items
+		expect(f!.chunk.stateWrites).toContain("arr"); // 参数数组变异（外部——影响调用方）
+		expect(f!.chunk.stateWrites).toContain("self.items"); // 裸字段容器 → self.items
+		expect(f!.chunk.stateWrites).not.toContain("items"); // 不得是全局裸名
+	});
+
+	it("迭代26 T2：Python for 变量下标写不判外部（item[k]=v 的 item 在 assigned → 非外部）；TS 参数下标变异外部", async () => {
+		const root = project("subscript-py", {
+			"a.py": "def f(data):\n    for item in data:\n        item['k'] = 1\n    return data\n",
+			"b.ts": "export function g(arr: number[], i: number) { arr[i] = 5; }\n",
+		});
+		const r = await scanProject(root, { useCache: false });
+		const pf = by(r).get("a.py::f") as { chunk: { stateWrites: string[] } } | undefined;
+		expect(pf).toBeDefined();
+		// for 变量 item 在 assigned（for_statement 是 assignmentTargets）→ 局部容器写，非外部
+		expect(pf!.chunk.stateWrites).not.toContain("item");
+		const tg = by(r).get("b.ts::g") as { chunk: { stateWrites: string[] } } | undefined;
+		expect(tg).toBeDefined();
+		// TS 参数 arr 变异 → 外部写（与裸重绑 F2 不同——变异影响调用方）
+		expect(tg!.chunk.stateWrites).toContain("arr");
+	});
+
+	it("迭代26 T3：声明名不产生裸读（C# 方法名/类名非外部变量读）", async () => {
+		const root = project("decl-name", {
+			"S.cs": [
+				"public class Service {",
+				"    public int Read() { return 1; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const read = by(r).get("S.cs::Service.Read") as { chunk: { stateReads: string[] } } | undefined;
+		expect(read).toBeDefined();
+		// 修复前：方法名 Read 被当裸读（与全库同名写者假耦合）；修复后：声明名抑制
+		expect(read!.chunk.stateReads).not.toContain("Read");
+		// 类名 Service 在类 chunk（class_declaration name 字段），不在方法 chunk——类 chunk 断言（修复前含 Service 裸读）
+		const cls = by(r).get("S.cs::Service") as { chunk: { stateReads: string[] } } | undefined;
+		expect(cls).toBeDefined();
+		expect(cls!.chunk.stateReads).not.toContain("Service");
+	});
+
+	it("迭代26 T4：d[k].x = v 写 → 根限定 ⊤（d.⊤，与读侧对偶）；局部 o.x=1 不误报", async () => {
+		const root = project("sub-member-write", {
+			"a.py": "def f(d, k):\n    d[k].x = 2\n    return d\ndef g():\n    o = {}\n    o.x = 1\n    return o\n",
+		});
+		const r = await scanProject(root, { useCache: false });
+		const f = by(r).get("a.py::f") as { chunk: { stateWrites: string[] } } | undefined;
+		expect(f).toBeDefined();
+		expect(f!.chunk.stateWrites).toContain("d.⊤"); // d[k].x = v → 根限定 ⊤（读侧对偶）
+		const g = by(r).get("a.py::g") as { chunk: { stateWrites: string[] } } | undefined;
+		expect(g).toBeDefined();
+		expect(g!.chunk.stateWrites).not.toContain("o.⊤"); // 局部 o（assigned）→ 不产生写
+	});
 });

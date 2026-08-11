@@ -21,7 +21,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 265 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 269 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -148,7 +148,7 @@ src/
 
 ## 测试
 
-265 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
+269 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。

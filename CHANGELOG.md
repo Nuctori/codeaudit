@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — 迭代 22-25（真实校准 + 门禁 + 状态耦合图 + 效应表收紧 + 状态耦合精度修复 + C# 状态提取精度）
+## [Unreleased] — 迭代 22-26（真实校准 + 门禁 + 状态耦合图 + 效应表收紧 + 状态耦合精度修复 + C# 状态提取精度 + 声明名抑制/下标写）
 
 ### 新增
 
@@ -23,6 +23,8 @@ C# 对象初始化器属性写不再裸写全局（`new C { A = v }` 非外部�
 C# 类字段裸写收敛 self 语义（`score = v` → `self.score` 而非全局裸名——ConfigSingleMenu 2674→903 读者，−66%）
 C# `i++`/`this.x++` 写侧补全（postfix/prefix_unary_expression，仅认 ++/-- 操作符——`!x`/`-x` 是读不误写，字段自增方法不再假纯）
 C# 局部声明名并入 assigned（variable_declarator 进 assignmentTargets + children[0] fallback）——`int q=1; q*2` 不再假裸读
+声明名裸读抑制（跨全语言：def foo/function foo/C# method name 的声明名不再当外部变量读——`parent.childForFieldName("name")?.id === node.id`，.id 判等防迭代 24 === 恒假陷阱）
+下标/元素访问左值写可见（`arr[i]=v`/`this.arr[0]=x`/`d[k].x=v`——此前完全不可见 = 假纯缺陷）：容器位置语义（参数容器变异外部/self.items C# 门控/for 变量 assigned 局部）；`d[k].x=v` 与调用结果写 `f().x=v` 镜像读侧降级 `d.⊤`/`f.⊤`（方向安全）；InitDeity stateCoupling 5919→6591（+672 正确化揭示）
 
 ## [0.2.0] — 2026-08-11（生产就绪轮）
 
