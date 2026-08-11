@@ -127,4 +127,20 @@ describe("C# 语言包（迭代19）", () => {
 		const save = by(r).get("Helper.cs::Helper.SaveData") as { purity: number } | undefined;
 		expect(save!.purity).toBe(2);
 	});
+
+	it("Unity 隐式 this 组件链：gameObject.SetActive / this.transform（迭代19）", async () => {
+		const root = project("compchain", {
+			"G.cs": [
+				"using UnityEngine;",
+				"public class G : MonoBehaviour {",
+				'    void Start() { gameObject.SetActive(false); this.transform.position = Vector3.zero; }',
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const start = by(r).get("G.cs::G.Start") as { purity: number; effects: Set<string> } | undefined;
+		expect(start).toBeDefined();
+		expect(start!.purity).toBe(2); // gameObject.SetActive + transform.position → state
+		expect(start!.effects.has("state")).toBe(true);
+	});
 });

@@ -439,3 +439,13 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **全图**：拓扑结构不变（标注不建边——判定层语义），未知边反映标注
 - 回归测试 4 例（iter18-real-driven），210/210
 
+
+## 迭代 19（C# 语言包——InitDeity Unity 真实项目驱动，工具最大盲区闭合）
+
+- **盲区**：3028 个 C# 文件（Unity 游戏）完全不可扫——跨语言纯度审计对 C#/Unity 主流工作零覆盖
+- **实现**（csharp.ts + 引擎扩展）：类/结构/接口/方法/构造/局部函数 chunk；member_access_expression + generic_name（Resources.Load<GameObject>）+ this_expression flatten；implicitThis（C# 类内裸名=this 方法——LangPack 接口扩展，4 语言零破坏）；Unity/.NET 60+ 类名效应表（Debug io/PlayerPrefs state/File fs/GameObject/SceneManager/Animator state/AudioSource io/UnityWebRequest net/Time clock/Random random）；全局类名索引（C# namespace 跨文件类调用——moduleAssigned 遮蔽守卫）；frameworkIo["this"]+gameObject/transform（Unity 隐式组件属性链）
+- **InitDeity 验证**：23800 chunks/3004 文件/18s；unknown 8159→7706（三轮修复：跨文件类 +365、frameworkIo +83、标注 -979）；impure 7156→7604；10 环/72 自环（PushStone.Push 递归）；背锅者 RuntimeMainlineAutopilot.BuildSnapshot（33 调用）
+- **标注工作流**（InitDeity）：692 条（PURE 664 集合操作/IMPURE 28 网络诊断）→ unknown 7790→6811（标注后）
+- **诚实局限**：中文标识符 parse-error 77 文件（WorldRegion.草木之森——wasm Unicode 缺陷，方向安全 UNKNOWN）；协程/LINQ 链/事件订阅第一版不建模；<unresolved> 2206（不可拍平调用设计边界）
+- 测试 +5（csharp-lang 5 例），215/215
+

@@ -227,6 +227,9 @@ const frameworkIo: Record<string, readonly string[]> = {
     "particleSystem", "spriteRenderer", "meshRenderer", "canvas", "rectTransform",
     "navMeshAgent", "characterController", "material", "shader",
   ],
+  // Unity 隐式 this 组件属性（MonoBehaviour 里 gameObject = this.gameObject——迭代19）
+  gameObject: ["SetActive", "GetComponent", "transform", "layer", "tag", "name", "AddComponent"],
+  transform: ["position", "rotation", "localPosition", "localScale", "Translate", "Rotate", "SetParent", "SetAsLastSibling", "GetComponent"],
 };
 
 /** C# chunk 节点：类/方法/构造/局部函数。属性访问器第一版不建（自动属性无逻辑）。 */
