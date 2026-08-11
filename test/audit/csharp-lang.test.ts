@@ -140,7 +140,7 @@ describe("C# 语言包（迭代19）", () => {
 		const r = await scanProject(root, { useCache: false });
 		const start = by(r).get("G.cs::G.Start") as { purity: number; effects: Set<string> } | undefined;
 		expect(start).toBeDefined();
-		expect(start!.purity).toBe(2); // gameObject.SetActive + transform.position → state
-		expect(start!.effects.has("state")).toBe(true);
+		expect(start!.purity).toBe(2); // gameObject.SetActive → frameworkIo io
+		expect(start!.effects.has("io")).toBe(true);
 	});
 });
