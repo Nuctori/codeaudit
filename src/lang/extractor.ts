@@ -637,6 +637,17 @@ function flattenCallTarget(node: SyntaxNode): string | null {
     }
     return null;
   }
+  if (node.type === "conditional_access_expression") {
+    // C# null 条件访问（迭代20）：obj?.Method → obj 部分 flatten + member_binding 标识符
+    const expr = node.children[0];
+    const binding = node.children.find((c) => c.type === "member_binding_expression");
+    if (expr === undefined || binding === undefined) return null;
+    const objText = flattenCallTarget(expr);
+    if (objText === null) return null;
+    const id = binding.children.find((c) => c.type === "identifier" || c.type === "property_identifier");
+    if (id) return objText + "." + id.text;
+    return null;
+  }
   return null;
 }
 

@@ -18,7 +18,13 @@ import type { Effect } from "../../core/types";
  */
 
 const impureBuiltins: Record<string, Effect> = {
-	// 裸名调用罕见（C# 方法必须实例/类限定）——保留少量全局
+	// 裸名调用罕见（C# 方法必须实例/类限定）——Unity 全局静态（MonoBehaviour 裸调，迭代20）
+	Destroy: "state",
+	Instantiate: "state",
+	DestroyImmediate: "state",
+	FindObjectOfType: "state",
+	FindObjectsOfType: "state",
+	DontDestroyOnLoad: "state",
 	Console: "io",
 };
 
@@ -106,6 +112,12 @@ const impureGlobals: Record<string, Effect | readonly string[]> = {
 	WaitForEndOfFrame: "clock",
 	StartCoroutine: "state",
 	StopCoroutine: "state",
+	// Unity 全局静态方法（迭代20：MonoBehaviour 里裸调用 Destroy/Instantiate——obj=null；
+	// Destroy/Instantiate 已在上面 GameObject 区——这里补其余全局）
+	DestroyImmediate: "state",
+	FindObjectOfType: "state",
+	FindObjectsOfType: "state",
+	DontDestroyOnLoad: "state",
 	// .NET IO/网络/DB
 	File: "fs", // ReadAllText/WriteAllText/Exists
 	FileStream: "fs",
