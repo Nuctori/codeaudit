@@ -241,7 +241,9 @@ export const typescriptPack: LangPack = {
   pureGlobals,
   hofCallsArgs: new Set(["from", "Promise"]), // Array.from(xs, cb) 与 new Promise(executor) 会调用函数实参
   // 数组方法中无条件调用实参的子集（Array.from 的 cb 可选 → 不入）；实参未解析时记未知
-  hofAlwaysArgs: new Set(["map", "filter", "forEach", "reduce", "reduceRight", "some", "every", "find", "findIndex", "flatMap"]),
+  hofAlwaysArgs: new Set(["map", "filter", "forEach", "reduce", "reduceRight", "some", "every", "find", "findIndex", "flatMap",
+    // 定时器/微任务启动点（终裁 Step2 异步边 P1）：setTimeout(cb) 触发时无条件调用 cb——未解析回调记 ?（S4）
+    "setTimeout", "setInterval", "queueMicrotask"]),
   assignmentTargets: ["variable_declarator", "assignment_expression", "for_in_statement", "for_of_statement"],
   // 字面量接收者：string/template（值恒为 string，插值副作用独立捕获）/number/bool/regex/array/bigint
   literalReceivers: {

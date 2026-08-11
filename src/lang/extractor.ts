@@ -48,6 +48,7 @@ export class Extractor {
           );
           mc.nesting = this.maxNesting(node);
           mc.assigned = this.assignedNames(node);
+          mc.declared = this.declaredNames(node);
           mc.params = this.paramNames(node);
           chunks.push(mc as RawChunk);
           stack.push(mc);
@@ -167,6 +168,11 @@ export class Extractor {
 
   /** 读侧状态位置（迭代8 视角2）：attribute/member 值读取 → "self.x"/"user.status"/"⊤"；空 = 非读。 */
   private stateReadPos(node: SyntaxNode, chunk: MutableChunk): string[] {
+    if (node.type === "identifier") {
+      // 裸标识符读（模块级 let / 闭包外层变量）：∉ 参数 且 ∉ 局部赋值 → 外部状态读（终裁 Step1）
+      if (!chunk.params.includes(node.text) && !chunk.assigned.includes(node.text)) return [node.text];
+      return [];
+    }
     if (node.type !== "attribute" && node.type !== "member_expression") return [];
     const parent = node.parent;
     if (parent && (
@@ -236,6 +242,20 @@ export class Extractor {
     return out;
   }
 
+  /** 本 chunk 内声明名（variable_declarator 的 let/const/var 定义；Python 赋值非声明不收集）——裸标识符写外部性判定。 */
+  private declaredNames(root: SyntaxNode): string[] {
+    const out: string[] = [];
+    const walk = (n: SyntaxNode): void => {
+      if (n.type === "variable_declarator") {
+        const left = n.childForFieldName("name") ?? n.children[0];
+        if (left && (left.type === "identifier" || left.type === "property_identifier")) out.push(left.text);
+      }
+      for (const c of n.children) walk(c);
+    };
+    walk(root);
+    return out;
+  }
+
   /** 异常抛出类型提取（盲区1）：raise X / throw new Y() → 类型文本；裸 raise/throw → "*"；非抛出节点 → null。 */
   private thrownTypeOf(node: SyntaxNode): string | null {
     if (node.type === "raise_statement") {
@@ -279,6 +299,16 @@ export class Extractor {
    */
   private externalWritePos(left: SyntaxNode | null | undefined, chunk: MutableChunk): string | null {
     if (!left) return null;
+    if (left.type === "identifier" || left.type === "property_identifier") {
+      // 裸标识符写：TS/JS 模块级 let/闭包外层变量（let count; inc(){count++} / count = count - 1）→ 外部；
+      // Python 函数内赋值 = 局部定义（global/nonlocal 由 global_statement 分支处理）→ 非外部。
+      // module chunk 特判：模块级赋值（handler = ...）是定义非外部写。
+      // 终裁 Step1 {closure} 折叠进 state；S1 假纯洞修复（迭代12 Jeff P0）
+      if (chunk.kind === "module") return null;
+      if (this.pack.name === "python") return null;
+      if (chunk.declared.includes(left.text)) return null; // 局部声明（let y = 0; y = 5）
+      return left.text; // TS/JS 裸标识符写 = 外部（含参数重绑——保守）
+    }
     const readTarget = (obj: SyntaxNode | null | undefined, attr: string | null | undefined): string | null => {
       if (!obj || !attr) return null;
       if (obj.text === "self" || obj.text === "cls" || obj.text === "this") return `self.${attr}`;
@@ -484,6 +514,8 @@ interface MutableChunk {
   stateWrites: string[];
   /** 读侧状态位置（self.x / user.status / ⊤）——stateDeps 传播原料。 */
   stateReads: string[];
+  /** 本 chunk 内声明名（let/const/var/def 定义，非纯赋值）——裸标识符写的外部性判定（终裁 Step1）。 */
+  declared: string[];
   /** 直接抛出的异常类型（raise ValueError / throw new Error()）。 */
   thrownTypes: string[];
   /** 捕获的异常类型（catch {} / except X → "*"/类型名；方向安全减法用）。 */
@@ -518,7 +550,7 @@ function fresh(
   ownerClass: string | null = null,
   kind: "class" | "function" | "module" = "function",
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], stateWrites: [], stateReads: [], thrownTypes: [], catches: [], ownerClass };
+  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], stateWrites: [], stateReads: [], declared: [], thrownTypes: [], catches: [], ownerClass };
 }
 
 /** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */

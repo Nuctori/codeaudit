@@ -883,6 +883,19 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
     expect(by2.get("b.ts::handled")!.throwsTypes).toEqual([]); // catch {} 吞一切
   });
 
+  it("TS 模块级裸标识符状态写（终裁 Step1 {closure}）：count++/count=count-1 → state；局部声明排除", async () => {
+    const root = project("closurewrite", {
+      "counter.ts": "let count = 0;\nexport function inc() { count++; }\nexport function dec() { count = count - 1; }\nexport function read() { return count; }\nexport function local() { let y = 0; y = 5; return y; }\n",
+    });
+    const r = await scanProject(root);
+    const b = by(r);
+    expect(b.get("counter.ts::inc")!.purity).toBe(Purity.IMPURE); // 修复前 PURE（S1 假纯洞）
+    expect(b.get("counter.ts::dec")!.purity).toBe(Purity.IMPURE);
+    expect(b.get("counter.ts::local")!.purity).toBe(Purity.PURE); // let 声明排除
+    expect(b.get("counter.ts::read")!.purity).toBe(Purity.PURE); // 读不是效应
+    expect(b.get("counter.ts::read")!.stateDeps).toContain("count"); // 读方耦合
+  });
+
   it("迭代8 F1/F2：TS += 状态写检测、catch-and-rethrow 异常保留", async () => {
     const root = project("f12", {
       "b.ts": "export class C {\n  private count = 0;\n  bumpPlus() { this.count += 1; }\n  inc() { this.count++; }\n}\n",

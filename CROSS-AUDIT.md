@@ -340,6 +340,35 @@
 
 HEAD 315b4c3，176/176，swagger 稳定（151/365/282）；回归风险控制经 5 独立审计收敛，无 blocker，可上线。
 
+---
+
+# 迭代 12 审计记录（2026-08-11，回归风险 5 视角交叉复审 + 新特性 5 视角设计审计 + 拓扑 3 视角设计评审）
+
+## 回归风险交叉复审（5 视角，迭代 12）
+
+- 视角 1（风险×状态写×异常交互）：因子数学收敛；2 设计级 Medium——① 阈值 30/60/85 与实测分布脱节（1233 模拟改动集 0 high/critical，risk 集中 [0,35]，C 轴 cycle 权重死重 + impact≤0.32 结构上限；建议按分位重标 LOW<15/MEDIUM 15-35/HIGH 35-60/CRITICAL ≥60）② stateDeps 状态耦合回归路径五因子全不覆盖（建议 R_state 独立因子）；3 Note（fog 闭环非单调、weighted N_U×O(V+E) 外推分钟级、R_cycle 实测死重）
+- 视角 2（proof×标注闭环）：收敛；budgetToTarget 与 CLI 百分位分母不一致（Med）
+- 视角 3（端到端）：收敛；混合流修复验证（--changed json stdout 纯净）
+- 视角 4（正确内聚最简）：收敛；S1-S3 重复实现 + D1-D5 死代码清单
+- 视角 5（终裁）：**收敛、可上线、核心目标达成**
+
+## 新特性设计审计（数据流 + 并发 + 增强效应格，5 视角）
+
+- Jeff Dean：条件收敛——2 做（{closure} 折叠进 state：TS 裸标识符状态写/读漏检假纯洞；异步边：定时器进 hofAlwaysArgs）+ 2 简化（mutatesParams/sharedWriters metadata）+ 5 砍（{global}/{escape}/{async}/{thread}/{lock}/{signal} 原子、不可变性语料维度）
+- 范畴论：代数内核全部正确（并集交换幺半群、传播保序函子、判定 join-同态）；2 blocker——「{?} 与任何非空集组合仍为 UNKNOWN」破坏单调性/健全性（S2 被绕过、--strict 放行不纯代码）必须否决；「? 是零对象/吸收元」范畴误称（唯一自洽 = A7 现状）；N1 恒等式（f(S)=⋁f({a})）为新原子机检门槛
+- 终裁：**条件收敛可实施**——2 做 + 4 简化 + 6 砍 + 原子清单 7 不变 + 2 规格 blocker 改述消解；实施路线 Step 0（规格修订）→ Step 1（{closure} P0）→ Step 2（异步边 P1）→ Step 3（metadata P2）
+
+## 拓扑健康度设计评审（3 视角）
+
+- 数学：指标集（CYC/M1b 自环/M2/M3'/H/M5 层数/M6 分层流动指数/M7 跨层跨度/M8 可达性占比）；**F1 光谱是二维**（路径图反例：树但 ρ=0.5）；**F2 原始密度 |E|/n² 尺寸支配否决**；**F4 自环盲区**（现有 cycleCount 只计 |SCC|>1，自递归不可见）；谱指数/λ₂ 维持否决
+- 一致性：数据 90% 现成（outDegree/tarjan/forwardClosure）；API = graphMetrics(verdicts) 派生层纯函数（与 riskOfChange 同构）
+- 实施：graphMetrics 路线图（标量/SCC/深度分层 3 步）；密度自环口径修正；纯 JSON 形状；--topology 旗标
+
+## 决策链
+
+D-082（迭代 12 收敛）、D-083（拓扑采纳）、D-084（7cab482 测试闭环）、D-085（证明系统 + 新设计 5 视角审计 in-flight）
+
+
 
 
 
