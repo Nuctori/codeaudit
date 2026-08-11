@@ -171,34 +171,73 @@ export class Extractor {
     return [];
   }
 
-  /** 读侧状态位置（迭代8 视角2）：attribute/member 值读取 → "self.x"/"user.status"/"⊤"；空 = 非读。 */
+  /** 读侧状态位置（迭代8 视角2）：attribute/member 值读取 → "self.x"/"user.status"/"⊤"；空 = 非读。
+   *  迭代24 修复（审计 docs/iter24/audit.md）：
+   *  - 节点同一性 `===` → `.id`（web-tree-sitter 每次属性访问返回新节点对象，`===` 恒假——
+   *    「调用目标排除」「赋值左值跳过」自迭代8 起是死代码，对所有语言生效）；
+   *  - 成员访问结构的子标识符不再独立裸读（对象名/成员名由成员节点单点承担）；
+   *  - 节点过滤补 C#（member_access_expression/conditional_access_expression）；
+   *  - 调用 parent 列表补 C#（invocation_expression/object_creation_expression）；
+   *  - 边缘：a.b?.c() 内层成员（parent 是 conditional_access_expression 的调用链）；
+   *  - obj/attr 提取按类型分支（C# 字段是 expression/name；?. 的 name 在 member_binding_expression 内）。 */
   private stateReadPos(node: SyntaxNode, chunk: MutableChunk): string[] {
     if (node.type === "identifier") {
-      // 裸标识符读（模块级 let / 闭包外层变量）：∉ 参数 且 ∉ 局部赋值 → 外部状态读（终裁 Step1）
+      // 裸标识符读（模块级 let / 闭包外层变量）：∉ 参数 且 ∉ 局部赋值 → 外部状态读（终裁 Step1）。
+      // 迭代24：成员访问结构（obj.attr / obj?.attr）的子标识符由成员节点统一承担——跳过，避免
+      // C#/Python 成员名（identifier 类型）被当裸变量读（Foo.instance.x 的 instance/成员名全误读）。
+      const p = node.parent;
+      if (p && (p.type === "attribute" || p.type === "member_expression" ||
+          p.type === "member_access_expression" || p.type === "conditional_access_expression" ||
+          p.type === "member_binding_expression")) return [];
       if (!chunk.params.includes(node.text) && !chunk.assigned.includes(node.text)) return [node.text];
       return [];
     }
-    if (node.type !== "attribute" && node.type !== "member_expression") return [];
+    if (node.type !== "attribute" && node.type !== "member_expression" &&
+        node.type !== "member_access_expression" && node.type !== "conditional_access_expression") return [];
     const parent = node.parent;
-    if (parent && (
-      parent.type === "assignment" || parent.type === "augmented_assignment" ||
-      parent.type === "assignment_expression" || parent.type === "augmented_assignment_expression" ||
-      parent.type === "update_expression")) {
+    const isAssignmentParent = (t: string): boolean =>
+      t === "assignment" || t === "augmented_assignment" ||
+      t === "assignment_expression" || t === "augmented_assignment_expression" ||
+      t === "update_expression";
+    const isCallLike = (t: string): boolean =>
+      t === "call" || t === "call_expression" || t === "new_expression" ||
+      t === "invocation_expression" || t === "object_creation_expression";
+    if (parent && isAssignmentParent(parent.type)) {
       // 赋值左值跳过（写侧已处理；augmented/update 的右值读由右侧表达式节点捕获）
-      const left = parent.childForFieldName("left") ?? parent.children[0];
-      if (left === node) return [];
+      const left = parent.childForFieldName("left") ?? parent.children[0] ?? null;
+      if (left != null && left.id === node.id) return [];
     }
-    if (parent && (parent.type === "call" || parent.type === "call_expression" || parent.type === "new_expression")) {
-      // 调用目标排除（user.save() 不是字段值读取）
-      const fn = parent.childForFieldName("function") ?? parent.childForFieldName("constructor") ?? parent.children[0];
-      if (fn === node) return [];
+    if (parent && isCallLike(parent.type)) {
+      // 调用目标排除（user.save() 不是字段值读取；instance.Method() 同理）
+      const fn = parent.childForFieldName("function") ?? parent.childForFieldName("constructor") ?? parent.children[0] ?? null;
+      if (fn != null && fn.id === node.id) return [];
     }
-    const obj = node.childForFieldName("object") ?? node.children[0] ?? null;
-    const attr = node.childForFieldName("attribute") ?? node.childForFieldName("property") ?? node.children[node.children.length - 1] ?? null;
-    if (!obj || !attr) return [];
-    if (obj.text === "self" || obj.text === "cls" || obj.text === "this") return [`self.${attr.text}`];
+    // 边缘：a.b?.c() 内层成员——member_access_expression(a.b) 的 parent 是 conditional_access_expression
+    // （非调用），但该 conditional 是 invocation 的 function 链一部分 → 排除内层成员
+    if (parent && parent.type === "conditional_access_expression") {
+      const gp = parent.parent;
+      if (gp && isCallLike(gp.type)) {
+        const fn = gp.childForFieldName("function") ?? gp.children[0] ?? null;
+        if (fn != null && fn.id === parent.id) return [];
+      }
+    }
+    // obj/attr 按类型分支（C# 字段名：member_access_expression 是 expression/name；
+    // conditional_access_expression 无字段，name 在 member_binding_expression 首个子节点）
+    let obj: SyntaxNode | null = null;
+    let attrNode: SyntaxNode | null = null;
+    if (node.type === "conditional_access_expression") {
+      obj = node.children[0] ?? null;
+      const mbe = node.children.find((c) => c.type === "member_binding_expression");
+      attrNode = mbe ? (mbe.namedChildren[0] ?? null) : null;
+    } else {
+      obj = node.childForFieldName("object") ?? node.childForFieldName("expression") ?? node.children[0] ?? null;
+      attrNode = node.childForFieldName("attribute") ?? node.childForFieldName("property") ??
+        node.childForFieldName("name") ?? node.children[node.children.length - 1] ?? null;
+    }
+    if (!obj || !attrNode) return [];
+    if (obj.text === "self" || obj.text === "cls" || obj.text === "this") return [`self.${attrNode.text}`];
     if (obj.type === "identifier") {
-      if (chunk.params.includes(obj.text) || !chunk.assigned.includes(obj.text)) return [`${obj.text}.${attr.text}`];
+      if (chunk.params.includes(obj.text) || !chunk.assigned.includes(obj.text)) return [`${obj.text}.${attrNode.text}`];
       return []; // 局部对象读（非外部）
     }
     // 下标/调用结果接收者：根限定 ⊤（d[k] 读 → "d.⊤"）或全局 ⊤
@@ -342,6 +381,13 @@ export class Extractor {
     if (left.type === "member_expression") {
       const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
       const attr = left.childForFieldName("property") ?? left.children[left.children.length - 1] ?? null;
+      return readTarget(obj, attr?.text);
+    }
+    // 迭代24 写侧对偶（审计 ⑦）：C# this.x = v / instance.Field = v 的 left 是 member_access_expression
+    // （字段 expression/name）——此前只认 attribute/member_expression，C# 字段写完全不可见
+    if (left.type === "member_access_expression") {
+      const obj = left.childForFieldName("expression") ?? left.children[0] ?? null;
+      const attr = left.childForFieldName("name") ?? left.children[left.children.length - 1] ?? null;
       return readTarget(obj, attr?.text);
     }
     return null;

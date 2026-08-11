@@ -73,12 +73,14 @@ describe("C# 真实项目 fixture（迭代22）", () => {
 		expect(open!.purity).toBe(1);
 	});
 
-	it("UIWorldLink：main 变量方法动态 → 诚实 UNKNOWN（transform 赋值非调用）", async () => {
+	it("UIWorldLink：main 变量方法动态 → 诚实 UNKNOWN；transform.position 赋值 → state 写（迭代24 写侧对偶生效）", async () => {
 		const r = await scanProject(root, { useCache: false });
-		const update = by(r).get("UIWorldLink.cs::GetRewardBar.Update") as { purity: number } | undefined;
+		const update = by(r).get("UIWorldLink.cs::GetRewardBar.Update") as { purity: number; effects: Set<string> } | undefined;
 		expect(update).toBeDefined();
-		// main.WorldToScreenPoint（变量 receiver）动态 → UNKNOWN；transform.position = 是赋值非调用
-		expect(update!.purity).toBe(1);
+		// main.WorldToScreenPoint（变量 receiver）动态 → 未知边；transform.position = 是成员写
+		// （C# member_access_expression 写侧，迭代24 修复前不可见）→ state 效应 → IMPURE
+		expect(update!.purity).toBe(2);
+		expect(update!.effects.has("state")).toBe(true);
 	});
 
 	it("EventSubscribe：事件订阅不崩溃；Wire 无效应（事件不建模）", async () => {

@@ -192,4 +192,59 @@ describe("C# 语言包（迭代19）", () => {
 		expect(m!.effects.has("io")).toBe(false); // 前缀移除后无 io 假阳
 		expect(m!.purity).not.toBe(0); // 动态调用绝不假纯（UNKNOWN=1 或 io=2，不容忍 PURE=0）
 	});
+
+	it("迭代24 T1：C# 方法调用目标不产生 stateRead（instance.Configure() 不误报读者）", async () => {
+		const root = project("read-call-target", {
+			"S.cs": [
+				"public class Service {",
+				"    public static Service instance;",
+				"    public void Run() { instance.Configure(); }",
+				"    public void Configure() { }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const run = by(r).get("S.cs::Service.Run") as { chunk: { stateReads: string[] } } | undefined;
+		expect(run).toBeDefined();
+		// 修复前：裸读 ["instance","Configure"]（调用目标排除是死代码）；修复后：调用目标不计字段读
+		expect(run!.chunk.stateReads).not.toContain("instance");
+		expect(run!.chunk.stateReads).not.toContain("Configure");
+		expect(run!.chunk.stateReads).not.toContain("instance.Configure");
+	});
+
+	it("迭代24 T2：C# 字段读仍产生 stateRead（instance.Value 位置读保留）", async () => {
+		const root = project("read-field", {
+			"S.cs": [
+				"public class Service {",
+				"    public static Service instance;",
+				"    public int Value;",
+				"    public int Read() { return instance.Value; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const read = by(r).get("S.cs::Service.Read") as { chunk: { stateReads: string[] } } | undefined;
+		expect(read).toBeDefined();
+		// 修复前：只含裸读 ["instance","Value"]（无位置读）；修复后：位置读 "instance.Value" 保留
+		expect(read!.chunk.stateReads).toContain("instance.Value");
+	});
+
+	it("迭代24 T3：C# 字段写可见（this.x = v 产生 state 写，写侧对偶⑦）", async () => {
+		const root = project("write-field", {
+			"S.cs": [
+				"public class Service {",
+				"    public int counter;",
+				"    public void Bump() { this.counter = this.counter + 1; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const bump = by(r).get("S.cs::Service.Bump") as { purity: number; effects: Set<string>; chunk: { stateWrites: string[] } } | undefined;
+		expect(bump).toBeDefined();
+		// 修复前：externalWritePos 只认 attribute/member_expression → C# 字段写不可见 → 假 PURE；
+		// 修复后：member_access_expression 写侧对偶 → "self.counter" 写 → state 效应
+		expect(bump!.chunk.stateWrites).toContain("self.counter");
+		expect(bump!.purity).toBe(2); // IMPURE（state 写）
+		expect(bump!.effects.has("state")).toBe(true);
+	});
 });

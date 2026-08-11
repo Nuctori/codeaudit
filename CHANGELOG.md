@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — 迭代 22-23（真实校准 + 门禁 + 状态耦合图 + 效应表收紧）
+## [Unreleased] — 迭代 22-24（真实校准 + 门禁 + 状态耦合图 + 效应表收紧 + 状态耦合精度修复）
 
 ### 新增
 
@@ -16,6 +16,9 @@
 - README 示例重复行清理
 - frameworkIo.System 前缀表收紧（迭代 22 盲区处置）：删 Reflection/Text/Globalization/Runtime/RuntimeTypeHandle 5 条目——纯反射元数据读不再假 io（InitDeity ConvertToString ×47 direct-io 47→0，全库 IMPURE −100 / UNKNOWN +99 守恒零误伤）；移除后落 UNKNOWN 非 PURE（MethodInfo.Invoke 不假纯）
 - `--state` 解析分支回归（`--state` 曾顶掉 `--table-usage`——迭代 22 `--gate` 顶 `--topology` 同款 bug 二次再现）：恢复 + 根因护栏「全部布尔旗标可解析」CLI 回归测试（5 旗标逐一冒烟）防三次复发
+stateReadPos 节点同一性 `===`→`.id`（web-tree-sitter 每次属性访问返回新节点对象，`===` 恒假——「调用目标排除」「赋值左值跳过」自迭代 8 起死代码，跨语言修复）：`user.save()` 不再计入 stateReads、`user.status = x` 不再同时写+读
+C# 成员节点覆盖（member_access_expression/conditional_access_expression 进 stateReadPos 过滤 + 调用 parent 补 invocation_expression/object_creation_expression + 子标识符抑制）：InitDeity instance 写方读者 2633→1005（−62%）；C# 字段读位置从「永不产生」到正确
+externalWritePos 写侧对偶（C# `this.x = v` 字段写可见——此前完全不可见）：`transform.position = x` 正确判 state，UNKNOWN 28.1%→25.0%（正确化）
 
 ## [0.2.0] — 2026-08-11（生产就绪轮）
 

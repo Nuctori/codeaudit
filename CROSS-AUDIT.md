@@ -464,3 +464,15 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **InitDeity 复扫验证（--no-cache 只读）**：ConvertToString ×47 direct-io **47→0**、purity 全 IMPURE→UNKNOWN；全库 IMPURE 9449→9349（−100）、UNKNOWN 5761→5860（+99 守恒）、PURE 8590 不变——收紧只消除假 io 零误伤（其余 53 个为 Text/Globalization/Runtime 类调用点同类假阳）
 - **工具盲区处置**：① ConvertToString ×47 假阳**已闭环**（本迭代）；② 纯数据结构构造器字段写判 state（方向安全，效应表口径已知保守，记录不修）；③ 基线不可复现（标注文件丢失）→ 待办
 - **复审（verify 节点）**：**BLOCKER 二次再现并修复**——`--state` 分支整行替换 `--table-usage` 分支（迭代 22 `--gate` 顶 `--topology` 同款 bug）；恢复 + **根因护栏**「全部布尔旗标可解析」CLI 回归测试（--strict/--topology/--sources/--state/--table-usage 逐一冒烟，顶替即 exit 2 失败）防三次复发；MEDIUM 修正——新增 csharp-lang 用例改全限定 `System.Reflection.*`（参数接收者不触达 obj="System" 前缀路径，修复前也通过=无效测试）；258/258 全绿（26 文件）+ tsc 0 + README 门禁 OK
+
+## 迭代 24（状态耦合精度修复：提取层死代码根因闭环）
+
+- **真实项目驱动发现**（--state 实战，InitDeity）：Singleton 写 `instance` 被 2600+ chunk 误认为读者——状态耦合图被全库调用目标噪音淹没。审计定位出比表象更深的根因链（docs/iter24/audit.md，全部实证）
+- **根因① `===` 判等死代码（跨语言，自迭代 8 起）**：extractor.ts stateReadPos 用 `===` 做节点同一性比较（L188-189 赋值左值跳过 / L193-194 调用目标排除），web-tree-sitter 每次属性访问返回**新节点对象** → `===` 恒 false（`.equals()`/`.id` 才是正确判等）——「调用目标排除」「赋值左值跳过」对所有语言从未生效：`user.save()` 计入 stateReads、`user.status = x` 同时写+读
+- **根因② C# 成员节点全覆盖缺口**：C# 的 `member_access_expression`/`conditional_access_expression` 不在 stateReadPos 过滤列表（只认 attribute/member_expression）→ C# 字段读位置永不产生；C#/Python 成员名是 `identifier` 类型 → `Foo.instance.x` 的 instance/成员名全部裸读（InitDeity 2633 读者虚高真实机制：22 写方/2633 读者，27 份抽样仅 1 份真实）
+- **根因③ 写侧对偶缺失**：externalWritePos 只处理 attribute/member_expression → C# `this.x = v` 字段写完全不可见（`transform.position = x` 漏判 state）
+- **修复**（stateReadPos 重写 + externalWritePos 补对偶）：`===`→`.id`；成员访问结构子标识符整体跳过；节点过滤补 C#；调用 parent 列表补 `invocation_expression`/`object_creation_expression`；`?.` 边缘（内层成员/双层链）；obj/attr 按类型分支（C# expression/name 字段）
+- **InitDeity 复扫验证**：instance 写方读者 2633→**1005**（−62%，调用目标噪音消除，残余为真实单例调用 + 同名异对象——名基匹配设计上限）；判定分布 UNKNOWN 28.1%→25.0%、IMPURE 9449→10537（C# 字段写正确判 state——**正确化**，fixture UIWorldLink 断言 UNKNOWN→IMPURE 实证）
+- **测试 +3**（csharp-lang T1 调用目标不产生 stateRead / T2 字段读保留 / T3 字段写可见，修复前均失败——防回归有效），261/261 全绿
+- **工具盲区处置**：① 提取层死代码**已闭环**（本迭代最大正确性收益）；② C# 对象初始化器属性名裸写（Quest12 1949 读者）/ 类字段名裸写（ConfigSingleMenu 2674 读者）——类作用域字段应 self.x 语义，待下轮；③ C# 局部声明名/方法名裸读（assignedNames 对 C# 无效——variable_declarator 未列入）、`this.x++` 写不可见——既有噪音，记录待办
+- **复审（verify 节点）**：根因修复实证通过（web-tree-sitter 语义 + AST dump + 端到端探针）；conditional_access 全链排除；JS/Python 回归（user.save() 不再读、user.status 读保留）；261/261 独立复跑 + tsc 0 + README 门禁 OK。无 blocker
