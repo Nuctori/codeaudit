@@ -447,5 +447,5 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **InitDeity 验证**：23800 chunks/3004 文件/18s；unknown 8159→7706（三轮修复：跨文件类 +365、frameworkIo +83、标注 -979）；impure 7156→7604；10 环/72 自环（PushStone.Push 递归）；背锅者 RuntimeMainlineAutopilot.BuildSnapshot（33 调用）
 - **标注工作流**（InitDeity）：692 条（PURE 664 集合操作/IMPURE 28 网络诊断）→ unknown 7790→6811（标注后）
 - **诚实局限**：中文标识符 parse-error 77 文件（WorldRegion.草木之森——wasm Unicode 缺陷，方向安全 UNKNOWN）；协程/LINQ 链/事件订阅第一版不建模；<unresolved> 2206（不可拍平调用设计边界）
-- 测试 +5（csharp-lang 5 例），215/215
+- 测试 +6（csharp-lang 6 例），216/216
 
