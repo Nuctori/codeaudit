@@ -395,4 +395,61 @@ describe("C# 语言包（迭代19）", () => {
 		expect(g).toBeDefined();
 		expect(g!.chunk.stateWrites).not.toContain("o.⊤"); // 局部 o（assigned）→ 不产生写
 	});
+
+	it("迭代27 T1：C# pattern 解构名 + foreach 变量不裸读；集合读保留（防 ④ 误抑制锚）", async () => {
+		const root = project("decl-pattern", {
+			"M.cs": [
+				"using System;",
+				"public class M {",
+				"    int[] arr = new int[1];",
+				"    public int Run() {",
+				"        var (a, b) = Tuple.Create(1, 2);",
+				"        foreach (var item in arr) { }",
+				"        return 1;",
+				"    }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const m = by(r).get("M.cs::M.Run") as { chunk: { stateReads: string[] } } | undefined;
+		expect(m).toBeDefined();
+		expect(m!.chunk.stateReads).not.toContain("a"); // tuple_pattern 声明名（修复前裸读）
+		expect(m!.chunk.stateReads).not.toContain("b");
+		expect(m!.chunk.stateReads).not.toContain("item"); // foreach 变量（修复前裸读）
+		expect(m!.chunk.stateReads).toContain("arr"); // 集合读（in 之后的 arr 字段是真外部读）——④ 不得误抑制
+	});
+
+	it("迭代27 T2：TS catch 变量 + 解构声明名不裸读", async () => {
+		const root = project("decl-ts", {
+			"a.ts": "export function f(arr: number[]) {\n  const [a, b] = arr;\n  let r = a + b;\n  try { r++; } catch (e) { r = 0; }\n  return r;\n}\n",
+		});
+		const r = await scanProject(root, { useCache: false });
+		const f = by(r).get("a.ts::f") as { chunk: { stateReads: string[] } } | undefined;
+		expect(f).toBeDefined();
+		// catch 变量 e 不裸读（修复前裸读）；解构声明名 a/b 不裸读（修复前裸读；use 读 a+b 仍存在——方案B 待办）
+		expect(f!.chunk.stateReads).not.toContain("e");
+		const reads = f!.chunk.stateReads.filter((x) => x === "a" || x === "b").length;
+		expect(reads).toBeLessThanOrEqual(2); // 仅 use 读（声明名抑制后），修复前 4 次（声明 2 + use 2）
+	});
+
+	it("迭代27 T3：Python except 变量不裸读；异常类型名保留", async () => {
+		const root = project("decl-py", {
+			"a.py": "def f():\n    try:\n        return 1\n    except Exception as e:\n        return 0\n",
+		});
+		const r = await scanProject(root, { useCache: false });
+		const f = by(r).get("a.py::f") as { chunk: { stateReads: string[] } } | undefined;
+		expect(f).toBeDefined();
+		expect(f!.chunk.stateReads).not.toContain("e"); // except as 变量（修复前裸读）
+		// Exception 类型名是既有噪音族（不动）——不断言不包含，仅记录
+	});
+
+	it("迭代27 T4：JS catch 变量不裸读", async () => {
+		const root = project("decl-js", {
+			"a.js": "function f() {\n  try { return 1; } catch (e) { return 0; }\n}\n",
+		});
+		const r = await scanProject(root, { useCache: false });
+		const f = by(r).get("a.js::f") as { chunk: { stateReads: string[] } } | undefined;
+		expect(f).toBeDefined();
+		expect(f!.chunk.stateReads).not.toContain("e"); // catch 变量（修复前裸读）
+	});
 });

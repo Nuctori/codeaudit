@@ -496,3 +496,13 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **测试 +4**（csharp-lang T1 C# 下标写可见/self.items 门控 + Python for 变量局部、T2 Python for 局部 + TS 参数变异外部、T3 声明名不裸读、T4 d[k].x→d.⊤ + 局部 o.x 不误报，修复前均失败——防回归有效），269/269 全绿
 - **复审（verify 节点）**：三项主查实证（① 声明名抑制 .id 精确零误伤、② 容器位置语义写读对偶、③ 269/269 独立复跑 + T1-T4 stash 回退恰 4 败）；3 个 minor 修复（T3 类名断言瞄错 chunk→移到类 chunk、state.ts/impl.md `f().x=` 待办声明过时→校正、②b 局部 subscript 根边界→明示有界）；无 blocker
 - **下轮待办（残余记录）**：① C# variable_declarator 声明名裸读抑制（本轮只做 name 字段）；② 读侧不对称（裸字段读/裸 items[j] 读不映射 self，需类型解析——purity 判定不受影响）；③ Python `self[k]=1` 弱键 `"self"` 经前缀规则与全项目 self.x 读者耦合（与同名异对象同级，频率低）
+
+## 迭代 27（声明名抑制收尾：pattern/foreach/catch/except 变量）
+
+- **迭代 26 残余待办处置**（audit §4.6）：声明名裸读抑制补齐——迭代 26 只做了 name 字段抑制（method/class 声明名），迭代 27 扩展为**统一声明名抑制 5 规则**（全部 `.id` 判等，迭代 24 `===` 恒假教训）：① name 字段（保留原行为）；② `variable_declarator` children[0]（C# 无 name 字段——简单声明名已由迭代 25c assigned 覆盖冗余无害，真收益 = pattern 名）；③ pattern 名（C# `tuple_pattern`/TS `array_pattern` 的 identifier 子节点，限 depth-1——嵌套 pattern 不命中记局限）；④ C# `for_each_statement` `in` token **之前**的裸 identifier（`in` 之后集合 arr 是真读——位置判断防误伤，T1 锚）；⑤ TS/JS `catch_clause` 与 Python `as_pattern_target` 整类跳过（唯一 identifier 直接子节点即变量名，实证）
+- **任务前提修正**（审计实证）：迭代 26 残余「C# variable_declarator 声明名仍裸读」只对一半——迭代 25c 已把 variable_declarator 并入 C# assignmentTargets，**简单声明名 `var q = 1` 已由 assigned 检查抑制**；真裸读是 4 类构造（tuple_pattern 解构名 / foreach 变量 / TS-JS catch(e) / Python except-as e）
+- **② self[k]=1 弱键评估**（P3 记录不修）：写键产自 externalWritePos subscript 分支的 **params 短路**（self ∈ params → "self"），非 stateReadPos——修复点与迭代 26 容器语义裁决冲突（参数变异是外部），且只影响 stateDeps 元数据不进判定；顺带发现 TS `this[k]=v` 零写盲区（obj.type=this 漏过类型检查）P3 记录
+- **InitDeity 复扫验证**（--no-cache 只读）：无崩溃、秒级；耦合图 top 写方结构与迭代 26 一致（BuglyAgent 1888 System.⊤ / UICommon.Awake 1255 ICommonUI.⊤ / BreakThunder.Update 1231）——声明名抑制未引入新噪音、未扰动既有耦合信号（裸读本就不进 stateDeps——stateDepsOf 前缀匹配要求存在同名写者）
+- **测试 +4**（csharp-lang T1 C# tuple_pattern 解构名 + foreach 变量不裸读且集合 arr 读保留 / T2 TS catch 变量 + 解构声明名计数 / T3 Python except-as 变量不裸读且 Exception 类型名不动 / T4 JS catch 变量，修复前均失败——防回归有效），273/273 全绿
+- **复审（verify 节点）**：5 抑制规则全部经真实 web-tree-sitter 解析验证（4 语言 × 15 构造）；值读零误伤（tuple_expression≠tuple_pattern、array≠array_pattern 的 children[0] 位置守卫实证）；④ in 位置判断保留集合读；⑤ catch_clause 唯一 identifier 子节点 + C# typed catch 经 ① name 字段 + Python as_pattern_target 覆盖 except-as/except*-as/with-as 全部绑定目标；273/273 独立复跑 + tsc 0 + README 门禁 OK。无 blocker
+- **下轮待办（残余记录）**：① TS/JS object-pattern 声明名（`const {n: o} = obj` 的 o）与 for-of 解构名（`for (const [a,b] of pairs)`）仍裸读（迭代 26 既有行为，声明范围外）；② 方案 B（assignedNames 收 pattern 名连解构 use 读一起抑制）P3；③ Python `self[k]=1` 弱键 "self" + TS `this[k]=v` 零写盲区 P3；④ 读侧不对称（裸字段读不映射 self，需类型解析）

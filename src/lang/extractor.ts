@@ -202,9 +202,27 @@ export class Extractor {
       if (p && (p.type === "attribute" || p.type === "member_expression" ||
           p.type === "member_access_expression" || p.type === "conditional_access_expression" ||
           p.type === "member_binding_expression")) return [];
-      // 迭代26：声明名（def foo / function foo / method name）不是裸变量读——parent 的 name 字段
-      // 指向自身（.id 判等，iter24 教训：`===` 恒假）。参数名已由 params 排除，此抑制对参数冗余无害。
-      if (p && p.childForFieldName("name")?.id === node.id) return [];
+      // 迭代26-27：统一声明名抑制——声明名不是裸变量读（parent 的 name 字段指向自身、
+      // 或声明结构中的名字位置）。.id 判等（iter24 教训：`===` 恒假）。
+      const p2 = p;
+      // ① name 字段（def foo / function foo / C# method/catch_declaration name，迭代26）
+      if (p2 && p2.childForFieldName("name")?.id === node.id) return [];
+      // ② C# variable_declarator 无 name 字段——children[0] 即声明名位置（裸 identifier 或 pattern）。
+      //    简单名（var q=1）已被 assigned 覆盖（迭代25c），本规则对其冗余无害；真收益 = pattern 名。
+      if (p2 && p2.type === "variable_declarator" && p2.children[0]?.id === node.id) return [];
+      // ③ pattern 名：C# tuple_pattern / TS array_pattern 的直接 identifier 子节点（pattern 在声明名位置）
+      const pp = p2?.parent;
+      if (pp && pp.type === "variable_declarator" && pp.children[0]?.id === p2?.id &&
+          (p2?.type === "tuple_pattern" || p2?.type === "array_pattern")) return [];
+      // ④ C# foreach 变量：for_each_statement 的裸 identifier 直接子节点，且位于 `in` token 之前
+      //    （其后同名 identifier 是集合 arr——真读，不得抑制）。
+      if (p2 && p2.type === "for_each_statement") {
+        const kids = p2.children;
+        const inIdx = kids.findIndex((c) => c.type === "in");
+        if (inIdx >= 0 && kids.some((c, i) => c.id === node.id && i < inIdx)) return [];
+      }
+      // ⑤ 异常变量：TS/JS catch_clause 唯一 identifier 直接子节点；Python except as_pattern_target 的唯一 identifier
+      if (p2 && (p2.type === "catch_clause" || p2.type === "as_pattern_target")) return [];
       if (!chunk.params.includes(node.text) && !chunk.assigned.includes(node.text)) return [node.text];
       return [];
     }

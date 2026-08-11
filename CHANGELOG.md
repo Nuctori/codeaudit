@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — 迭代 22-26（真实校准 + 门禁 + 状态耦合图 + 效应表收紧 + 状态耦合精度修复 + C# 状态提取精度 + 声明名抑制/下标写）
+## [Unreleased] — 迭代 22-27（真实校准 + 门禁 + 状态耦合图 + 效应表收紧 + 状态耦合精度修复 + C# 状态提取精度 + 声明名抑制/下标写 + 声明名抑制收尾）
 
 ### 新增
 
@@ -25,6 +25,7 @@ C# `i++`/`this.x++` 写侧补全（postfix/prefix_unary_expression，仅认 ++/-
 C# 局部声明名并入 assigned（variable_declarator 进 assignmentTargets + children[0] fallback）——`int q=1; q*2` 不再假裸读
 声明名裸读抑制（跨全语言：def foo/function foo/C# method name 的声明名不再当外部变量读——`parent.childForFieldName("name")?.id === node.id`，.id 判等防迭代 24 === 恒假陷阱）
 下标/元素访问左值写可见（`arr[i]=v`/`this.arr[0]=x`/`d[k].x=v`——此前完全不可见 = 假纯缺陷）：容器位置语义（参数容器变异外部/self.items C# 门控/for 变量 assigned 局部）；`d[k].x=v` 与调用结果写 `f().x=v` 镜像读侧降级 `d.⊤`/`f.⊤`（方向安全）；InitDeity stateCoupling 5919→6591（+672 正确化揭示）
+声明名裸读抑制补齐（迭代 27：C# tuple_pattern 解构名 / C# foreach 变量（`in` 位置判断防集合误抑制）/ TS-JS catch 变量 / Python except-as 变量——统一 5 规则声明名抑制，全 `.id` 判等；嵌套 pattern depth-1 局限记录）
 
 ## [0.2.0] — 2026-08-11（生产就绪轮）
 
