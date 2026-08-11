@@ -58,9 +58,11 @@ for (const a of impact.affected) {
 基于现有关注点（纯度/链长/SCC/影响面/未知迷雾）的内生回归风险——零外部数据：
 
 ```bash
-codeaudit scan src --changed src/db.ts,src/api.ts
-# 回归风险 43.2/100 [MEDIUM]  （影响 0.41 纯度 0.60 环 0.00 深度 0.20 迷雾 0.33）
-#   改动 5 chunk / 受影响调用者 12 / L=0.73 C=0.25
+codeaudit scan src --changed src/engine/scan.ts
+# 回归风险 4.0/100 [LOW]  （影响 0.08 纯度 1.00 环 0.00 深度 0.00 迷雾 0.16 状态 0.00）
+#   改动 6 chunk / 受影响调用者 10 / L=1.00 C=0.04
+#   ➜ 低风险（<15）可合入——非零风险，留意影响面内调用者
+#   ⚠ 未知率过高——判定覆盖面不足，建议先标注再作结论
 ```
 
 - **六因子**（全部从扫描推导）：`impact`（反向可达闭包 ∪ 状态读者占比）、`purity`（纯度退化——key 稳定用退化矩阵、编辑/新增用现状纯度映射）、`cycle`（SCC 环内修改，平凡排除+对数压缩）、`depth`（效应链深，PURE/∞→0 饱和）、`fog`（正向影响面内 UNKNOWN 计数占比）、`state`（stateDeps 命中的读者占比——图调用边外耦合通道，迭代14）。

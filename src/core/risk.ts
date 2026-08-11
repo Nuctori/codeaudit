@@ -32,7 +32,7 @@ export function forwardClosure(
 	return out;
 }
 
-/** 五因子回归风险（L×C 模型，数学家评审裁决 2026-08-11）。 */
+/** 六因子回归风险（L×C 模型，数学家评审裁决 2026-08-11；R_state 迭代14 视角 1 入 L）。 */
 export interface ChangeRisk {
 	/** 归一化风险分 [0,100]；unmatchedFiles>0 时置 -1（不可评估）。 */
 	readonly risk: number;
