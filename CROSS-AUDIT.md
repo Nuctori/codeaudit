@@ -430,3 +430,12 @@ D-097（迭代 15 剩余工作执行——最简性+盲区+可解释性+极小�
 ### 决策链
 D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭环）
 
+
+## 迭代 18（真实项目驱动审计修复循环：旧宇宙标注工作流重播）
+
+- **漏检定位**（用户：以旧宇宙为例找工具没正确分析到的）：① os.environ.get → UNKNOWN（两级成员链只查末段）② Locust self.client.* → ?（框架模式缺失；self.client 是参数进 assigned 拦截 2.5 遮蔽守卫）③ PURE 标注移除 ? 不减 unknownSites → graphMetrics.unknownEdges/evidence.missingSiteRate 失真（实测标注后未知边不变）
+- **修复 3 项**：effectFromModule 两级成员链前缀回退（os.environ.get→io、os.path.join :p 保留）；Locust HTTP 客户端模式（python frameworkIo self→[client,session,http] 段级前缀 + link 分支 1 多级链放行 + 2.5 selfNames 豁免 assigned）；scan.ts PURE 标注同步减 unknownSites
+- **标注工作流重播**（用户：全标）：869 条（IMPURE 109/PURE 760：ApiClient._request IMPURE、NotImplementedError 占位 722 PURE、TDOpenHarmonyProxy 分析 SDK 108 IMPURE）→ unknown-rate **73.3%→14.4%**、unknownEdges 7940→6394；剩余 284 为动态分派诚实未知（self.api.* 设计边界）
+- **全图**：拓扑结构不变（标注不建边——判定层语义），未知边反映标注
+- 回归测试 4 例（iter18-real-driven），210/210
+
