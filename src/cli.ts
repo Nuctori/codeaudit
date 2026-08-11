@@ -2,6 +2,7 @@
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { scanProject } from "./index";
+import { riskOfChange } from "./core/risk";
 import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
 import { annotationBudget, annotationCurve } from "./core/influence";
 import { emptyCorpus, updateCorpus, priorFor, summarize, siteShapeInfo, isCorpus, PRIOR_THRESHOLD, type CorpusFile } from "./core/corpus";
@@ -15,12 +16,14 @@ interface CliArgs {
   corpus: string | null;
   noCache: boolean;
   strict: boolean;
+  /** 回归风险分析：改动文件集（--changed a.ts,b.py）。 */
+  changed: string[] | null;
 }
 
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
     dir: ".", format: "text", top: null, unknowns: null, annotations: null, corpus: null,
-    noCache: false, strict: false,
+    noCache: false, strict: false, changed: null,
   };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
@@ -37,6 +40,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--corpus") args.corpus = rest[++i]!;
     else if (a === "--no-cache") args.noCache = true;
     else if (a === "--strict") args.strict = true;
+    else if (a === "--changed") args.changed = (rest[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
     else if (a.startsWith("-")) {
       throw new Error("未知选项 " + a); // main().catch → exitCode 2
@@ -59,6 +63,7 @@ function printHelp(): void {
   --corpus <file>      标注语料文件（默认 .codeaudit/corpus.json；累积先验供 suggested_prompt）
   --no-cache           禁用增量缓存
   --strict             存在 IMPURE chunk 时退出码为 1
+  --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
   -h, --help           显示帮助
 `);
 }
@@ -140,6 +145,22 @@ async function main(): Promise<void> {
     cacheDir: resolve(root, ".codeaudit"),
     annotations,
   });
+
+  // 回归风险分析（--changed）：L×C 模型，五因子从扫描数据推导
+  if (args.changed !== null && args.changed.length > 0) {
+    const r = riskOfChange(report.verdicts, new Set(args.changed));
+    if (r.grade === "invalid") {
+      console.error(`codeaudit: 回归风险不可评估——${r.unmatchedFiles} 个改动文件未匹配任何 chunk（路径形态/无源码）`);
+    } else {
+      const f = r.factors;
+      console.log(
+        `回归风险 ${r.risk.toFixed(1)}/100 [${r.grade.toUpperCase()}]  ` +
+        `（影响 ${f.impact.toFixed(2)} 纯度 ${f.purity.toFixed(2)} 环 ${f.cycle.toFixed(2)} ` +
+        `深度 ${f.depth.toFixed(2)} 迷雾 ${f.fog.toFixed(2)}）`,
+      );
+      console.log(`  改动 ${r.changedChunks} chunk / 受影响调用者 ${r.affectedChunks} / L=${r.likelihood.toFixed(2)} C=${r.consequence.toFixed(2)}`);
+    }
+  }
 
   // 标注语料：加载（--corpus 或项目默认）→ 标注回读累积 → 保存（幂等去重）
   let corpus: CorpusFile = emptyCorpus();
