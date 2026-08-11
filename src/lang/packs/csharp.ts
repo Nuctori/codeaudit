@@ -160,6 +160,7 @@ const pureGlobals = new Set<string>([
 	"long",
 	"float",
 	"double",
+	"string", // C# builtin（迭代20）：string.IsNullOrWhiteSpace/Format/Concat 纯
 	"decimal",
 	"bool",
 	"char",

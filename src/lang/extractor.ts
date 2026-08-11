@@ -612,7 +612,8 @@ function flattenCallTarget(node: SyntaxNode): string | null {
     node.type === "property_identifier" ||
     node.type === "this" ||
     node.type === "this_expression" || // C#（迭代19）：this.gameObject 的 this 节点
-    node.type === "type_identifier"
+    node.type === "type_identifier" ||
+    node.type === "predefined_type" // C#（迭代20）：string/int/float 等 builtin 类型（string.IsNullOrWhiteSpace）
   ) {
     return node.text;
   }
