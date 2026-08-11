@@ -57,7 +57,18 @@ const impureModules: Record<string, Effect | readonly string[]> = {
     "thread_time:clock", "monotonic_ns:clock", "time_ns:clock", "perf_counter_ns:clock",
     "process_time_ns:clock", "thread_time_ns:clock", "mktime:p", "strptime:p"],
   random: "random",
-  tempfile: "fs", glob: "fs", pathlib: "fs", multiprocessing: "io",
+  tempfile: "fs", glob: "fs", multiprocessing: "io",
+  // pathlib 拆表（迭代21 F19——发散发现：整个模块标 fs 让纯路径操作（Path.name/parent/suffix）
+  // 判 IMPURE 毒化判别力）：纯成员 :p，io 成员 fs；未列成员落 ?（诚实）
+  pathlib: ["Path:p", "PurePath:p", "PurePosixPath:p", "PureWindowsPath:p", "PosixPath:p", "WindowsPath:p",
+    "Path.name:p", "Path.parent:p", "Path.parents:p", "Path.suffix:p", "Path.suffixes:p", "Path.stem:p",
+    "Path.parts:p", "Path.joinpath:p", "Path.with_name:p", "Path.with_suffix:p", "Path.relative_to:p",
+    "Path.resolve:p", "Path.absolute:p", "Path.cwd:p", "Path.home:p",
+    "Path.read_text:fs", "Path.read_bytes:fs", "Path.write_text:fs", "Path.write_bytes:fs",
+    "Path.unlink:fs", "Path.rmdir:fs", "Path.mkdir:fs", "Path.rename:fs", "Path.replace:fs",
+    "Path.stat:fs", "Path.exists:fs", "Path.is_file:fs", "Path.is_dir:fs", "Path.open:fs",
+    "Path.iterdir:fs", "Path.glob:fs",
+    "Path.touch:fs", "Path.symlink_to:fs", "Path.hardlink_to:fs", "Path.chmod:fs", "Path.readlink:fs"],
   threading: "io", asyncio: "io", select: "io", signal: "io",
   // 时钟读取（clock 类，与 time.time 判 io 同源）：datetime.now/utcnow/today/fromtimestamp/utcfromtimestamp
   datetime: ["now:clock", "today:clock", "utcnow:clock", "fromtimestamp:clock", "utcfromtimestamp:clock",
