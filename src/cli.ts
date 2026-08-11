@@ -150,7 +150,7 @@ async function main(): Promise<void> {
     annotations,
   });
 
-  // 回归风险分析（--changed）：L×C 模型，五因子从扫描数据推导
+  // 回归风险分析（--changed）：L×C 模型，六因子从扫描数据推导
   if (args.changed !== null && args.changed.length > 0) {
     // 路径语义：git diff 输出相对 cwd，chunk.file 相对 root——统一转相对 root
     const changedPaths = args.changed.map((p) => relative(root, resolve(p)).split(sep).join("/"));

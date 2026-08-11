@@ -62,8 +62,6 @@ export function proofCompleteness(
 
 	const theta =
 		totalWeight > 0 ? 1 - curve[curve.length - 1]! / totalWeight : 1;
-	// 全标后剩余（被 IMPURE 带 ? 源占住的 UNKNOWN 不计入 order）——gap 用曲线终点
-	const finalRemaining = curve[curve.length - 1]!;
 	const target = opts?.targetTheta;
 	let budgetToTarget: number | null = null;
 	if (target !== undefined) {
