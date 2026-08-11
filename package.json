@@ -3,6 +3,10 @@
   "version": "0.1.0",
   "description": "Cross-language code purity audit via effect-chain analysis",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Nuctori/codeaudit.git"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "exports": {
