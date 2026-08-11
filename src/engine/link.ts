@@ -576,22 +576,6 @@ function resolveCall(
       if (pack.hofCallsArgs.has(call.attr)) sink.addArgEdges(call.argFns, call.attr); // Array.from(xs, cb)
       return;
     }
-    // 全局类名解析（迭代19 C# 跨文件类调用）：obj=项目内类名 → 该类文件 → 类方法真边
-    // （File/GameObject 等已在上方效应表；此处处理项目自定义类——C# namespace 全局可见）
-    // 遮蔽守卫：调用方局部赋值或模块级重绑（conn = make_evil() 遮蔽 import）→ 不解析
-    // **语言隔离（迭代19 复审 F1）**：只解析同语言类——跨语言同名类不串味
-    const cls = globalClasses.get(call.obj);
-    if (cls && cls.length === 1 && cls[0]!.lang === pack.name &&
-        !caller.assigned.includes(call.obj) && !fi.moduleAssigned.has(call.obj)) {
-      const tf = files.get(cls[0]!.file);
-      if (tf) {
-        const q = `${call.obj}.${call.attr}`;
-        if (!tf.ambiguous.has(q)) {
-          const hit = tf.byQualified.get(q);
-          if (hit) { sink.addEdge(hit); return; }
-        }
-      }
-    }
   }
 
   // 5. 星号导入回退；其余裸名记未知，对象方法记动态分派
