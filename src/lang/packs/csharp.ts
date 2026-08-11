@@ -218,8 +218,16 @@ const builtinMethodReturns: Record<string, Record<string, string>> = {
 	},
 };
 
-/** 框架命名空间：Unity/游戏对象模式（gameObject.transform.* 等——第一版空，后续扩展）。 */
-const frameworkIo: Record<string, readonly string[]> = {};
+/** 框架命名空间（迭代19 C#/Unity）：this.gameObject/this.transform 等 MonoBehaviour 组件属性链
+ *  （obj=this、attr="gameObject.SetActive" 含 . → 分支 1 放行 → 2.5 前缀命中 → io/state 保守）。 */
+const frameworkIo: Record<string, readonly string[]> = {
+  this: [
+    "gameObject", "transform", "rigidbody", "collider", "renderer", "audio",
+    "animation", "animator", "camera", "light", "networkView", "terrain",
+    "particleSystem", "spriteRenderer", "meshRenderer", "canvas", "rectTransform",
+    "navMeshAgent", "characterController", "material", "shader",
+  ],
+};
 
 /** C# chunk 节点：类/方法/构造/局部函数。属性访问器第一版不建（自动属性无逻辑）。 */
 const chunkNodes = [
