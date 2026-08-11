@@ -23,12 +23,14 @@ interface CliArgs {
   topology: boolean;
   /** 效应源清单（--sources；chain=0 IMPURE——直接调 io/net/random/state 的"背锅者"，迭代16）。 */
   sources: boolean;
+  /** 效应表补表候选详情（--table-usage；迭代21 T8——missSlots top 15）。 */
+  tableUsage: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
     dir: ".", format: "text", top: null, unknowns: null, annotations: null, corpus: null,
-    noCache: false, strict: false, changed: null, topology: false, sources: false,
+    noCache: false, strict: false, changed: null, topology: false, sources: false, tableUsage: false,
   };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
@@ -47,6 +49,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--strict") args.strict = true;
     else if (a === "--topology") args.topology = true;
     else if (a === "--sources") args.sources = true;
+    else if (a === "--table-usage") args.tableUsage = true;
     else if (a === "--changed") args.changed = (rest[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
     else if (a === "--version" || a === "-v") { console.log(VERSION); process.exit(0); }
@@ -331,6 +334,13 @@ async function main(): Promise<void> {
           (sm.missSites > 0 ? ` / 咨询未中 ${sm.missSites} 站点（补表候选）` : "") +
           (sm.provablyDead > 0 ? ` / 结构性死条目 ${sm.provablyDead}` : ""),
         );
+        // --table-usage 详情（迭代21 T8：补表候选 top 15——降 unknown-rate 正路）
+        if (args.tableUsage && p.missSlots.length > 0) {
+          console.log(`  补表候选 top 15（module 未中 1:1 对应未知站点）:`);
+          for (const m of p.missSlots.slice(0, 15)) {
+            console.log(`    miss ${String(m.miss).padStart(5)} ${m.slot}`);
+          }
+        }
       }
     }
   }
