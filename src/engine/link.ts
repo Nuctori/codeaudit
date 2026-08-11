@@ -121,9 +121,10 @@ export function link(
     files.set(facts.file, { facts, pack, byQualified, ambiguous, bySimple, importMap, wildcards, chunkByKey, moduleAssigned });
   }
 
-  // 全局类名索引（迭代19 C# 跨文件类调用）：类 chunk 名 → (file, key) 列表——
-  // C# namespace 可见性让 obj=类名 可在任何文件解析（File/GameObject 等已在效应表，项目内类走此表）
-  const globalClasses = new Map<string, { file: string; key: string }[]>();
+  // 全局类名索引（迭代19 C# 跨文件类调用）：类 chunk 名 → (file, key, lang) 列表——
+  // C# namespace 可见性让 obj=类名 可在任何文件解析（File/GameObject 等已在效应表，项目内类走此表）。
+  // **语言隔离（迭代19 复审 F1）**：条目带 pack 名，解析时只查同语言——C# 类名撞 Python 类不串味
+  const globalClasses = new Map<string, { file: string; key: string; lang: string }[]>();
   for (const [file, fi] of files) {
     for (const rc of fi.facts.chunks) {
       if (rc.kind !== "class") continue;
@@ -131,7 +132,7 @@ export function link(
       const keys = fi.bySimple.get(rc.name);
       if (!keys || keys.length === 0) continue;
       const arr = globalClasses.get(rc.name) ?? [];
-      arr.push({ file, key: keys[0]! });
+      arr.push({ file, key: keys[0]!, lang: fi.pack.name });
       globalClasses.set(rc.name, arr);
     }
   }
@@ -309,7 +310,7 @@ function resolveCall(
   projectFiles: ReadonlySet<string>,
   resolveSymbol: (file: string, name: string, depth: number) => string | null,
   resolveMod: (pack: LangPack, module: string, fromFile: string) => string | null,
-  globalClasses: ReadonlyMap<string, { file: string; key: string }[]>,
+  globalClasses: ReadonlyMap<string, { file: string; key: string; lang: string }[]>,
   sink: Sink,
 ): void {
   const pack = fi.pack;
@@ -562,8 +563,10 @@ function resolveCall(
     // 全局类名解析（迭代19 C# 跨文件类调用）：obj=项目内类名 → 该类文件 → 类方法真边
     // （File/GameObject 等已在上方效应表；此处处理项目自定义类——C# namespace 全局可见）
     // 遮蔽守卫：调用方局部赋值或模块级重绑（conn = make_evil() 遮蔽 import）→ 不解析
+    // **语言隔离（迭代19 复审 F1）**：只解析同语言类——跨语言同名类不串味
     const cls = globalClasses.get(call.obj);
-    if (cls && cls.length === 1 && !caller.assigned.includes(call.obj) && !fi.moduleAssigned.has(call.obj)) {
+    if (cls && cls.length === 1 && cls[0]!.lang === pack.name &&
+        !caller.assigned.includes(call.obj) && !fi.moduleAssigned.has(call.obj)) {
       const tf = files.get(cls[0]!.file);
       if (tf) {
         const q = `${call.obj}.${call.attr}`;

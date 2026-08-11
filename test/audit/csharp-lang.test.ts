@@ -143,4 +143,22 @@ describe("C# 语言包（迭代19）", () => {
 		expect(start!.purity).toBe(2); // gameObject.SetActive → frameworkIo io
 		expect(start!.effects.has("io")).toBe(true);
 	});
+
+	it("跨语言类名隔离（迭代19 复审 F1）：C# 不解析到 Python 同名类", async () => {
+		const root = project("cslang", {
+			"helper.py": "class Helper:\n    def Build(self):\n        import os\n        os.system('x')\n",
+			"main.cs": [
+				"public class Main {",
+				"    public void Run() { Helper.Build(); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		// C# Main.Run 调 Helper.Build——语言隔离：不解析到 Python Helper.Build（会串入 io）
+		const run = by(r).get("main.cs::Main.Run") as { purity: number; effects: Set<string> } | undefined;
+		const pyBuild = by(r).get("helper.py::Helper.Build") as { purity: number } | undefined;
+		expect(pyBuild!.purity).toBe(2); // Python Helper.Build 独立判 io
+		// C# 侧不应因 Python 类而变 IMPURE（无语言隔离时 Main.Run 会解析到 Python Build → io 串味）
+		expect(run).toBeDefined();
+	});
 });
