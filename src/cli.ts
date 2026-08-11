@@ -307,6 +307,12 @@ async function main(): Promise<void> {
       (s.cachedFiles > 0 ? `, cached ${s.cachedFiles}` : "") +
       (s.parseErrors > 0 ? `, parse-errors ${s.parseErrors}` : ""),
     );
+    // 调用图完整度（发散 F21）：未知站点占比——用户投入标注前先知道"图的完整度"
+    const totalSites = report.verdicts.reduce((sum, v) => sum + v.chunk.calls.size + v.chunk.unknownSites, 0);
+    const missSites = report.verdicts.reduce((sum, v) => sum + v.chunk.unknownSites, 0);
+    if (totalSites > 0) {
+      console.log(`  图完整度：${(100 * (1 - missSites / totalSites)).toFixed(1)}% 调用点已解析（${missSites} 未知站点）`);
+    }
     let shown = report.verdicts.filter((v) => v.purity !== Purity.PURE);
     if (args.top !== null) shown = shown.slice(0, args.top);
     let lastGroup = "";
