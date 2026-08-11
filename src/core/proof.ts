@@ -37,15 +37,15 @@ export function proofCompleteness(
   const unknownKeys = new Set(verdicts.filter((v) => v.purity === Purity.UNKNOWN).map((v) => v.chunk.key));
   const total = unknownKeys.size;
 
-  // 加权：Fwd(c) 对候选源（自身含 ? 的 chunk——UNKNOWN 依赖其源）逐源 BFS
+  // 加权：每个 UNKNOWN chunk 单独的正向闭包大小 |Fwd(c)|（下游影响面权重——
+  // 传播枢纽未知 chunk 权重更高；联合源集 BFS 深度是错误语义，迭代2 修正）
   const fwdWeight = new Map<string, number>();
   let maxFwd = 0;
   if (opts?.weighted && total > 0) {
-    const sourceKeys = new Set(verdicts.filter((v) => v.chunk.calls.has("?")).map((v) => v.chunk.key));
-    const fwd = forwardClosure(verdicts, sourceKeys);
-    for (const [k, d] of fwd) {
-      fwdWeight.set(k, d + 1); // 深度+1 作权重（自身 1）
-      if (d + 1 > maxFwd) maxFwd = d + 1;
+    for (const k of unknownKeys) {
+      const w = forwardClosure(verdicts, new Set([k])).size;
+      fwdWeight.set(k, w);
+      if (w > maxFwd) maxFwd = w;
     }
   }
 
@@ -53,8 +53,6 @@ export function proofCompleteness(
   const totalWeight = opts?.weighted
     ? [...unknownKeys].reduce((s, k) => s + weightOf(k), 0)
     : total;
-
-  // 预算序：UNKNOWN 密集影响面（released∩unknownKeys）降序、总影响面平手、key 升序兜底（确定性）
   const order = [...unknownKeys].sort((a, b) => {
     const ra = (budget.released.get(a) ?? []).filter((x) => unknownKeys.has(x)).length;
     const rb = (budget.released.get(b) ?? []).filter((x) => unknownKeys.has(x)).length;
@@ -65,21 +63,23 @@ export function proofCompleteness(
     return a < b ? -1 : a > b ? 1 : 0;
   });
 
-  // 曲线：标注前缀后的剩余加权 UNKNOWN（复用 annotationCurve 的释放机制，但按权重计数）
-  const remaining = new Map<string, number>();
-  for (const k of unknownKeys) remaining.set(k, weightOf(k));
-  const curve: number[] = [totalWeight];
+  // 曲线：标注前缀后的剩余加权 UNKNOWN——复用 annotationCurve 的释放语义（deps 倒计时，
+  // w 的全部未知源标完才释放；源自含于 released(u)，标注自身即计一个源——迭代2 BLOCKER-1 修复）
+  const need = new Map<string, number>();
+  for (const k of unknownKeys) need.set(k, budget.deps.get(k) ?? 0);
+  let rem = 0;
+  for (const k of unknownKeys) rem += weightOf(k);
+  const curve: number[] = [rem];
   const annotated = new Set<string>();
-  let rem = totalWeight;
   for (const u of order) {
     if (annotated.has(u)) continue;
     annotated.add(u);
     for (const w of budget.released.get(u) ?? []) {
-      const cur = remaining.get(w);
-      if (cur !== undefined && !annotated.has(w)) {
-        remaining.set(w, 0);
-        rem -= cur;
-      }
+      const n = need.get(w);
+      if (n === undefined) continue;
+      const nn = n - 1;
+      need.set(w, nn);
+      if (nn === 0) rem -= weightOf(w);
     }
     curve.push(rem);
   }
@@ -91,11 +91,17 @@ export function proofCompleteness(
   const finalRemaining = curve[curve.length - 1]!;
   const target = opts?.targetTheta;
   let budgetToTarget: number | null = null;
-  if (target !== undefined && target > theta) budgetToTarget = null; // 目标高于可达
-  else if (target !== undefined) {
-    const limit = totalWeight * (1 - target);
-    for (let k = 0; k < curve.length; k++) {
-      if (curve[k]! <= limit) { budgetToTarget = k; break; }
+  if (target !== undefined) {
+    // 可达性：target 高于可达 θ（含浮点边界——BLOCKER-2 修复）→ null；否则取曲线首次 ≤ 阈值的位置
+    const finalRem = curve[curve.length - 1]!;
+    const reachable = target <= theta + 1e-9;
+    if (!reachable) budgetToTarget = null;
+    else {
+      const limit = totalWeight * (1 - target);
+      for (let k = 0; k < curve.length; k++) {
+        if (curve[k]! <= limit + 1e-9) { budgetToTarget = k; break; }
+      }
+      if (budgetToTarget === null && finalRem <= limit + 1e-9) budgetToTarget = order.length;
     }
   }
 

@@ -41,13 +41,14 @@ export interface ChangeRisk {
 		readonly purity: number; // R_purity：退化矩阵 D（key 稳定）∪ 现状纯度映射（key 变化）
 		readonly cycle: number; // R_cycle：I(|SCC|≥2)·log₂(1+|SCC|)/log₂(1+|C|)
 		readonly depth: number; // R_depth：PURE/∞→0，min(1, ch_audit/5)
-		readonly fog: number; // R_fog：Fwd∩UNKNOWN/全局UNKNOWN（计数单调）+ Δ 自身 unknownSites
+		readonly fog: number; // R_fog：Fwd∩UNKNOWN/全局UNKNOWN（计数单调，seed 已在 Fwd 内单计）
 	};
 	/** L×C 两轴（调试/报告用）。 */
 	readonly likelihood: number;
 	readonly consequence: number;
 	readonly maxReachable: number;
 	readonly changedChunks: number;
+	/** 反向闭包大小（**含 Δ 自身**——与 changedImpact.affectedChunks 的 depth≥1 口径不同，迭代2 文档化）。 */
 	readonly affectedChunks: number;
 	readonly unmatchedFiles: number;
 }

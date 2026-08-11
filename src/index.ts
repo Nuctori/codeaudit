@@ -53,3 +53,5 @@ export { changedImpact, annotationBudget, annotationCurve, influenceAnalysis, co
 export type { ChangeImpact, ImpactedChunk, AnnotationBudget, VerdictDelta } from "./core/influence";
 export { riskOfChange, forwardClosure, gradeOf } from "./core/risk";
 export type { ChangeRisk } from "./core/risk";
+export { proofCompleteness } from "./core/proof";
+export type { ProofCompleteness } from "./core/proof";

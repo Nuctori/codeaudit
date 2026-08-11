@@ -50,7 +50,21 @@ for (const a of impact.affected) {
 }
 ```
 
-导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` + 类型（`ChangeImpact`/`ImpactedChunk`/`Verdict`/`Chunk`/`ScanReport`/`LangPack`/`Purity`）。
+导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `riskOfChange` / `proofCompleteness` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` / `compareReports` + 类型（`ChangeImpact`/`ImpactedChunk`/`ChangeRisk`/`ProofCompleteness`/`VerdictDelta`/`Verdict`/`Chunk`/`ScanReport`/`LangPack`/`Purity`）。
+
+## 回归风险控制（`--changed`）
+
+基于现有关注点（纯度/链长/SCC/影响面/未知迷雾）的内生回归风险——零外部数据：
+
+```bash
+codeaudit scan src --changed src/db.ts,src/api.ts
+# 回归风险 43.2/100 [MEDIUM]  （影响 0.41 纯度 0.60 环 0.00 深度 0.20 迷雾 0.33）
+#   改动 5 chunk / 受影响调用者 12 / L=0.73 C=0.25
+```
+
+- **五因子**（全部从扫描推导）：`impact`（反向可达闭包占比）、`purity`（纯度退化——key 稳定用退化矩阵、编辑/新增用现状纯度映射）、`cycle`（SCC 环内修改，平凡排除+对数压缩）、`depth`（效应链深，PURE/∞→0 饱和）、`fog`（正向影响面内 UNKNOWN 计数占比）。
+- **聚合**：L×C 风险矩阵——`L = 1-(1-purity)(1-fog)`（正相关下可证明的保守上界）、`C = 0.5·impact+0.3·cycle+0.2·depth`（凸组合）、`Risk = 100·L·C`。阈值：<30 LOW / <60 MEDIUM / <85 HIGH / ≥85 CRITICAL。路径不匹配 → `invalid`（不可评估，不静默放行）。
+- **库 API**：`riskOfChange(verdicts, changedFiles, {oldVerdicts?})` / `forwardClosure` / `proofCompleteness(verdicts, {weighted?, targetTheta?})`（证明完整度 Θ + 标注预算序——annotationCurve 派生报告层，非新数学）。
 
 ## 输出解读
 
