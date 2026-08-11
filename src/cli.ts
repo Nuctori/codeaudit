@@ -169,18 +169,17 @@ async function main(): Promise<void> {
       );
       out(`  改动 ${r.changedChunks} chunk / 受影响调用者 ${r.affectedChunks} / L=${r.likelihood.toFixed(2)} C=${r.consequence.toFixed(2)}`);
       out(`  证据质量：未知率 ${(r.evidence.unknownRate * 100).toFixed(1)}% / parseError ${(r.evidence.parseErrorRate * 100).toFixed(1)}% / 未解析站点 ${(r.evidence.missingSiteRate * 100).toFixed(1)}%`);
-      // 可解释性（迭代15）：grade 该做什么 + 证据质量置信度提示
+      // 可解释性（迭代15）：grade 该做什么 + 证据质量置信度提示（视角 4 文本修正）
       const gradeAction: Record<string, string> = {
-        low: "可安全合入；留意影响面内调用者",
+        low: "低风险（<15）可合入——非零风险，留意影响面内调用者",
         medium: "建议先查受影响调用者（反向闭包）再合入",
         high: "需检查状态耦合与调用者行为；合入前人工复核",
-        critical: "高爆裂半径改动；阻止自动合入，需全链路验证",
-        invalid: "改动文件未匹配任何 chunk（路径形态/parseError）——不可评估，不静默放行",
+        critical: "高爆裂半径改动；建议阻止自动合入（无门禁，需流水线/人工执行），需全链路验证",
       };
       const action = gradeAction[r.grade] ?? "";
       out(`  ➜ ${action}`);
-      if (r.evidence.unknownRate > 0.5) out(`  ⚠ 未知率过高——判定可信度低，建议先标注再作结论`);
-      if (r.evidence.parseErrorRate > 0) out(`  ⚠ ${(r.evidence.parseErrorRate * 100).toFixed(0)}% 文件解析失败——指标低估结构复杂度`);
+      if (r.evidence.unknownRate > 0.5) out(`  ⚠ 未知率过高——判定覆盖面不足，建议先标注再作结论`);
+      if (r.evidence.parseErrorRate > 0) out(`  ⚠ ${(r.evidence.parseErrorRate * 100).toFixed(1)}% 文件解析失败——指标低估结构复杂度`);
       if (r.evidence.missingSiteRate > 0.5) out(`  ⚠ 未解析站点过半——图指标是下界，实际影响面可能更大`);
     }
   }
@@ -241,11 +240,11 @@ async function main(): Promise<void> {
         `自环 ${t.selfLoopCount} / 环 ${t.cyclicComponents} / 深度 ${t.dagDepth} / ` +
         `未知边 ${t.unknownEdges}`,
       );
-      if (t.density < 0.05) console.log(`  ➜ 近树结构，调用耦合低（密度 ${t.density.toFixed(3)}，完全图=1）`);
-      else if (t.density > 0.5) console.log(`  ➜ 高耦合调用图——改动易波及大面积调用者`);
+      if (t.density < 0.05) console.log(`  ➜ 已知边内近树、耦合低（密度 ${t.density.toFixed(3)}，完全图=1；${t.unknownEdges} 条未知边未计入）`);
+      else if (t.density > 0.5) console.log(`  ➜ 高耦合调用图——改动易波及大面积调用者（${t.unknownEdges} 条未知边未计入）`);
       if (t.selfLoopCount > 0) console.log(`  ➜ ${t.selfLoopCount} 个自递归 chunk（自我调用——重构时注意终止性）`);
       if (t.cyclicComponents > 0) console.log(`  ➜ ${t.cyclicComponents} 个循环依赖（SCC>1——初始化/销毁顺序风险）`);
-      if (t.dagDepth > 0) console.log(`  ➜ 最长调用链 ${t.dagDepth} 层（效应传染最深处）`);
+      if (t.dagDepth > 0) console.log(`  ➜ 调用图最深路径 ${t.dagDepth} 层（结构深度——效应传染深度看 chain 列）`);
     }
     console.log(
       `codeaudit ${VERSION} — ${s.chunks} chunks, ${s.files} files, ` +
