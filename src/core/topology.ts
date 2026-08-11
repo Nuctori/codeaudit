@@ -75,7 +75,10 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 			),
 		);
 	}
-	const comps = tarjan(verdicts.map((v) => v.chunk.key), edgeSet);
+	const comps = tarjan(
+		verdicts.map((v) => v.chunk.key),
+		edgeSet,
+	);
 	const compOf = new Map<string, number>();
 	comps.forEach((comp, c) => comp.forEach((k) => compOf.set(k, c)));
 	const cyclicComponents = comps.filter((c) => c.length > 1).length;
@@ -87,7 +90,8 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 		for (const t of v.chunk.calls) {
 			if (t === UNKNOWN_TARGET || t === v.chunk.key) continue;
 			const tc = compOf.get(t);
-			if (tc !== undefined && tc !== c && !succComp[c]!.includes(tc)) succComp[c]!.push(tc);
+			if (tc !== undefined && tc !== c && !succComp[c]!.includes(tc))
+				succComp[c]!.push(tc);
 		}
 	}
 	const depth: number[] = comps.map(() => 0);
@@ -102,7 +106,8 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 
 	// 层直方图（源=0；倒扫：caller 分量下标 > callee）
 	const predComp: number[][] = comps.map(() => []);
-	for (let c = 0; c < comps.length; c++) for (const s of succComp[c]!) predComp[s]!.push(c);
+	for (let c = 0; c < comps.length; c++)
+		for (const s of succComp[c]!) predComp[s]!.push(c);
 	const level: number[] = comps.map(() => 0);
 	for (let c = comps.length - 1; c >= 0; c--) {
 		if (predComp[c]!.length === 0) continue;
@@ -118,7 +123,8 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 
 	// chain 直方图（∞ 单列桶）
 	let maxFinite = 0;
-	for (const v of verdicts) if (v.chain !== Infinity && v.chain > maxFinite) maxFinite = v.chain;
+	for (const v of verdicts)
+		if (v.chain !== Infinity && v.chain > maxFinite) maxFinite = v.chain;
 	const chainHistogram: number[] = new Array(maxFinite + 1).fill(0);
 	let chainInf = 0;
 	for (const v of verdicts) {
@@ -130,7 +136,8 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 	const uncertain = verdicts.filter((v) => !v.chainCertain).length;
 	const parseErr = verdicts.filter((v) => v.chunk.parseError).length;
 	let totalSites = 0;
-	for (const v of verdicts) totalSites += v.chunk.calls.size + v.chunk.unknownSites;
+	for (const v of verdicts)
+		totalSites += v.chunk.calls.size + v.chunk.unknownSites;
 
 	return {
 		nodes: n,
@@ -146,7 +153,7 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 		evidence: {
 			unknownRate: n > 0 ? uncertain / n : 0,
 			parseErrorRate: n > 0 ? parseErr / n : 0,
-			missingSiteRate: totalSites > 0 ? (unknownEdges / totalSites) : 0,
+			missingSiteRate: totalSites > 0 ? unknownEdges / totalSites : 0,
 		},
 	};
 }
