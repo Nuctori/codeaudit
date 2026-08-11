@@ -75,7 +75,7 @@ codeaudit scan src --changed src/engine/scan.ts
 ## 输出解读
 
 ```
-codeaudit 0.1.0 — 20 chunks, 7 files, unknown-rate 5.0%, cycles 1
+codeaudit 0.2.0 — 20 chunks, 7 files, unknown-rate 5.0%, cycles 1
 
 IMPURE
   chain=   4  {io}       handle_request               api.py:5
