@@ -315,8 +315,7 @@ const nestingNodes = [
 const selfNames = ["this", "base"];
 const assignmentTargets = [
 	"assignment_expression",
-	"local_declaration_statement",
-	"variable_declaration",
+	"variable_declarator",
 ];
 const hofCallsArgs = new Set<string>();
 const hofAlwaysArgs = new Set<string>();

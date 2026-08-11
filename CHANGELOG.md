@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — 迭代 22-24（真实校准 + 门禁 + 状态耦合图 + 效应表收紧 + 状态耦合精度修复）
+## [Unreleased] — 迭代 22-25（真实校准 + 门禁 + 状态耦合图 + 效应表收紧 + 状态耦合精度修复 + C# 状态提取精度）
 
 ### 新增
 
@@ -19,6 +19,10 @@
 stateReadPos 节点同一性 `===`→`.id`（web-tree-sitter 每次属性访问返回新节点对象，`===` 恒假——「调用目标排除」「赋值左值跳过」自迭代 8 起死代码，跨语言修复）：`user.save()` 不再计入 stateReads、`user.status = x` 不再同时写+读
 C# 成员节点覆盖（member_access_expression/conditional_access_expression 进 stateReadPos 过滤 + 调用 parent 补 invocation_expression/object_creation_expression + 子标识符抑制）：InitDeity instance 写方读者 2633→1005（−62%）；C# 字段读位置从「永不产生」到正确
 externalWritePos 写侧对偶（C# `this.x = v` 字段写可见——此前完全不可见）：`transform.position = x` 正确判 state，UNKNOWN 28.1%→25.0%（正确化）
+C# 对象初始化器属性写不再裸写全局（`new C { A = v }` 非外部状态写——Quest12* 1949 假读者源头消除）
+C# 类字段裸写收敛 self 语义（`score = v` → `self.score` 而非全局裸名——ConfigSingleMenu 2674→903 读者，−66%）
+C# `i++`/`this.x++` 写侧补全（postfix/prefix_unary_expression，仅认 ++/-- 操作符——`!x`/`-x` 是读不误写，字段自增方法不再假纯）
+C# 局部声明名并入 assigned（variable_declarator 进 assignmentTargets + children[0] fallback）——`int q=1; q*2` 不再假裸读
 
 ## [0.2.0] — 2026-08-11（生产就绪轮）
 

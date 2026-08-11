@@ -476,3 +476,13 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **测试 +3**（csharp-lang T1 调用目标不产生 stateRead / T2 字段读保留 / T3 字段写可见，修复前均失败——防回归有效），261/261 全绿
 - **工具盲区处置**：① 提取层死代码**已闭环**（本迭代最大正确性收益）；② C# 对象初始化器属性名裸写（Quest12 1949 读者）/ 类字段名裸写（ConfigSingleMenu 2674 读者）——类作用域字段应 self.x 语义，待下轮；③ C# 局部声明名/方法名裸读（assignedNames 对 C# 无效——variable_declarator 未列入）、`this.x++` 写不可见——既有噪音，记录待办
 - **复审（verify 节点）**：根因修复实证通过（web-tree-sitter 语义 + AST dump + 端到端探针）；conditional_access 全链排除；JS/Python 回归（user.save() 不再读、user.status 读保留）；261/261 独立复跑 + tsc 0 + README 门禁 OK。无 blocker
+
+## 迭代 25（C# 状态提取精度：对象初始化器 / 类字段 self / 局部声明 / ++ 写补）
+
+- **真实项目驱动**（迭代 24 残余待办处置）：--state 实战揭示 C# 写侧三类假/漏——① 对象初始化器属性名裸写（Quest12* 1949 读者源头：`new C { A = v }` 的 initializer_expression 内 assignment_expression 触发外部写）② C# 类字段裸写 = 全局裸名（ConfigSingleMenu 2674 读者：`score = v` 无 this 前缀 → 外部写 "score"，与全库同名裸读假耦合）③ `this.x++`/`i++` 写不可见（postfix/prefix_unary_expression 不在 stateWritePos——字段自增方法被标纯，**假纯缺陷**）
+- **修正任务前提**（审计实证）：declaredNames 已覆盖 C#（真正失效的是 assignedNames——C# variable_declarator 无 name/left 字段且未列入 assignmentTargets，局部声明名从不入 assigned → stateReadPos 裸读分支对局部失效）
+- **修复**（全部 C# 门控零跨语言风险）：b 对象初始化器跳过（initializer_expression parent 检查，集合/匿名/数组/with 已证不触发）；d ++/-- 写侧补（**仅认 ++/-- 操作符**——`!x`/`-x`/`~x` 同为 prefix_unary_expression 但语义是读，误判会产 1450 假读者，RemoveWhere 假耦合清零实证）；c variable_declarator→assigned（children[0] fallback 仅 C# 触发，TS/JS 有 name 字段不触发）；a C# 类字段写→self.attr（inClassMemberBody 祖先爬：method/constructor→true，local_function/lambda/class→false——不用 ownerClass 因它对 local_function 也非 null）
+- **InitDeity 复扫验证**（--no-cache 只读）：stateCoupling 6860→**5919**（−14%）；ConfigSingleMenu.DoParse 读者 2674→903（−66%，类字段写收敛 self 语义）；bare SegmentId/Name 裸写**清零**（Quest12 1949 读者源头消除）；PURE/IMPURE/UNKNOWN 8059/10545/5195→8106/10232/5461 方向一致（++ 写补→state 增、假裸写消→PURE 微升）；残余 top 读者均为真实耦合（PushStone self.hasInit 1139 / Demo_Shaders self.zoomFactor 1136）
+- **测试 +4**（csharp-lang T1 初始化器不污染全局 / T2 ++写可见且局部不含 / T3 局部声明不假裸读 / T4 字段写 self 非全局 + 局部函数捕获不误映射，修复前均失败——防回归有效），265/265 全绿
+- **工具盲区处置**：① 对象初始化器/类字段裸写**已闭环**（本迭代）；② 读侧不对称（裸字段读不映射 self，需类型解析——精度/召回权衡，purity 判定不受影响）→ 待办；③ lambda 参数名裸读（声明名裸读抑制）、element_access 左值写 → 记录待办
+- **复审（verify 节点）**：逐项实证 a/b/c/d（declared/params 短路顺序、fallback 触发条件、isIncDec 操作符白名单、TS update_expression 未动）；修复前 T1-T4 4 败验证防回归有效；265/265 独立复跑 + tsc 0 + README 门禁 OK。无 blocker

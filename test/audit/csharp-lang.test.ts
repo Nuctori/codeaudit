@@ -247,4 +247,82 @@ describe("C# 语言包（迭代19）", () => {
 		expect(bump!.purity).toBe(2); // IMPURE（state 写）
 		expect(bump!.effects.has("state")).toBe(true);
 	});
+
+	it("迭代25 T1：C# 对象初始化器属性写不产生外部写（new C { A = v } 非状态写）", async () => {
+		const root = project("obj-init", {
+			"C.cs": [
+				"public class Config {",
+				"    public int SegmentId;",
+				"    public string Name;",
+				"    public static Config Make(int v) { return new Config { SegmentId = v, Name = \"a\" }; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const make = by(r).get("C.cs::Config.Make") as { chunk: { stateWrites: string[] } } | undefined;
+		expect(make).toBeDefined();
+		// 修复前：initializer_expression 内 assignment_expression → 裸写 "SegmentId"/"Name"（伪外部状态写，
+		// Quest12* 1949 读者机制源头）；修复后：新对象属性初始化非外部状态写 → 不产生
+		expect(make!.chunk.stateWrites).not.toContain("SegmentId");
+		expect(make!.chunk.stateWrites).not.toContain("Name");
+	});
+
+	it("迭代25 T2：C# ++ 写可见（this.x++ → self.x 写；i++ 局部不写）", async () => {
+		const root = project("increment", {
+			"I.cs": [
+				"public class Counter {",
+				"    public int score;",
+				"    public int x;",
+				"    public void Bump() { score++; ++score; this.x++; int i = 0; i++; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const bump = by(r).get("I.cs::Counter.Bump") as { chunk: { stateWrites: string[] } } | undefined;
+		expect(bump).toBeDefined();
+		// 修复前：postfix/prefix_unary_expression 无写侧 → 自增字段方法被标纯（假纯）；
+		// 修复后：this.x++ → "self.x"；裸 score++ / ++score（类字段）→ "self.score"；i++ 局部 → 无写
+		expect(bump!.chunk.stateWrites).toContain("self.x");
+		expect(bump!.chunk.stateWrites).toContain("self.score");
+		expect(bump!.chunk.stateWrites).not.toContain("i");
+	});
+
+	it("迭代25 T3：C# 局部声明名不假裸读（variable_declarator 入 assigned）", async () => {
+		const root = project("local-decl", {
+			"L.cs": [
+				"public class L {",
+				"    public int M() { int q = 1; int r = q * 2; return r; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const m = by(r).get("L.cs::L.M") as { chunk: { stateReads: string[] } } | undefined;
+		expect(m).toBeDefined();
+		// 修复前：variable_declarator 不在 assigned → q/r 假裸读；修复后：声明名入 assigned → 抑制
+		expect(m!.chunk.stateReads).not.toContain("q");
+		expect(m!.chunk.stateReads).not.toContain("r");
+	});
+
+	it("迭代25 T4：C# 类作用域裸字段写 → self.attr（非全局裸名；局部函数捕获不映射）", async () => {
+		const root = project("bare-field", {
+			"S.cs": [
+				"public class Service {",
+				"    public int score;",
+				"    public void Set(int v) { score = v; int l = 0; l = 5; }",
+				"    public void Outer() { int c = 0; void Inner() { c = 2; } }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const set = by(r).get("S.cs::Service.Set") as { chunk: { stateWrites: string[] } } | undefined;
+		expect(set).toBeDefined();
+		// 修复前：裸写 "score"（全局裸名 → 与全库任何裸读 score 假耦合）；修复后：self.score
+		expect(set!.chunk.stateWrites).toContain("self.score");
+		expect(set!.chunk.stateWrites).not.toContain("score");
+		expect(set!.chunk.stateWrites).not.toContain("l"); // 局部声明+重赋值 → 无写
+		const outer = by(r).get("S.cs::Service.Outer") as { chunk: { stateWrites: string[] } } | undefined;
+		expect(outer).toBeDefined();
+		// 局部函数捕获方法局部 c → 不映射 self.c（与 TS 闭包语义一致——裸外部写）
+		expect(outer!.chunk.stateWrites).not.toContain("self.c");
+	});
 });

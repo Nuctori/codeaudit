@@ -158,6 +158,9 @@ export class Extractor {
     if (node.type === "assignment" || node.type === "augmented_assignment" ||
         node.type === "assignment_expression" || node.type === "augmented_assignment_expression") {
       // TS/JS：x = y → assignment_expression；x += y → augmented_assignment_expression（迭代8 F1）
+      // 迭代25：C# 对象初始化器（new C { A = v }）——新鲜对象属性初始化，非外部状态写。
+      // TS/JS 对象字面量是 pair 节点、从不触发写分支；Python dict 同理——本跳过是对齐语义。
+      if (node.parent?.type === "initializer_expression") return [];
       const left = node.childForFieldName("left") ?? node.children[0];
       const pos = this.externalWritePos(left, chunk);
       return pos !== null ? [pos] : [];
@@ -165,6 +168,16 @@ export class Extractor {
     if (node.type === "update_expression") {
       // TS：this.x++ / this.x--
       const arg = node.childForFieldName("argument") ?? node.children[0];
+      const pos = this.externalWritePos(arg, chunk);
+      return pos !== null ? [pos] : [];
+    }
+    if (node.type === "postfix_unary_expression" || node.type === "prefix_unary_expression") {
+      // 迭代25：C# i++ / this.x++ / ++i。操作数是唯一 named 子节点（++/-- 是匿名 token）；
+      // 不用 children[0]（prefix 的 children[0] 是 `++`）——web-tree-sitter 引用比较恒真（iter24 教训）。
+      // 注意：!x / -x / ~x 同为 prefix_unary_expression 但语义是**读**（逻辑非/取负）——只认 ++/-- 操作符。
+      const isIncDec = node.children.some((c) => c.text === "++" || c.text === "--");
+      if (!isIncDec) return [];
+      const arg = node.children.find((c) => c.isNamed) ?? null;
       const pos = this.externalWritePos(arg, chunk);
       return pos !== null ? [pos] : [];
     }
@@ -362,6 +375,11 @@ export class Extractor {
       if (this.pack.name === "python") return null;
       if (chunk.declared.includes(left.text)) return null; // 局部声明（let y = 0; y = 5）
       if (chunk.params.includes(left.text)) return null; // 参数重绑（F2）
+      // 迭代25：C# 类成员方法内裸字段写（score = v）→ self.score（类内状态，非全局裸名）。
+      // 边界：最近函数状祖先是 method/constructor_declaration 才成立——C# 无全局变量，
+      // 方法内可裸写的名字只有 局部(declared)/参数(params)/字段属性/静态字段，后两者即 self 语义；
+      // local_function_statement 排除：捕获外层局部时语义等同 TS 闭包（裸外部写，与 TS 一致）。
+      if (this.pack.name === "csharp" && this.inClassMemberBody(left)) return `self.${left.text}`;
       return left.text; // TS/JS 裸标识符写 = 外部
     }
     const readTarget = (obj: SyntaxNode | null | undefined, attr: string | null | undefined): string | null => {
@@ -391,6 +409,21 @@ export class Extractor {
       return readTarget(obj, attr?.text);
     }
     return null;
+  }
+
+  /** C# 类成员方法体判定：最近函数状祖先 ∈ {method_declaration, constructor_declaration}。
+   *  class_declaration 本体（kind="class"）→ false（字段声明级写由 declared 短路，不需 self）。
+   *  local_function_statement/lambda/anonymous 排除：捕获外层局部时语义等同 TS 闭包（裸外部写）。 */
+  private inClassMemberBody(node: SyntaxNode | null | undefined): boolean {
+    let p = node?.parent;
+    while (p !== null && p !== undefined) {
+      if (p.type === "method_declaration" || p.type === "constructor_declaration") return true;
+      if (p.type === "local_function_statement" || p.type === "lambda_expression" ||
+          p.type === "anonymous_method_expression" || p.type === "class_declaration" ||
+          p.type === "struct_declaration" || p.type === "interface_declaration") return false;
+      p = p.parent;
+    }
+    return false;
   }
 
   /** 状态写检测：self.x = / this.x = / global、nonlocal 声明 → state 效应。 */
@@ -563,7 +596,9 @@ export class Extractor {
           isRequireDecl = !!fn && fn.type === "identifier" && fn.text === "require";
         }
         if (!isRequireDecl) {
-          const left = n.childForFieldName("left") ?? n.childForFieldName("name");
+          // 迭代25：C# variable_declarator 无 name 字段（名字是裸 identifier 子节点）→ children[0] fallback；
+          // TS/JS variable_declarator 有 name 字段、assignment_expression 有 left 字段 → fallback 不触发。
+          const left = n.childForFieldName("left") ?? n.childForFieldName("name") ?? n.children[0] ?? null;
           if (left && (left.type === "identifier" || left.type === "property_identifier")) {
             out.push(left.text);
           }
