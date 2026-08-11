@@ -269,7 +269,11 @@ const frameworkIo: Record<string, readonly string[]> = {
   // 纯类型进前缀会假 IMPURE 毒化判别力——F19；纯类落 ? 诚实）
   System: [
     "Console", "Environment", "Diagnostics", "IO", "Net", "Data", "Threading",
-    "Process", "GC", "Reflection", "Text", "Globalization", "Runtime", "RuntimeTypeHandle",
+    "Process", "GC",
+    // 迭代23 收紧：Reflection/Text/Globalization/Runtime/RuntimeTypeHandle 移除——
+    // 反射元数据读（GetTypeInfo/GetCustomAttribute）纯读取、Text 纯计算、Globalization 文化数据读、
+    // Runtime 服务非 io（P/Invoke Marshal 例外落 UNKNOWN 非假纯）；移除后这些调用落 ? → UNKNOWN
+    // （audit 公理 3：? 构成效应源，绝不假纯），可标注确证（方案 A，设计见 docs/iter23/frameworkio-design.md）
   ],
   // UnityEngine 命名空间前缀（迭代21 T4：missSlots global:UnityEngine 265 驱动）——只列 io/state 类
   UnityEngine: [

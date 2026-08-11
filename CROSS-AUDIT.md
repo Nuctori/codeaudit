@@ -448,7 +448,6 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **DAG 生产就绪**：T1 forks 池、T2 标注护栏、T3 真实 fixture（8 文件 8 断言）、T4 missSlots 补表（nameof/System/UnityEngine 前缀）、T5 链式诚实结论（设计边界）、T6 resolveCall 拆分
 - InitDeity：unknown 8159→5761（工具+标注-29%）、226/226
 
-
 ## 迭代 22（真实校准 + 合入门禁 + InitDeity 重构验证）
 
 - **F9 分层基率落地**（pipeline.md 四/六兑现，corpus 面 API 首度导出）：`fitBaseRate(corpora)` → `BaseRateModel{mu,kappa,projects}`——μ 加权均值（**不纯率**语义，与 GLOBAL_THETA0=0.25 同口径裁决）、κ=μ(1−μ)/Var−1 方差反解、冷启动 `projects<2 → {mu:0.25,kappa:12,projects:0}`（含 []/单项目/空项目）；`priorFor(corpus, site, baseRate?)` 第三参（`baseRate?.mu ?? 0.25`，缺省路径逐位兼容）；index.ts 补齐 `emptyCorpus/updateCorpus/mergeCorpus/summarize/siteShapeInfo/isCorpus` 导出
@@ -457,3 +456,11 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **InitDeity 安全重构验证**（真实工程经验回流，严格限定审计清单内 2 项，未触碰 156 脏文件之外任何文件）：① SRList(IEnumerable) 构造器去 AddRange 内部环（一次性 List.ToArray 拷贝，语义等价论证）——chain 3→0，内部 3 环消除，字段写仍判 direct state；② ScreenShake.TestShake 删除（Vfx_Test 手测残留）——chunks 23800→23799、IMPURE 9449→9448；复扫对比 PURE 8590 不变
 - **工具盲区（下轮待办）**：① **ConvertToString ×47 direct io 假阳**——frameworkIo.System 前缀表含 Reflection/Runtime/Globalization，纯反射元数据读取被标 io（全库最大单类假阳，修复方向：收紧前缀或方法名白名单）；② 纯数据结构构造器字段写判 state（假 IMPURE，方向安全，效应表口径已知保守）；③ **基线不可复现**——2654 条标注文件丢失，无标注口径 UNKNOWN 5761 vs 基线 3449，需归档标注文件或接受无标注基线为新基准
 - **复审（verify 节点 4 轮独立复验）**：**BLOCKER 发现并修复**——impl 的 `--gate` 分支曾替换 `--topology` 分支（--topology 变未知选项 exit 2），主会话恢复三独立分支并补 CLI 回归测试「--topology 旗标仍可用」；fitBaseRate 数学 4 轮独立手算对拍逐位一致（T1 μ=0.6/κ=3.08510638；InitDeity 双项目 μ=0.56156/κ≈133.8）；247/247 全绿（24 文件）+ tsc 0 + README 门禁 OK
+
+## 迭代 23（状态耦合图 + 效应表收紧）
+
+- **状态耦合图（D-127，用户建议落地）**：`--state` 旗标输出 write→readers 映射——`stateCouplingOf(verdicts)` 纯函数反查 verdict.stateDeps（零重复传播、无双真值源；不重复调 stateDepsOf）；text 模式 top 15 按读者数降序 + 超限注记，json 顶层 `stateCoupling` additive（不破坏现有 schema）；⊤ 降级条目暴露 + text 注记；零读者写方不输出、空图 `[]`/「无」；与 risk R_state 的差异文档化（改动集视角 vs 全图视角）；stateDeps 盲区（下标写/调用结果写/项目外写者）→ 耦合图是**下界**，README 已知限制已文档化
+- **frameworkIo.System 收紧（迭代 22 工具盲区①处置）**：删 5 条目（`Reflection`/`Text`/`Globalization`/`Runtime`/`RuntimeTypeHandle`），保留 9（Console/Environment/Diagnostics/IO/Net/Data/Threading/Process/GC）；移除后全限定 System.* 调用落 UNKNOWN 非 PURE（audit 公理 3，绝不假纯；MethodInfo.Invoke 双保险不假纯）
+- **InitDeity 复扫验证（--no-cache 只读）**：ConvertToString ×47 direct-io **47→0**、purity 全 IMPURE→UNKNOWN；全库 IMPURE 9449→9349（−100）、UNKNOWN 5761→5860（+99 守恒）、PURE 8590 不变——收紧只消除假 io 零误伤（其余 53 个为 Text/Globalization/Runtime 类调用点同类假阳）
+- **工具盲区处置**：① ConvertToString ×47 假阳**已闭环**（本迭代）；② 纯数据结构构造器字段写判 state（方向安全，效应表口径已知保守，记录不修）；③ 基线不可复现（标注文件丢失）→ 待办
+- **复审（verify 节点）**：**BLOCKER 二次再现并修复**——`--state` 分支整行替换 `--table-usage` 分支（迭代 22 `--gate` 顶 `--topology` 同款 bug）；恢复 + **根因护栏**「全部布尔旗标可解析」CLI 回归测试（--strict/--topology/--sources/--state/--table-usage 逐一冒烟，顶替即 exit 2 失败）防三次复发；MEDIUM 修正——新增 csharp-lang 用例改全限定 `System.Reflection.*`（参数接收者不触达 obj="System" 前缀路径，修复前也通过=无效测试）；258/258 全绿（26 文件）+ tsc 0 + README 门禁 OK

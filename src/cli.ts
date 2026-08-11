@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { scanProject } from "./index";
 import { riskOfChange, gateExit } from "./core/risk";
 import { graphMetrics } from "./core/topology";
+import { stateCouplingOf } from "./core/state";
 import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
 import { annotationBudget, annotationCurve, annotationCompare, unknownKeysOf } from "./core/influence";
 import { emptyCorpus, updateCorpus, priorFor, summarize, siteShapeInfo, isCorpus, PRIOR_THRESHOLD, type CorpusFile } from "./core/corpus";
@@ -19,6 +20,8 @@ interface CliArgs {
   strict: boolean;
   /** 合入门禁（--gate；与 --changed 联用：grade ≥ high → exit 1）。 */
   gate: boolean;
+  /** 状态耦合图（--state；迭代23 D-127：写方按读者数排序，全图耦合链）。 */
+  state: boolean;
   /** 回归风险分析：改动文件集（--changed a.ts,b.py）。 */
   changed: string[] | null;
   /** 拓扑健康度（--topology；迭代14 视角 3）。 */
@@ -32,7 +35,7 @@ interface CliArgs {
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
     dir: ".", format: "text", top: null, unknowns: null, annotations: null, corpus: null,
-    noCache: false, strict: false, gate: false, changed: null, topology: false, sources: false, tableUsage: false,
+    noCache: false, strict: false, gate: false, state: false, changed: null, topology: false, sources: false, tableUsage: false,
   };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
@@ -52,6 +55,7 @@ function parseArgs(argv: string[]): CliArgs {
     else if (a === "--gate") args.gate = true;
     else if (a === "--topology") args.topology = true;
     else if (a === "--sources") args.sources = true;
+    else if (a === "--state") args.state = true;
     else if (a === "--table-usage") args.tableUsage = true;
     else if (a === "--changed") args.changed = (rest[++i] ?? "").split(",").map((s) => s.trim()).filter(Boolean);
     else if (a === "--help" || a === "-h") { printHelp(); process.exit(0); }
@@ -82,6 +86,7 @@ function printHelp(): void {
   --no-cache           禁用增量缓存
   --topology           拓扑健康度：密度/环/深度/自环 + 人类解读（json 模式顶层加 topology 字段）
   --sources            效应源清单：chain=0 IMPURE——直接调 io/net/random/state 的源头（背锅者，按调用点排序）
+  --state              状态耦合图：写方按读者数排序（json 模式顶层加 stateCoupling）
   --strict             存在 IMPURE chunk 时退出码为 1
   --gate               与 --changed 联用：grade ≥ high（风险≥35）时退出码 1（合入门禁；invalid 不放行）
   --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
@@ -280,7 +285,12 @@ async function main(): Promise<void> {
             .map((v) => ({ name: v.chunk.name, file: v.chunk.file, line: v.chunk.line, calls: v.chunk.calls.size })),
         }
       : payload;
-    console.log(JSON.stringify(payload2, (k, v) =>
+    // --state：json 顶层加状态耦合链（迭代23 D-127；与 sources/topology 同款 additive——
+    // 全量不过滤，消费端自己 slice；空图给 [] 不省略字段（schema 稳定优于省字节））
+    const payload3 = args.state
+      ? { ...payload2, stateCoupling: stateCouplingOf(report.verdicts) }
+      : payload2;
+    console.log(JSON.stringify(payload3, (k, v) =>
       v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v, 2));
   } else {
     const s = report.stats;
@@ -314,6 +324,30 @@ async function main(): Promise<void> {
         );
       }
       if (srcs.length > (args.top ?? 15)) console.log(`  … 共 ${srcs.length} 个（--top N 查看更多）`);
+    }
+    if (args.state) {
+      // 状态耦合图（迭代23 D-127）：写方按读者数降序，top 15——架构热点"谁写、谁读、哪个写方扩散面最大"
+      const couplings = stateCouplingOf(report.verdicts);
+      if (couplings.length === 0) {
+        console.log(`\n状态耦合：无（无项目内写方或读者）`);
+      } else {
+        // 读者 chunk key → file:line（示例路径展示用）
+        const locByKey = new Map(report.verdicts.map((v) => [v.chunk.key, `${v.chunk.file}:${v.chunk.line}`]));
+        const top = args.top ?? 15;
+        console.log(`\n状态耦合（写方按读者数降序；top ${top}）：`);
+        for (const e of couplings.slice(0, top)) {
+          const first = e.readerKeys[0] ?? "";
+          const loc = locByKey.get(first) ?? first;
+          console.log(
+            `  ${String(e.readers).padStart(3)} 读者  ${e.name.padEnd(36)} ${e.writes.join(",").padEnd(28)} ${e.file}:${e.line}  ← 示例读者 ${loc}` +
+            (e.readerKeys.length > 1 ? `（等 ${e.readerKeys.length} 个）` : ""),
+          );
+        }
+        if (couplings.length > top) console.log(`  … 共 ${couplings.length} 个写方（--top N 查看更多）`);
+        // ⊤ 降级注记（防静默欠报纪律；json 原样含 "⊤" 不加字段）
+        const topWriters = couplings.filter((e) => e.writes.some((w) => w.includes("⊤"))).length;
+        if (topWriters > 0) console.log(`  （注：${topWriters} 个写方含 ⊤ 降级匹配——近似耦合，见 README 已知限制）`);
+      }
     }
     console.log(
       `codeaudit ${VERSION} — ${s.chunks} chunks, ${s.files} files, ` +

@@ -159,6 +159,16 @@ describe("维度28: CLI 对抗", () => {
     expect(r.code).toBe(0);
     expect(r.out).toContain("拓扑");
   });
+
+  it("全部布尔旗标可解析（迭代23 回归护栏：新旗标不得顶掉兄弟分支——--gate/--topology/--sources/--state/--table-usage 逐一冒烟）", () => {
+    const root = project("cli-all-flags", { "a.py": "def f():\n    return 1\n" });
+    const flags = ["--strict", "--topology", "--sources", "--state", "--table-usage"];
+    for (const f of flags) {
+      const r = run(["scan", root, "--no-cache", f]);
+      expect(r.code).toBe(0); // 未知选项会 exit 2——顶掉兄弟分支即在此失败
+      expect(r.out).not.toContain("未知选项");
+    }
+  });
 });
 
 describe("维度29: 全 fixture 确定性", () => {

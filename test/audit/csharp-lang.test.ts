@@ -161,4 +161,35 @@ describe("C# 语言包（迭代19）", () => {
 		// C# 侧不应因 Python 类而变 IMPURE（无语言隔离时 Main.Run 会解析到 Python Build → io 串味）
 		expect(run).toBeDefined();
 	});
+
+	it("迭代23：反射元数据读非 io（frameworkIo.System 收紧——全限定 System.Reflection 读落 UNKNOWN 不含 io）", async () => {
+		const root = project("reflect-read", {
+			"R.cs": [
+				"using System;",
+				"public class R {",
+				'    public string Describe(Type t) { return System.Reflection.IntrospectionExtensions.GetTypeInfo(t).Name; }',
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const m = by(r).get("R.cs::R.Describe") as { purity: number; effects: Set<string> } | undefined;
+		expect(m).toBeDefined();
+		expect(m!.effects.has("io")).toBe(false); // 反射元数据读不是 io（修复前 frameworkIo System.Reflection 前缀假阳 io）
+		expect(m!.purity).toBe(1); // 前缀移除 → 落 ? → UNKNOWN（audit 公理 3，绝不 PURE）
+	});
+
+	it("迭代23：MethodInfo.Invoke 不假纯（全限定 System.Reflection 动态调用落 UNKNOWN 非 PURE）", async () => {
+		const root = project("reflect-invoke", {
+			"I.cs": [
+				"public class I {",
+				'    public object Call(object mi, object o) { return System.Reflection.MethodInfo.Invoke(mi, o, null); }',
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const m = by(r).get("I.cs::I.Call") as { purity: number; effects: Set<string> } | undefined;
+		expect(m).toBeDefined();
+		expect(m!.effects.has("io")).toBe(false); // 前缀移除后无 io 假阳
+		expect(m!.purity).not.toBe(0); // 动态调用绝不假纯（UNKNOWN=1 或 io=2，不容忍 PURE=0）
+	});
 });

@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] — 迭代 22（真实校准 + 合入门禁）
+## [Unreleased] — 迭代 22-23（真实校准 + 门禁 + 状态耦合图 + 效应表收紧）
 
 ### 新增
 
@@ -8,11 +8,14 @@
 - `fitBaseRate(corpora)` 分层贝叶斯基率（pipeline.md 四落地）：跨项目语料 → `BaseRateModel{mu, kappa, projects}`——μ 替代硬编码 `GLOBAL_THETA0`；矩估计闭合解（加权均值 + 方差反解 κ），`projects < 2` 冷启动回退现状
 - `priorFor(corpus, site, baseRate?)` 第三参：缺省路径逐位兼容（`baseRate?.mu ?? 0.25`）
 - corpus 面库 API 补齐导出：`emptyCorpus`/`updateCorpus`/`mergeCorpus`/`summarize`/`siteShapeInfo`/`isCorpus`/`fitBaseRate`/`priorFor` + 类型（pipeline.md 三工作流示例消费面）
+- `--state` 状态耦合图（D-127）：写方 stateWrites → 读方 stateDeps 映射——text 摘要 top 15 按读者数降序，json 顶层 `stateCoupling` additive（零 schema 破坏）；`stateCouplingOf(verdicts)` 纯函数反查 verdict.stateDeps（零重复传播）
 
 ### 修复
 
 - `--topology` 解析分支回归（`--gate` 分支曾顶掉兄弟分支——迭代 22 复审发现，已恢复 + 补 CLI 回归测试）
 - README 示例重复行清理
+- frameworkIo.System 前缀表收紧（迭代 22 盲区处置）：删 Reflection/Text/Globalization/Runtime/RuntimeTypeHandle 5 条目——纯反射元数据读不再假 io（InitDeity ConvertToString ×47 direct-io 47→0，全库 IMPURE −100 / UNKNOWN +99 守恒零误伤）；移除后落 UNKNOWN 非 PURE（MethodInfo.Invoke 不假纯）
+- `--state` 解析分支回归（`--state` 曾顶掉 `--table-usage`——迭代 22 `--gate` 顶 `--topology` 同款 bug 二次再现）：恢复 + 根因护栏「全部布尔旗标可解析」CLI 回归测试（5 旗标逐一冒烟）防三次复发
 
 ## [0.2.0] — 2026-08-11（生产就绪轮）
 
