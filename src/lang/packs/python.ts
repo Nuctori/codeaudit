@@ -63,7 +63,8 @@ const impureModules: Record<string, Effect | readonly string[]> = {
   pathlib: ["Path:p", "PurePath:p", "PurePosixPath:p", "PureWindowsPath:p", "PosixPath:p", "WindowsPath:p",
     "Path.name:p", "Path.parent:p", "Path.parents:p", "Path.suffix:p", "Path.suffixes:p", "Path.stem:p",
     "Path.parts:p", "Path.joinpath:p", "Path.with_name:p", "Path.with_suffix:p", "Path.relative_to:p",
-    "Path.resolve:p", "Path.absolute:p", "Path.cwd:p", "Path.home:p",
+    "Path.resolve:p", "Path.absolute:p",
+    "Path.cwd:fs", "Path.home:fs", // 读进程工作目录/HOME 环境（F20：非纯——S1 通道）
     "Path.read_text:fs", "Path.read_bytes:fs", "Path.write_text:fs", "Path.write_bytes:fs",
     "Path.unlink:fs", "Path.rmdir:fs", "Path.mkdir:fs", "Path.rename:fs", "Path.replace:fs",
     "Path.stat:fs", "Path.exists:fs", "Path.is_file:fs", "Path.is_dir:fs", "Path.open:fs",
