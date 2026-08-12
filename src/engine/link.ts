@@ -340,87 +340,106 @@ interface Sink {
   effectFromModule(module: string, member: string | null): boolean;
 }
 
-function resolveImport(
-  call: RawCall,
-  caller: RawChunk,
-  fi: FileIndex,
-  files: ReadonlyMap<string, FileIndex>,
-  projectFiles: ReadonlySet<string>,
-  resolveSymbol: (file: string, name: string, depth: number) => string | null,
-  resolveMod: (pack: LangPack, module: string, fromFile: string) => string | null,
-  sink: Sink,
-): boolean {
-  const pack = fi.pack;
-  const binding = call.obj ?? call.attr;
-  const imp = fi.importMap.get(binding);
-  if (imp && !caller.assigned.includes(binding) && !fi.moduleAssigned.has(binding)) {
-    if (imp.imported === null) {
-      // 命名空间导入：import os / import * as fs / const fs = require("fs")
-      const member = call.obj !== null ? call.attr : null;
-      const target = resolveMod(pack, imp.module, fi.facts.file);
-      if (target !== null) {
-        if (member !== null) {
-          const hit = resolveSymbol(target, member, 0);
-          if (hit !== null) { sink.addEdge(hit); return true; }
-          // 点连成员：import a.b; a.b.fn() → callOf 首点切分得 obj=a、attr=b.fn，
-          // 全名 a.b.fn 去掉模块路径 a.b 后的段（fn）在模块内解析（遮蔽重绑则跳过）
-          if (call.obj !== null && !caller.assigned.includes(call.obj)) {
-            const full = `${call.obj}.${call.attr}`;
-            if (full.startsWith(imp.module + ".")) {
-              const inner = full.slice(imp.module.length + 1);
-              const hit2 = resolveSymbol(target, inner, 0);
-              if (hit2 !== null) { sink.addEdge(hit2); return true; }
-            }
+
+  // 命名空间导入解析（迭代36 r2 从 resolveImport 抽出——机械拆分，行为不变）
+  function resolveNamespaceImport(
+    call: RawCall,
+    caller: RawChunk,
+    fi: FileIndex,
+    pack: LangPack,
+    imp: RawImport,
+    resolveMod: (pack: LangPack, module: string, fromFile: string) => string | null,
+    resolveSymbol: (file: string, name: string, depth: number) => string | null,
+    sink: Sink,
+  ): boolean {
+    const member = call.obj !== null ? call.attr : null;
+    const target = resolveMod(pack, imp.module, fi.facts.file);
+    if (target !== null) {
+      if (member !== null) {
+        const hit = resolveSymbol(target, member, 0);
+        if (hit !== null) { sink.addEdge(hit); return true; }
+        // 点连成员：import a.b; a.b.fn() → callOf 首点切分得 obj=a、attr=b.fn，
+        // 全名 a.b.fn 去掉模块路径 a.b 后的段（fn）在模块内解析（遮蔽重绑则跳过）
+        if (call.obj !== null && !caller.assigned.includes(call.obj)) {
+          const full = `${call.obj}.${call.attr}`;
+          if (full.startsWith(imp.module + ".")) {
+            const inner = full.slice(imp.module.length + 1);
+            const hit2 = resolveSymbol(target, inner, 0);
+            if (hit2 !== null) { sink.addEdge(hit2); return true; }
           }
         }
-        sink.addUnknownCall(call);
-        sink.markUnknown();
-        return true;
       }
-      // 两级成员链（迭代18 旧宇宙驱动）：os.environ.get → 效应表查全链 "environ.get"
-      // （effectFromModule 前缀回退命中 "environ"=io）；os.path.join → "path.join":p
-      const effMember = call.obj !== null && call.obj.startsWith(imp.module + ".")
-        ? `${call.obj.slice(imp.module.length + 1)}.${call.attr}`
-        : member;
-      if (effMember !== null && sink.effectFromModule(imp.module, effMember)) {
-        if (pack.hofCallsArgs.has(effMember)) sink.addArgEdges(call.argFns, effMember); // functools.reduce(cb, …)
-        return true;
-      }
-      if (sink.effectFromModule(imp.module, null)) return true;
-      sink.missTable(`module:${imp.module}`); // 迭代21 B：module 咨询未中 = 补表候选
       sink.addUnknownCall(call);
       sink.markUnknown();
       return true;
     }
-    // from 导入：from db import save_user → save_user(...)
-    if (call.obj === null) {
-      const target = resolveMod(pack, imp.module, fi.facts.file);
-      if (target !== null) {
-        const name = imp.imported === "default"
-          ? (files.get(target)?.facts.defaultExport ?? imp.imported)
-          : imp.imported;
-        const hit = resolveSymbol(target, name, 0);
-        if (hit !== null) { sink.addEdge(hit); return true; }
-        sink.addUnknownCall(call);
-        sink.markUnknown();
-        return true;
-      }
-      if (sink.effectFromModule(imp.module, imp.imported)) {
-        // HOF 实参回调边（与命名空间分支对称）：from functools import reduce; reduce(write, xs) → write 效应保留
-        if (pack.hofCallsArgs.has(imp.imported)) sink.addArgEdges(call.argFns, imp.imported);
-        return true;
-      }
-      sink.missTable(`module:${imp.module}`); // 迭代21 B
+    // 两级成员链（迭代18 旧宇宙驱动）：os.environ.get → 效应表查全链 "environ.get"
+    // （effectFromModule 前缀回退命中 "environ"=io）；os.path.join → "path.join":p
+    const effMember = call.obj !== null && call.obj.startsWith(imp.module + ".")
+      ? `${call.obj.slice(imp.module.length + 1)}.${call.attr}`
+      : member;
+    if (effMember !== null && sink.effectFromModule(imp.module, effMember)) {
+      if (pack.hofCallsArgs.has(effMember)) sink.addArgEdges(call.argFns, effMember); // functools.reduce(cb, …)
+      return true;
+    }
+    if (sink.effectFromModule(imp.module, null)) return true;
+    sink.missTable(`module:${imp.module}`); // 迭代21 B：module 咨询未中 = 补表候选
+    sink.addUnknownCall(call);
+    sink.markUnknown();
+    return true;
+  }
+
+  // from 裸名导入解析（迭代36 r2 从 resolveImport 抽出——机械拆分，行为不变）
+  function resolveFromBareImport(
+    call: RawCall,
+    fi: FileIndex,
+    files: ReadonlyMap<string, FileIndex>,
+    pack: LangPack,
+    imp: RawImport,
+    resolveMod: (pack: LangPack, module: string, fromFile: string) => string | null,
+    resolveSymbol: (file: string, name: string, depth: number) => string | null,
+    sink: Sink,
+  ): boolean {
+    const target = resolveMod(pack, imp.module, fi.facts.file);
+    if (target !== null) {
+      const name = imp.imported === "default"
+        ? (files.get(target)?.facts.defaultExport ?? imp.imported!)
+        : imp.imported!;
+      const hit = resolveSymbol(target, name, 0);
+      if (hit !== null) { sink.addEdge(hit); return true; }
       sink.addUnknownCall(call);
       sink.markUnknown();
       return true;
     }
-    // from db import conn; conn.execute(...) → 模块导出面解析：类成员真边；外部模块走效应表；重绑遮蔽则跳过
+    if (sink.effectFromModule(imp.module, imp.imported!)) {
+      // HOF 实参回调边（与命名空间分支对称）：from functools import reduce; reduce(write, xs) → write 效应保留
+      if (pack.hofCallsArgs.has(imp.imported!)) sink.addArgEdges(call.argFns, imp.imported!);
+      return true;
+    }
+    sink.missTable(`module:${imp.module}`); // 迭代21 B
+    sink.addUnknownCall(call);
+    sink.markUnknown();
+    return true;
+  }
+
+  // from 对象导入解析
+  // from db import conn; conn.execute(...) → 模块导出面解析：类成员真边；外部模块走效应表；重绑遮蔽则跳过
+  function resolveFromObjectImport(
+    call: RawCall,
+    caller: RawChunk,
+    fi: FileIndex,
+    files: ReadonlyMap<string, FileIndex>,
+    pack: LangPack,
+    imp: RawImport,
+    resolveMod: (pack: LangPack, module: string, fromFile: string) => string | null,
+    resolveSymbol: (file: string, name: string, depth: number) => string | null,
+    sink: Sink,
+  ): boolean {
     if (call.obj !== null && !caller.assigned.includes(call.obj)) {
       const target = resolveMod(pack, imp.module, fi.facts.file);
       const name = imp.imported === "default"
-        ? (target !== null ? (files.get(target)?.facts.defaultExport ?? imp.imported) : imp.imported)
-        : imp.imported;
+        ? (target !== null ? (files.get(target)?.facts.defaultExport ?? imp.imported!) : imp.imported!)
+        : imp.imported!;
       if (target !== null) {
         const tf = files.get(target);
         if (tf) {
@@ -466,10 +485,31 @@ function resolveImport(
     return true;
   }
 
+function resolveImport(
+  call: RawCall,
+  caller: RawChunk,
+  fi: FileIndex,
+  files: ReadonlyMap<string, FileIndex>,
+  _projectFiles: ReadonlySet<string>,
+  resolveSymbol: (file: string, name: string, depth: number) => string | null,
+  resolveMod: (pack: LangPack, module: string, fromFile: string) => string | null,
+  sink: Sink,
+): boolean {
+  const pack = fi.pack;
+  const binding = call.obj ?? call.attr;
+  const imp = fi.importMap.get(binding);
+  if (imp && !caller.assigned.includes(binding) && !fi.moduleAssigned.has(binding)) {
+    if (imp.imported === null) {
+      return resolveNamespaceImport(call, caller, fi, pack, imp, resolveMod, resolveSymbol, sink);
+    }
+    if (call.obj === null) {
+      return resolveFromBareImport(call, fi, files, pack, imp, resolveMod, resolveSymbol, sink);
+    }
+    return resolveFromObjectImport(call, caller, fi, files, pack, imp, resolveMod, resolveSymbol, sink);
+  }
 
   return false;
 }
-
 
 function resolveCall(
   call: RawCall,
