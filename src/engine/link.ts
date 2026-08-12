@@ -680,6 +680,16 @@ function resolveCall(
     }
     if (call.attr !== UNRESOLVED_TARGET) sink.missTable(`builtin:${call.attr}`); // 迭代21 B：裸名双未中 → 补表候选
   } else {
+    // 迭代35 A1：参数显式类型绑定——obj 是参数且类型已知（Dictionary<string,int> d → d.TryGetValue）
+    // → 查 builtinTypeEffects（List/Dictionary/array 的 Add/Remove/TryGetValue 等纯读写信箱）。
+    // 放 globalClasses 之后（项目类优先）但效应表之前；仅当参数未遮蔽（assigned 无同名重绑）。
+    const ptype = caller.paramTypes?.[call.obj ?? ""];
+    if (ptype !== undefined && !caller.assigned.includes(call.obj ?? "")) {
+      const rule = pack.builtinTypeEffects[ptype]?.[call.attr];
+      if (rule === "hof") { sink.addArgEdges(call.argFns, call.attr); sink.hitTable(`type:${ptype}.${call.attr}`); return; }
+      if (rule === "pure") { sink.hitTable(`type:${ptype}.${call.attr}`); return; }
+      // 表外方法 → 落 ?（诚实，与 receiver 分支同语义）
+    }
     // 全局类名解析（迭代19 C# 跨文件类调用）——**优先于效应表（迭代21 正确化）**：
     // 项目内类 NetCall 撞效应表条目 NetCall: "net"——项目类优先（真实实现），表条目是通用库名。
     // 遮蔽守卫：调用方局部赋值或模块级重绑（conn = make_evil() 遮蔽 import）→ 不解析

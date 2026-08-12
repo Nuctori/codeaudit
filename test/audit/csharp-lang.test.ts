@@ -793,4 +793,39 @@ describe("C# 语言包（迭代19）", () => {
 		expect(userM!.effects.has("io")).toBe(true);
 		expect(userM!.purity).toBe(2); // new List（项目类撞名单）→ 构造体 io 传导（迭代34 修复防假纯）
 	});
+
+	it("迭代35 A1：参数显式类型绑定——Dictionary/List 参数集合操作判纯（970 站痛点）", async () => {
+		const root = project("a1-param", {
+			"C.cs": [
+				"using System.Collections.Generic;",
+				"public class C {",
+				"    public int Read(Dictionary<string, int> d, string key) {",
+				"        int v = 0;",
+				"        d.TryGetValue(key, out v);",
+				"        d.Add(key, v);",
+				"        return v;",
+				"    }",
+				"    public int Sum(List<int> xs) {",
+				"        xs.Add(1);",
+				"        return xs.Count;",
+				"    }",
+				"    public void Other(string s) { s.Trim(); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const read = by(r).get("C.cs::C.Read") as { purity: number; effects: Set<string> } | undefined;
+		const sum = by(r).get("C.cs::C.Sum") as { purity: number; effects: Set<string> } | undefined;
+		const other = by(r).get("C.cs::C.Other") as { purity: number } | undefined;
+		expect(read).toBeDefined();
+		expect(sum).toBeDefined();
+		expect(other).toBeDefined();
+		// 迭代35 A1（InitDeity 970 站集合方法痛点）：Dictionary 参数 TryGetValue/Add、List 参数 Add/Count
+		// → builtinTypeEffects 判纯（集合操作无 io）；string 参数 Trim → string 表 Trim=pure → PURE
+		expect(read!.effects.has("io")).toBe(false);
+		expect(read!.purity).toBe(0); // Dictionary 参数集合操作 → PURE
+		expect(sum!.effects.has("io")).toBe(false);
+		expect(sum!.purity).toBe(0); // List 参数集合操作 → PURE
+		expect(other!.purity).toBe(0); // string 参数 Trim → PURE（string 表有 Trim）
+	});
 });

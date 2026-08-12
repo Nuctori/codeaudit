@@ -54,6 +54,7 @@ export class Extractor {
           mc.assigned = this.assignedNames(node);
           mc.declared = this.declaredNames(node);
           mc.params = this.paramNames(node);
+          mc.paramTypes = this.paramTypesOf(node); // 迭代35 A1：参数显式类型绑定
           chunks.push(mc as RawChunk);
           stack.push(mc);
           pushed = true;
@@ -306,9 +307,20 @@ export class Extractor {
   /** chunk 自身参数名（不进入嵌套函数——只取本 chunk 的 parameters 字段直接子节点）。 */
   private paramNames(root: SyntaxNode): string[] {
     const out: string[] = [];
-    const params = root.childForFieldName("parameters");
+    // 迭代35 A1：C# parameter_list 无 "parameters" 命名字段（审计确认参数收集对 C# 失效——
+    // d.TryGetValue 的 d 不在 params → 变量 receiver 动态 → 970 站集合方法全 UNKNOWN）。
+    // 补 C# 形态：parameter_list → parameter 子节点 → 取 name 字段。
+    const params = root.childForFieldName("parameters")
+      ?? root.children.find((c) => c.type === "parameter_list");
     if (!params) return out;
     const push = (n: SyntaxNode): void => {
+      if (n.type === "parameter" || n.type === "parameter_declaration" || n.type === "typed_parameter") {
+        const named = n.childForFieldName("name");
+        if (named && (named.type === "identifier" || named.type === "property_identifier")) {
+          out.push(named.text);
+          return;
+        }
+      }
       const named = n.childForFieldName("name") ?? n.childForFieldName("pattern");
       if (named && (named.type === "identifier" || named.type === "property_identifier")) {
         out.push(named.text);
@@ -317,6 +329,25 @@ export class Extractor {
       }
     };
     for (const c of params.children) push(c);
+    return out;
+  }
+
+  /** 迭代35 A1：参数显式类型提取（方法参数 Dictionary<string,int> d → d: "Dictionary"）。
+   *  C# parameter_list → parameter → type 字段剥壳；仅收集集合/数组类型（Dictionary/List/array 等
+   *  可查 builtinTypeEffects 的）；非集合类型返回 null（link 走既有动态路径）。 */
+  private paramTypesOf(root: SyntaxNode): Record<string, string> {
+    const out: Record<string, string> = {};
+    const params = root.childForFieldName("parameters")
+      ?? root.children.find((c) => c.type === "parameter_list");
+    if (!params) return out;
+    for (const c of params.children) {
+      if (c.type !== "parameter" && c.type !== "parameter_declaration" && c.type !== "typed_parameter") continue;
+      const name = c.childForFieldName("name");
+      const type = c.childForFieldName("type");
+      if (!name || !type || (name.type !== "identifier" && name.type !== "property_identifier")) continue;
+      const t = ctorTypeName(type); // 复用构造类型名剥壳（generic_name/qualified_name/predefined_type）
+      if (t !== null) out[name.text] = t;
+    }
     return out;
   }
 
@@ -708,6 +739,8 @@ interface MutableChunk {
   assigned: string[];
   /** 函数参数名（与 assigned 分离：参数是外部传入对象，对其属性写 = 外部状态写；局部赋值不算）。 */
   params: string[];
+  /** 迭代35 A1：参数显式类型（参数名 → 类型名，Dictionary<string,int> d → d:"Dictionary"）——变量 receiver 查 builtinTypeEffects。 */
+  paramTypes: Record<string, string>;
   /** 状态写位置（self.x / user.status / global 名）；非空 → state 效应。 */
   stateWrites: string[];
   /** 读侧状态位置（self.x / user.status / ⊤）——stateDeps 传播原料。 */
@@ -748,7 +781,7 @@ function fresh(
   ownerClass: string | null = null,
   kind: "class" | "function" | "module" = "function",
 ): MutableChunk {
-  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], stateWrites: [], stateReads: [], declared: [], thrownTypes: [], catches: [], ownerClass };
+  return { name, line, endLine, nesting: 0, normText, kind, calls: [], assigned: [], params: [], paramTypes: {}, stateWrites: [], stateReads: [], declared: [], thrownTypes: [], catches: [], ownerClass };
 }
 
 /** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */

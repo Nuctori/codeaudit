@@ -64,6 +64,8 @@ export interface RawChunk {
   readonly catches: readonly string[];
   /** 所在类名（方法归属），顶层为 null。 */
   readonly ownerClass: string | null;
+  /** 迭代35 A1：参数显式类型（参数名 → 类型名，Dictionary<string,int> d → d:"Dictionary"）——变量 receiver 查 builtinTypeEffects。 */
+  readonly paramTypes?: Readonly<Record<string, string>>;
 }
 
 export interface RawFileFacts {
