@@ -254,24 +254,71 @@ const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
 	// 变量绑定（A1 待办）启用后 xs.Select 解析到 IEnumerable 时分支 0 判定表必须覆盖，否则链解析了
 	// 却判空落 ? 浪费判别力。hof = 纯算子但回调须保留（LINQ 上下文 linqHof 兜底））。
 	IEnumerable: {
-		Select: "hof", SelectMany: "hof", Where: "hof", OrderBy: "hof", OrderByDescending: "hof",
-		ThenBy: "hof", ThenByDescending: "hof", GroupBy: "hof", Aggregate: "hof", Zip: "hof",
-		Join: "hof", GroupJoin: "hof", ToDictionary: "hof", ToLookup: "hof",
-		SkipWhile: "hof", TakeWhile: "hof", ForEach: "hof",
-		Skip: "pure", Take: "pure", Distinct: "pure", Reverse: "pure", Concat: "pure",
-		Union: "pure", Intersect: "pure", Except: "pure", Cast: "pure", OfType: "pure",
-		DefaultIfEmpty: "pure", Append: "pure", Prepend: "pure",
-		ToList: "pure", ToArray: "pure", ToHashSet: "pure",
+		Select: "hof",
+		SelectMany: "hof",
+		Where: "hof",
+		OrderBy: "hof",
+		OrderByDescending: "hof",
+		ThenBy: "hof",
+		ThenByDescending: "hof",
+		GroupBy: "hof",
+		Aggregate: "hof",
+		Zip: "hof",
+		Join: "hof",
+		GroupJoin: "hof",
+		ToDictionary: "hof",
+		ToLookup: "hof",
+		SkipWhile: "hof",
+		TakeWhile: "hof",
+		ForEach: "hof",
+		Skip: "pure",
+		Take: "pure",
+		Distinct: "pure",
+		Reverse: "pure",
+		Concat: "pure",
+		Union: "pure",
+		Intersect: "pure",
+		Except: "pure",
+		Cast: "pure",
+		OfType: "pure",
+		DefaultIfEmpty: "pure",
+		Append: "pure",
+		Prepend: "pure",
+		ToList: "pure",
+		ToArray: "pure",
+		ToHashSet: "pure",
 	},
 	List: {
-		Add: "pure", Remove: "pure", RemoveAt: "pure", Clear: "pure", Contains: "pure",
-		IndexOf: "pure", Insert: "pure", Sort: "pure", ToArray: "pure", ToList: "pure",
+		Add: "pure",
+		Remove: "pure",
+		RemoveAt: "pure",
+		Clear: "pure",
+		Contains: "pure",
+		IndexOf: "pure",
+		Insert: "pure",
+		Sort: "hof", // 迭代38 规则5：Comparison 回调义务（原标 pure 丢回调——B1 连带修复）
+		ToArray: "pure",
+		ToList: "pure",
 		Count: "pure",
 	},
 	Dictionary: {
-		Add: "pure", Remove: "pure", ContainsKey: "pure", ContainsValue: "pure",
-		TryGetValue: "pure", Keys: "pure", Values: "pure", Count: "pure", ToList: "pure",
+		Add: "pure",
+		Remove: "pure",
+		ContainsKey: "pure",
+		ContainsValue: "pure",
+		TryGetValue: "pure",
+		Keys: "pure",
+		Values: "pure",
+		Count: "pure",
+		ToList: "pure",
 	},
+};
+
+/** 迭代38 B：参数共享容器方法变异 → state 效应（与参数下标写 d[0]=1 同语义统一，iter36 §b-7）。
+ *  Sort 同时在 builtinTypeEffects 标 hof（Comparison 回调义务保留，规则5）。 */
+const builtinMutators: Record<string, ReadonlySet<string>> = {
+	List: new Set(["Add", "Remove", "RemoveAt", "Clear", "Insert", "Sort"]),
+	Dictionary: new Set(["Add", "Remove", "Clear"]),
 };
 
 const builtinMethodReturns: Record<string, Record<string, string>> = {
@@ -373,54 +420,153 @@ const builtinMethodReturns: Record<string, Record<string, string>> = {
  *  UnityEvent 10/WaitForSeconds 9）+ .NET 领域双重确证。未列框架类型 → ? 诚实（红线：绝不给"未知皆纯"）。
  *  注意：Random:random/WaitForSeconds:clock/FileStream:fs 走 impureGlobals（构造即效应），不入此表。 */
 const pureCtor = new Set<string>([
-	"List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList", "SortedDictionary",
-	"Vector2", "Vector3", "Vector4", "Quaternion", "Color", "Color32", "Rect", "RectInt",
-	"GUIContent", "GUIStyle", "GUILayout", "RectOffset", "Texture2D", "Sprite",
-	"JsonSerializerSettings", "JsonSerializer", "JsonConvert",
-	"Exception", "ArgumentException", "ArgumentNullException", "ArgumentOutOfRangeException",
-	"InvalidOperationException", "NotImplementedException", "NotSupportedException", "KeyNotFoundException",
+	"List",
+	"Dictionary",
+	"HashSet",
+	"Queue",
+	"Stack",
+	"LinkedList",
+	"SortedDictionary",
+	"Vector2",
+	"Vector3",
+	"Vector4",
+	"Quaternion",
+	"Color",
+	"Color32",
+	"Rect",
+	"RectInt",
+	"GUIContent",
+	"GUIStyle",
+	"GUILayout",
+	"RectOffset",
+	"Texture2D",
+	"Sprite",
+	"JsonSerializerSettings",
+	"JsonSerializer",
+	"JsonConvert",
+	"Exception",
+	"ArgumentException",
+	"ArgumentNullException",
+	"ArgumentOutOfRangeException",
+	"InvalidOperationException",
+	"NotImplementedException",
+	"NotSupportedException",
+	"KeyNotFoundException",
 	"UnityEvent",
-	"StringBuilder", "StringReader", "StringWriter",
-	"byte", "byte[]", "string", "String", "object", "char", "int", "long", "float", "double", "bool",
-	"TimeSpan", "Guid", "Uri", "Mathf", "SystemInfo",
+	"StringBuilder",
+	"StringReader",
+	"StringWriter",
+	"byte",
+	"byte[]",
+	"string",
+	"String",
+	"object",
+	"char",
+	"int",
+	"long",
+	"float",
+	"double",
+	"bool",
+	"TimeSpan",
+	"Guid",
+	"Uri",
+	"Mathf",
+	"SystemInfo",
 	// Random/WaitForSeconds/FileStream 等不在表——构造即效应走 impureGlobals（random/clock/fs）
 ]);
+
+/** Unity 隐式 this 组件属性（MonoBehaviour 里 gameObject = this.gameObject——迭代19）。
+ *  单一数据源：frameworkIo.gameObject 与 frameworkAttrPrefix.gameObject 共享（iter37 审计次要观察：双份清单漂移风险）。 */
+const gameObjectMembers: readonly string[] = [
+	"SetActive",
+	"GetComponent",
+	"transform",
+	"layer",
+	"tag",
+	"name",
+	"AddComponent",
+];
 
 /** 框架命名空间（迭代19 C#/Unity）：this.gameObject/this.transform 等 MonoBehaviour 组件属性链
  *  （obj=this、attr="gameObject.SetActive" 含 . → 分支 1 放行 → 2.5 前缀命中 → io/state 保守）。 */
 const frameworkIo: Record<string, readonly string[]> = {
-  this: [
-    "gameObject", "transform", "rigidbody", "collider", "renderer", "audio",
-    "animation", "animator", "camera", "light", "networkView", "terrain",
-    "particleSystem", "spriteRenderer", "meshRenderer", "canvas", "rectTransform",
-    "navMeshAgent", "characterController", "material", "shader",
-  ],
-  // Unity 隐式 this 组件属性（MonoBehaviour 里 gameObject = this.gameObject——迭代19）
-  gameObject: ["SetActive", "GetComponent", "transform", "layer", "tag", "name", "AddComponent"],
-  transform: ["position", "rotation", "localPosition", "localScale", "Translate", "Rotate", "SetParent", "SetAsLastSibling", "GetComponent"],
-  // System 命名空间前缀（迭代19）：System.Console.WriteLine → obj="System"、attr="Console.WriteLine"
-  // 迭代21 T4 修正：只列 io 边界类——纯类型（Math/String/Guid 等）移除（frameworkIo 固定 io，
-  // 纯类型进前缀会假 IMPURE 毒化判别力——F19；纯类落 ? 诚实）
-  System: [
-    "Console", "Environment", "Diagnostics", "IO", "Net", "Data", "Threading",
-    "Process", "GC",
-    // 迭代23 收紧：Reflection/Text/Globalization/Runtime/RuntimeTypeHandle 移除——
-    // 反射元数据读（GetTypeInfo/GetCustomAttribute）纯读取、Text 纯计算、Globalization 文化数据读、
-    // Runtime 服务非 io（P/Invoke Marshal 例外落 UNKNOWN 非假纯）；移除后这些调用落 ? → UNKNOWN
-    // （audit 公理 3：? 构成效应源，绝不假纯），可标注确证（方案 A，设计见 docs/iter23/frameworkio-design.md）
-  ],
-  // UnityEngine 命名空间前缀（迭代21 T4：missSlots global:UnityEngine 265 驱动）——只列 io/state 类
-  UnityEngine: [
-    "Object", "Application", "SceneManager", "GameObject", "Component", "Transform",
-    "Debug", "Physics", "Input", "Screen", "Resources", "Camera", "QualitySettings",
-  ],
+	this: [
+		"gameObject",
+		"transform",
+		"rigidbody",
+		"collider",
+		"renderer",
+		"audio",
+		"animation",
+		"animator",
+		"camera",
+		"light",
+		"networkView",
+		"terrain",
+		"particleSystem",
+		"spriteRenderer",
+		"meshRenderer",
+		"canvas",
+		"rectTransform",
+		"navMeshAgent",
+		"characterController",
+		"material",
+		"shader",
+	],
+	// Unity 隐式 this 组件属性（MonoBehaviour 里 gameObject = this.gameObject——迭代19）
+	gameObject: gameObjectMembers,
+	transform: [
+		"position",
+		"rotation",
+		"localPosition",
+		"localScale",
+		"Translate",
+		"Rotate",
+		"SetParent",
+		"SetAsLastSibling",
+		"GetComponent",
+	],
+	// System 命名空间前缀（迭代19）：System.Console.WriteLine → obj="System"、attr="Console.WriteLine"
+	// 迭代21 T4 修正：只列 io 边界类——纯类型（Math/String/Guid 等）移除（frameworkIo 固定 io，
+	// 纯类型进前缀会假 IMPURE 毒化判别力——F19；纯类落 ? 诚实）
+	System: [
+		"Console",
+		"Environment",
+		"Diagnostics",
+		"IO",
+		"Net",
+		"Data",
+		"Threading",
+		"Process",
+		"GC",
+		// 迭代23 收紧：Reflection/Text/Globalization/Runtime/RuntimeTypeHandle 移除——
+		// 反射元数据读（GetTypeInfo/GetCustomAttribute）纯读取、Text 纯计算、Globalization 文化数据读、
+		// Runtime 服务非 io（P/Invoke Marshal 例外落 UNKNOWN 非假纯）；移除后这些调用落 ? → UNKNOWN
+		// （audit 公理 3：? 构成效应源，绝不假纯），可标注确证（方案 A，设计见 docs/iter23/frameworkio-design.md）
+	],
+	// UnityEngine 命名空间前缀（迭代21 T4：missSlots global:UnityEngine 265 驱动）——只列 io/state 类
+	UnityEngine: [
+		"Object",
+		"Application",
+		"SceneManager",
+		"GameObject",
+		"Component",
+		"Transform",
+		"Debug",
+		"Physics",
+		"Input",
+		"Screen",
+		"Resources",
+		"Camera",
+		"QualitySettings",
+	],
 };
 
 /** 对象属性前缀白名单（迭代37 P0-1：引擎 gameObject 前缀硬编码数据化——消除引擎唯一语言常量）。
  *  obj="gameObject" 前缀语义 = 原 frameworkIo.gameObject 清单（X.gameObject.SetActive/GetComponent/... → io）；
  *  link.ts 在 assigned 守卫之前查此表（局部变量 receiver 形态）；白名单 miss → ? 诚实。 */
 const frameworkAttrPrefix: Record<string, readonly string[]> = {
-  gameObject: ["SetActive", "GetComponent", "transform", "layer", "tag", "name", "AddComponent"],
+	gameObject: gameObjectMembers,
 };
 
 /** System 纯子命名空间成员级白名单（迭代32，compromise-audit C1 结构性收紧）。
@@ -437,34 +583,50 @@ const frameworkAttrPrefix: Record<string, readonly string[]> = {
  *  回调不变量（link.ts 内建）：hof 命中且 argFns 非空 → addArgEdges(unconditional=true) →
  *  未解析记 UNKNOWN——"纯前缀吞回调"假纯结构通道关闭（iter30/iter31 三活洞根因）。
  *  pure 成员忽略 argFns（值实参被 argFnsOf 收集是常态——纯成员无委托形参，语言事实排除假纯）。 */
-const frameworkPure: Record<string, Record<string, "pure" | "hof" | Record<string, "pure" | "hof">>> = {
-  System: {
-    // 整类 pure（同质子树：无 io、无委托形参）
-    Uri: "pure", // 语料 882 站全 EscapeDataString；BCL 全静态方法无委托
-    Convert: "pure", // 语料 238 站；ToXxx/ChangeType/IsDBNull 纯计算
-    Enum: "pure", // 语料 97 站；Parse/GetName/IsDefined/GetValues 静态元数据读
-    Math: "pure", // 语料 5 站；Max/Min/Abs/Sqrt/Pow/Round 全纯
-    TimeSpan: "pure", // 语料 3 站；FromSeconds/Parse/Compare 纯
-    Guid: "pure", // 语料 3 站；Parse/NewGuid/ToString 纯（NewGuid=随机源先例同 pureGlobals.Guid）
-    Collections: "pure", // System.Collections.Generic.List<int>.Add 静态式；无委托形参（实例方法不在此通道）
-    // Linq 整类 hof（1 键取代 linqHof 29 算子表）：委托重载（Select/Where/OrderBy/ForEach…）
-    // 无条件调用回调；无委托成员（Range/Skip/Take）无回调不触发门——整类与逐成员正确性等价且更小
-    Linq: "hof",
-    // Text 子命名空间（迭代32 复审修正：必须嵌套在 Text 键下——匹配按 rest 首段 "Text" 查，
-    // 顶层散键 StringBuilder/Encoding 会导致 System.Text.* 整子树 miss 落 ?，55 站翻纯→?）
-    Text: {
-      StringBuilder: "pure", // Append/AppendLine/ToString 纯计算（对象内缓冲）
-      Encoding: "pure", // UTF8/UTF8Encoding/GetBytes/GetString 纯计算（含 UTF8Encoding 类型——语料 WriteApkConf.Write）
-      RegularExpressions: "pure", // Regex.IsMatch/Match/Replace 纯计算
-    },
-    // Array 异质（唯一）：6 个委托形参成员 hof + 其余 pure——嵌套成员表按剩余段匹配
-    Array: {
-      Find: "hof", FindAll: "hof", Exists: "hof", TrueForAll: "hof", ForEach: "hof", ConvertAll: "hof",
-      Sort: "pure", Reverse: "pure", Copy: "pure", Clear: "pure", Resize: "pure",
-      IndexOf: "pure", LastIndexOf: "pure", Contains: "pure", BinarySearch: "pure",
-      Empty: "pure", Clone: "pure",
-    },
-  },
+const frameworkPure: Record<
+	string,
+	Record<string, "pure" | "hof" | Record<string, "pure" | "hof">>
+> = {
+	System: {
+		// 整类 pure（同质子树：无 io、无委托形参）
+		Uri: "pure", // 语料 882 站全 EscapeDataString；BCL 全静态方法无委托
+		Convert: "pure", // 语料 238 站；ToXxx/ChangeType/IsDBNull 纯计算
+		Enum: "pure", // 语料 97 站；Parse/GetName/IsDefined/GetValues 静态元数据读
+		Math: "pure", // 语料 5 站；Max/Min/Abs/Sqrt/Pow/Round 全纯
+		TimeSpan: "pure", // 语料 3 站；FromSeconds/Parse/Compare 纯
+		Guid: "pure", // 语料 3 站；Parse/NewGuid/ToString 纯（NewGuid=随机源先例同 pureGlobals.Guid）
+		Collections: "pure", // System.Collections.Generic.List<int>.Add 静态式；无委托形参（实例方法不在此通道）
+		// Linq 整类 hof（1 键取代 linqHof 29 算子表）：委托重载（Select/Where/OrderBy/ForEach…）
+		// 无条件调用回调；无委托成员（Range/Skip/Take）无回调不触发门——整类与逐成员正确性等价且更小
+		Linq: "hof",
+		// Text 子命名空间（迭代32 复审修正：必须嵌套在 Text 键下——匹配按 rest 首段 "Text" 查，
+		// 顶层散键 StringBuilder/Encoding 会导致 System.Text.* 整子树 miss 落 ?，55 站翻纯→?）
+		Text: {
+			StringBuilder: "pure", // Append/AppendLine/ToString 纯计算（对象内缓冲）
+			Encoding: "pure", // UTF8/UTF8Encoding/GetBytes/GetString 纯计算（含 UTF8Encoding 类型——语料 WriteApkConf.Write）
+			RegularExpressions: "pure", // Regex.IsMatch/Match/Replace 纯计算
+		},
+		// Array 异质（唯一）：6 个委托形参成员 hof + 其余 pure——嵌套成员表按剩余段匹配
+		Array: {
+			Find: "hof",
+			FindAll: "hof",
+			Exists: "hof",
+			TrueForAll: "hof",
+			ForEach: "hof",
+			ConvertAll: "hof",
+			Sort: "pure",
+			Reverse: "pure",
+			Copy: "pure",
+			Clear: "pure",
+			Resize: "pure",
+			IndexOf: "pure",
+			LastIndexOf: "pure",
+			Contains: "pure",
+			BinarySearch: "pure",
+			Empty: "pure",
+			Clone: "pure",
+		},
+	},
 };
 
 /** C# chunk 节点：类/方法/构造/局部函数。属性访问器第一版不建（自动属性无逻辑）。 */
@@ -498,25 +660,46 @@ const nestingNodes = [
 	"class_declaration",
 ];
 const selfNames = ["this", "base"];
-const assignmentTargets = [
-	"assignment_expression",
-	"variable_declarator",
-];
+const assignmentTargets = ["assignment_expression", "variable_declarator"];
 /** 全局 HOF（不含 LINQ 撞名算子——Math.Max/string.Contains/String.Join 等纯静态方法不得被当 HOF）。
  *  迭代32 起 LINQ 静态运算符的回调义务由 frameworkPure 成员级 hof 标记 + addArgEdges(unconditional)
  *  承担（linqHof 表已删除——Linq: "hof" 1 键取代 29 算子表）。
  *  迭代31 MEDIUM-2：Join/GroupJoin 移出——String.Join(",", parts) 走 pureGlobals.String 门误伤
  *  （argFnsOf 收 parts → 未解析 → ?）；LINQ 上下文由 frameworkPure.Linq 覆盖。 */
 const hofCallsArgs = new Set<string>([
-	"ForEach", "Select", "Where", "OrderBy", "OrderByDescending", "ThenBy", "SelectMany",
-	"GroupBy", "Zip", "SkipWhile", "TakeWhile", "ToDictionary", "ToLookup", "Aggregate",
+	"ForEach",
+	"Select",
+	"Where",
+	"OrderBy",
+	"OrderByDescending",
+	"ThenBy",
+	"SelectMany",
+	"GroupBy",
+	"Zip",
+	"SkipWhile",
+	"TakeWhile",
+	"ToDictionary",
+	"ToLookup",
+	"Aggregate",
 ]);
 const hofAlwaysArgs = new Set<string>([
 	// 全局必然调用实参的 HOF（迭代31 S3 修复）：命名框架成员回调解析失败记 UNKNOWN 防假纯。
 	// 与 hofCallsArgs 同源（无条件调用子集）；不含 LINQ 撞名算子（见 linqHof 注释——LINQ 上下文
 	// 由 frameworkPure + linqHof 覆盖，Math.Max/string.Contains/String.Join 等纯静态不误伤）。
-	"ForEach", "Select", "Where", "OrderBy", "OrderByDescending", "ThenBy", "SelectMany",
-	"GroupBy", "Zip", "SkipWhile", "TakeWhile", "ToDictionary", "ToLookup", "Aggregate",
+	"ForEach",
+	"Select",
+	"Where",
+	"OrderBy",
+	"OrderByDescending",
+	"ThenBy",
+	"SelectMany",
+	"GroupBy",
+	"Zip",
+	"SkipWhile",
+	"TakeWhile",
+	"ToDictionary",
+	"ToLookup",
+	"Aggregate",
 ]);
 const impureModules: Record<string, Effect | readonly string[]> = {};
 const pureModules = new Set<string>([
@@ -583,6 +766,8 @@ export const csharpPack: LangPack = {
 	implicitThis: true, // C# 类内裸名方法调用 = this 方法（迭代19）
 	assignmentScopesLocals: false,
 	bareNameMeansThisInMethod: true, // C# 方法内裸字段写 = this 字段（self.x，迭代37 P0-2）
+	trustedCtor: true, // C# new X() 必返回实例或抛（迭代38 规则7）
+	builtinMutators,
 	frameworkIo,
 	frameworkAttrPrefix, // 迭代37 P0-1：X.gameObject.* 前缀白名单（数据化）
 	frameworkPure,

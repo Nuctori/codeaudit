@@ -136,6 +136,14 @@ const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
   set: { copy: "pure", clear: "pure" },
 };
 
+/** 迭代38 B：参数共享容器方法变异 → state 效应（与参数下标写 d[0]=1 同语义统一，iter36 §b-7）。
+ *  sort 同时在 builtinTypeEffects 标 hof（key= 回调义务保留，规则5）。 */
+const builtinMutators: Record<string, ReadonlySet<string>> = {
+	list: new Set(["append", "pop", "reverse", "clear", "sort"]),
+	dict: new Set(["clear", "popitem"]),
+	set: new Set(["clear"]),
+};
+
 // 内建方法返回类型（链式接收者解析）：只放非空固定返回（语言事实）；返回 None/bool/可变 → 链断
 const builtinMethodReturns: Record<string, Record<string, string>> = {
   str: { strip: "str", lstrip: "str", rstrip: "str", lower: "str", upper: "str", title: "str", capitalize: "str",
@@ -178,7 +186,9 @@ export const pythonPack: LangPack = {
   builtinMethodReturns,
   implicitThis: false,
   assignmentScopesLocals: true, // Python：函数内赋值即局部定义（迭代37 P0-2）
-  bareNameMeansThisInMethod: false,
+	bareNameMeansThisInMethod: false,
+	trustedCtor: true, // Python C() 必返回实例或抛（__new__ 逃逸 = 文档化残余，迭代38 规则7）
+	builtinMutators,
   frameworkIo: {
     // Locust 压测客户端（迭代18 旧宇宙驱动）：self.client.get/post/... → net（段级前缀——
     // call.obj 是首段 "self"、attr 是剩余链 "client.post"；2.5 分支 startsWith 匹配）。

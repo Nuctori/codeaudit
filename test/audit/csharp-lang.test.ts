@@ -124,7 +124,9 @@ describe("C# 语言包（迭代19）", () => {
 		});
 		const r = await scanProject(root, { useCache: false });
 		// Helper.SaveData 判 IMPURE（PlayerPrefs state）——跨文件类方法独立判定
-		const save = by(r).get("Helper.cs::Helper.SaveData") as { purity: number } | undefined;
+		const save = by(r).get("Helper.cs::Helper.SaveData") as
+			| { purity: number }
+			| undefined;
 		expect(save!.purity).toBe(2);
 	});
 
@@ -133,12 +135,14 @@ describe("C# 语言包（迭代19）", () => {
 			"G.cs": [
 				"using UnityEngine;",
 				"public class G : MonoBehaviour {",
-				'    void Start() { gameObject.SetActive(false); this.transform.position = Vector3.zero; }',
+				"    void Start() { gameObject.SetActive(false); this.transform.position = Vector3.zero; }",
 				"}",
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const start = by(r).get("G.cs::G.Start") as { purity: number; effects: Set<string> } | undefined;
+		const start = by(r).get("G.cs::G.Start") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(start).toBeDefined();
 		expect(start!.purity).toBe(2); // gameObject.SetActive → frameworkIo io
 		expect(start!.effects.has("io")).toBe(true);
@@ -146,7 +150,8 @@ describe("C# 语言包（迭代19）", () => {
 
 	it("跨语言类名隔离（迭代19 复审 F1）：C# 不解析到 Python 同名类", async () => {
 		const root = project("cslang", {
-			"helper.py": "class Helper:\n    def Build(self):\n        import os\n        os.system('x')\n",
+			"helper.py":
+				"class Helper:\n    def Build(self):\n        import os\n        os.system('x')\n",
 			"main.cs": [
 				"public class Main {",
 				"    public void Run() { Helper.Build(); }",
@@ -155,8 +160,12 @@ describe("C# 语言包（迭代19）", () => {
 		});
 		const r = await scanProject(root, { useCache: false });
 		// C# Main.Run 调 Helper.Build——语言隔离：不解析到 Python Helper.Build（会串入 io）
-		const run = by(r).get("main.cs::Main.Run") as { purity: number; effects: Set<string> } | undefined;
-		const pyBuild = by(r).get("helper.py::Helper.Build") as { purity: number } | undefined;
+		const run = by(r).get("main.cs::Main.Run") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		const pyBuild = by(r).get("helper.py::Helper.Build") as
+			| { purity: number }
+			| undefined;
 		expect(pyBuild!.purity).toBe(2); // Python Helper.Build 独立判 io
 		// C# 侧不应因 Python 类而变 IMPURE（无语言隔离时 Main.Run 会解析到 Python Build → io 串味）
 		expect(run).toBeDefined();
@@ -167,12 +176,14 @@ describe("C# 语言包（迭代19）", () => {
 			"R.cs": [
 				"using System;",
 				"public class R {",
-				'    public string Describe(Type t) { return System.Reflection.IntrospectionExtensions.GetTypeInfo(t).Name; }',
+				"    public string Describe(Type t) { return System.Reflection.IntrospectionExtensions.GetTypeInfo(t).Name; }",
 				"}",
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const m = by(r).get("R.cs::R.Describe") as { purity: number; effects: Set<string> } | undefined;
+		const m = by(r).get("R.cs::R.Describe") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(m).toBeDefined();
 		expect(m!.effects.has("io")).toBe(false); // 反射元数据读不是 io（修复前 frameworkIo System.Reflection 前缀假阳 io）
 		expect(m!.purity).toBe(1); // 前缀移除 → 落 ? → UNKNOWN（audit 公理 3，绝不 PURE）
@@ -182,12 +193,14 @@ describe("C# 语言包（迭代19）", () => {
 		const root = project("reflect-invoke", {
 			"I.cs": [
 				"public class I {",
-				'    public object Call(object mi, object o) { return System.Reflection.MethodInfo.Invoke(mi, o, null); }',
+				"    public object Call(object mi, object o) { return System.Reflection.MethodInfo.Invoke(mi, o, null); }",
 				"}",
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const m = by(r).get("I.cs::I.Call") as { purity: number; effects: Set<string> } | undefined;
+		const m = by(r).get("I.cs::I.Call") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(m).toBeDefined();
 		expect(m!.effects.has("io")).toBe(false); // 前缀移除后无 io 假阳
 		expect(m!.purity).not.toBe(0); // 动态调用绝不假纯（UNKNOWN=1 或 io=2，不容忍 PURE=0）
@@ -204,7 +217,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const run = by(r).get("S.cs::Service.Run") as { chunk: { stateReads: string[] } } | undefined;
+		const run = by(r).get("S.cs::Service.Run") as
+			| { chunk: { stateReads: string[] } }
+			| undefined;
 		expect(run).toBeDefined();
 		// 修复前：裸读 ["instance","Configure"]（调用目标排除是死代码）；修复后：调用目标不计字段读
 		expect(run!.chunk.stateReads).not.toContain("instance");
@@ -223,7 +238,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const read = by(r).get("S.cs::Service.Read") as { chunk: { stateReads: string[] } } | undefined;
+		const read = by(r).get("S.cs::Service.Read") as
+			| { chunk: { stateReads: string[] } }
+			| undefined;
 		expect(read).toBeDefined();
 		// 修复前：只含裸读 ["instance","Value"]（无位置读）；修复后：位置读 "instance.Value" 保留
 		expect(read!.chunk.stateReads).toContain("instance.Value");
@@ -239,7 +256,13 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const bump = by(r).get("S.cs::Service.Bump") as { purity: number; effects: Set<string>; chunk: { stateWrites: string[] } } | undefined;
+		const bump = by(r).get("S.cs::Service.Bump") as
+			| {
+					purity: number;
+					effects: Set<string>;
+					chunk: { stateWrites: string[] };
+			  }
+			| undefined;
 		expect(bump).toBeDefined();
 		// 修复前：externalWritePos 只认 attribute/member_expression → C# 字段写不可见 → 假 PURE；
 		// 修复后：member_access_expression 写侧对偶 → "self.counter" 写 → state 效应
@@ -254,12 +277,14 @@ describe("C# 语言包（迭代19）", () => {
 				"public class Config {",
 				"    public int SegmentId;",
 				"    public string Name;",
-				"    public static Config Make(int v) { return new Config { SegmentId = v, Name = \"a\" }; }",
+				'    public static Config Make(int v) { return new Config { SegmentId = v, Name = "a" }; }',
 				"}",
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const make = by(r).get("C.cs::Config.Make") as { chunk: { stateWrites: string[] } } | undefined;
+		const make = by(r).get("C.cs::Config.Make") as
+			| { chunk: { stateWrites: string[] } }
+			| undefined;
 		expect(make).toBeDefined();
 		// 修复前：initializer_expression 内 assignment_expression → 裸写 "SegmentId"/"Name"（伪外部状态写，
 		// Quest12* 1949 读者机制源头）；修复后：新对象属性初始化非外部状态写 → 不产生
@@ -278,7 +303,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const bump = by(r).get("I.cs::Counter.Bump") as { chunk: { stateWrites: string[] } } | undefined;
+		const bump = by(r).get("I.cs::Counter.Bump") as
+			| { chunk: { stateWrites: string[] } }
+			| undefined;
 		expect(bump).toBeDefined();
 		// 修复前：postfix/prefix_unary_expression 无写侧 → 自增字段方法被标纯（假纯）；
 		// 修复后：this.x++ → "self.x"；裸 score++ / ++score（类字段）→ "self.score"；i++ 局部 → 无写
@@ -296,7 +323,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const m = by(r).get("L.cs::L.M") as { chunk: { stateReads: string[] } } | undefined;
+		const m = by(r).get("L.cs::L.M") as
+			| { chunk: { stateReads: string[] } }
+			| undefined;
 		expect(m).toBeDefined();
 		// 修复前：variable_declarator 不在 assigned → q/r 假裸读；修复后：声明名入 assigned → 抑制
 		expect(m!.chunk.stateReads).not.toContain("q");
@@ -314,13 +343,17 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const set = by(r).get("S.cs::Service.Set") as { chunk: { stateWrites: string[] } } | undefined;
+		const set = by(r).get("S.cs::Service.Set") as
+			| { chunk: { stateWrites: string[] } }
+			| undefined;
 		expect(set).toBeDefined();
 		// 修复前：裸写 "score"（全局裸名 → 与全库任何裸读 score 假耦合）；修复后：self.score
 		expect(set!.chunk.stateWrites).toContain("self.score");
 		expect(set!.chunk.stateWrites).not.toContain("score");
 		expect(set!.chunk.stateWrites).not.toContain("l"); // 局部声明+重赋值 → 无写
-		const outer = by(r).get("S.cs::Service.Outer") as { chunk: { stateWrites: string[] } } | undefined;
+		const outer = by(r).get("S.cs::Service.Outer") as
+			| { chunk: { stateWrites: string[] } }
+			| undefined;
 		expect(outer).toBeDefined();
 		// 局部函数捕获方法局部 c → 不映射 self.c（与 TS 闭包语义一致——裸外部写）
 		expect(outer!.chunk.stateWrites).not.toContain("self.c");
@@ -340,7 +373,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const f = by(r).get("S.cs::Service.F") as { chunk: { stateWrites: string[] } } | undefined;
+		const f = by(r).get("S.cs::Service.F") as
+			| { chunk: { stateWrites: string[] } }
+			| undefined;
 		expect(f).toBeDefined();
 		// 修复前：下标写完全不可见（假纯）；修复后：参数容器变异=外部写、C# 字段容器=self.items
 		expect(f!.chunk.stateWrites).toContain("arr"); // 参数数组变异（外部——影响调用方）
@@ -350,15 +385,20 @@ describe("C# 语言包（迭代19）", () => {
 
 	it("迭代26 T2：Python for 变量下标写不判外部（item[k]=v 的 item 在 assigned → 非外部）；TS 参数下标变异外部", async () => {
 		const root = project("subscript-py", {
-			"a.py": "def f(data):\n    for item in data:\n        item['k'] = 1\n    return data\n",
+			"a.py":
+				"def f(data):\n    for item in data:\n        item['k'] = 1\n    return data\n",
 			"b.ts": "export function g(arr: number[], i: number) { arr[i] = 5; }\n",
 		});
 		const r = await scanProject(root, { useCache: false });
-		const pf = by(r).get("a.py::f") as { chunk: { stateWrites: string[] } } | undefined;
+		const pf = by(r).get("a.py::f") as
+			| { chunk: { stateWrites: string[] } }
+			| undefined;
 		expect(pf).toBeDefined();
 		// for 变量 item 在 assigned（for_statement 是 assignmentTargets）→ 局部容器写，非外部
 		expect(pf!.chunk.stateWrites).not.toContain("item");
-		const tg = by(r).get("b.ts::g") as { chunk: { stateWrites: string[] } } | undefined;
+		const tg = by(r).get("b.ts::g") as
+			| { chunk: { stateWrites: string[] } }
+			| undefined;
 		expect(tg).toBeDefined();
 		// TS 参数 arr 变异 → 外部写（与裸重绑 F2 不同——变异影响调用方）
 		expect(tg!.chunk.stateWrites).toContain("arr");
@@ -373,25 +413,34 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const read = by(r).get("S.cs::Service.Read") as { chunk: { stateReads: string[] } } | undefined;
+		const read = by(r).get("S.cs::Service.Read") as
+			| { chunk: { stateReads: string[] } }
+			| undefined;
 		expect(read).toBeDefined();
 		// 修复前：方法名 Read 被当裸读（与全库同名写者假耦合）；修复后：声明名抑制
 		expect(read!.chunk.stateReads).not.toContain("Read");
 		// 类名 Service 在类 chunk（class_declaration name 字段），不在方法 chunk——类 chunk 断言（修复前含 Service 裸读）
-		const cls = by(r).get("S.cs::Service") as { chunk: { stateReads: string[] } } | undefined;
+		const cls = by(r).get("S.cs::Service") as
+			| { chunk: { stateReads: string[] } }
+			| undefined;
 		expect(cls).toBeDefined();
 		expect(cls!.chunk.stateReads).not.toContain("Service");
 	});
 
 	it("迭代26 T4：d[k].x = v 写 → 根限定 ⊤（d.⊤，与读侧对偶）；局部 o.x=1 不误报", async () => {
 		const root = project("sub-member-write", {
-			"a.py": "def f(d, k):\n    d[k].x = 2\n    return d\ndef g():\n    o = {}\n    o.x = 1\n    return o\n",
+			"a.py":
+				"def f(d, k):\n    d[k].x = 2\n    return d\ndef g():\n    o = {}\n    o.x = 1\n    return o\n",
 		});
 		const r = await scanProject(root, { useCache: false });
-		const f = by(r).get("a.py::f") as { chunk: { stateWrites: string[] } } | undefined;
+		const f = by(r).get("a.py::f") as
+			| { chunk: { stateWrites: string[] } }
+			| undefined;
 		expect(f).toBeDefined();
 		expect(f!.chunk.stateWrites).toContain("d.⊤"); // d[k].x = v → 根限定 ⊤（读侧对偶）
-		const g = by(r).get("a.py::g") as { chunk: { stateWrites: string[] } } | undefined;
+		const g = by(r).get("a.py::g") as
+			| { chunk: { stateWrites: string[] } }
+			| undefined;
 		expect(g).toBeDefined();
 		expect(g!.chunk.stateWrites).not.toContain("o.⊤"); // 局部 o（assigned）→ 不产生写
 	});
@@ -411,7 +460,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const m = by(r).get("M.cs::M.Run") as { chunk: { stateReads: string[] } } | undefined;
+		const m = by(r).get("M.cs::M.Run") as
+			| { chunk: { stateReads: string[] } }
+			| undefined;
 		expect(m).toBeDefined();
 		expect(m!.chunk.stateReads).not.toContain("a"); // tuple_pattern 声明名（修复前裸读）
 		expect(m!.chunk.stateReads).not.toContain("b");
@@ -421,23 +472,31 @@ describe("C# 语言包（迭代19）", () => {
 
 	it("迭代27 T2：TS catch 变量 + 解构声明名不裸读", async () => {
 		const root = project("decl-ts", {
-			"a.ts": "export function f(arr: number[]) {\n  const [a, b] = arr;\n  let r = a + b;\n  try { r++; } catch (e) { r = 0; }\n  return r;\n}\n",
+			"a.ts":
+				"export function f(arr: number[]) {\n  const [a, b] = arr;\n  let r = a + b;\n  try { r++; } catch (e) { r = 0; }\n  return r;\n}\n",
 		});
 		const r = await scanProject(root, { useCache: false });
-		const f = by(r).get("a.ts::f") as { chunk: { stateReads: string[] } } | undefined;
+		const f = by(r).get("a.ts::f") as
+			| { chunk: { stateReads: string[] } }
+			| undefined;
 		expect(f).toBeDefined();
 		// catch 变量 e 不裸读（修复前裸读）；解构声明名 a/b 不裸读（修复前裸读；use 读 a+b 仍存在——方案B 待办）
 		expect(f!.chunk.stateReads).not.toContain("e");
-		const reads = f!.chunk.stateReads.filter((x) => x === "a" || x === "b").length;
+		const reads = f!.chunk.stateReads.filter(
+			(x) => x === "a" || x === "b",
+		).length;
 		expect(reads).toBeLessThanOrEqual(2); // 仅 use 读（声明名抑制后），修复前 4 次（声明 2 + use 2）
 	});
 
 	it("迭代27 T3：Python except 变量不裸读；异常类型名保留", async () => {
 		const root = project("decl-py", {
-			"a.py": "def f():\n    try:\n        return 1\n    except Exception as e:\n        return 0\n",
+			"a.py":
+				"def f():\n    try:\n        return 1\n    except Exception as e:\n        return 0\n",
 		});
 		const r = await scanProject(root, { useCache: false });
-		const f = by(r).get("a.py::f") as { chunk: { stateReads: string[] } } | undefined;
+		const f = by(r).get("a.py::f") as
+			| { chunk: { stateReads: string[] } }
+			| undefined;
 		expect(f).toBeDefined();
 		expect(f!.chunk.stateReads).not.toContain("e"); // except as 变量（修复前裸读）
 		// Exception 类型名是既有噪音族（不动）——不断言不包含，仅记录
@@ -445,10 +504,13 @@ describe("C# 语言包（迭代19）", () => {
 
 	it("迭代27 T4：JS catch 变量不裸读", async () => {
 		const root = project("decl-js", {
-			"a.js": "function f() {\n  try { return 1; } catch (e) { return 0; }\n}\n",
+			"a.js":
+				"function f() {\n  try { return 1; } catch (e) { return 0; }\n}\n",
 		});
 		const r = await scanProject(root, { useCache: false });
-		const f = by(r).get("a.js::f") as { chunk: { stateReads: string[] } } | undefined;
+		const f = by(r).get("a.js::f") as
+			| { chunk: { stateReads: string[] } }
+			| undefined;
 		expect(f).toBeDefined();
 		expect(f!.chunk.stateReads).not.toContain("e"); // catch 变量（修复前裸读）
 	});
@@ -457,7 +519,7 @@ describe("C# 语言包（迭代19）", () => {
 		const root = project("system-pure", {
 			"U.cs": [
 				"public class U {",
-				'    public string Encode(string s) { return System.Uri.EscapeDataString(s); }',
+				"    public string Encode(string s) { return System.Uri.EscapeDataString(s); }",
 				"    public int Add() {",
 				"        var l = new System.Collections.Generic.List<int>();",
 				"        System.Collections.Generic.List<int>.Add(l, 1);",
@@ -467,7 +529,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const enc = by(r).get("U.cs::U.Encode") as { purity: number; effects: Set<string> } | undefined;
+		const enc = by(r).get("U.cs::U.Encode") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(enc).toBeDefined();
 		// 修复前：global:System miss → ? → UNKNOWN=1；修复后：Uri 命中 frameworkPure → 纯
 		expect(enc!.effects.has("io")).toBe(false);
@@ -483,7 +547,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const n = by(r).get("N.cs::N.Send") as { purity: number; effects: Set<string> } | undefined;
+		const n = by(r).get("N.cs::N.Send") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(n).toBeDefined();
 		// attr="Net.Http.HttpClient.SendAsync" 首段 Net ∈ frameworkIo.System 9 条 → 仍 io
 		expect(n!.effects.has("io")).toBe(true);
@@ -500,7 +566,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const run = by(r).get("H.cs::H.Run") as { purity: number; effects: Set<string>; chain: number } | undefined;
+		const run = by(r).get("H.cs::H.Run") as
+			| { purity: number; effects: Set<string>; chain: number }
+			| undefined;
 		expect(run).toBeDefined();
 		// 迭代30 复审：纯前缀命中不得丢回调边——Save 写 Console（io）经回调传染 Run。
 		// 修复前：frameworkPure 命中直接 return → Run 判 PURE=0（假纯，公理 3 方向最重）；
@@ -518,7 +586,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const run = by(r).get("C.cs::C.Run") as { purity: number; effects: Set<string> } | undefined;
+		const run = by(r).get("C.cs::C.Run") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(run).toBeDefined();
 		// 迭代31 S3（审计实证活洞）：修复前 hofAlwaysArgs 空表 → Console.WriteLine 回调 io 被吞 → PURE=0 假纯。
 		// 修复后：Select 进 hofAlwaysArgs → 回调未解析 → calls 含 ? → UNKNOWN=1（公理 3，绝不假纯）
@@ -535,7 +605,13 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const chain = by(r).get("S.cs::S.Chain") as { purity: number; effects: Set<string>; chunk: { unknownSites: number } } | undefined;
+		const chain = by(r).get("S.cs::S.Chain") as
+			| {
+					purity: number;
+					effects: Set<string>;
+					chunk: { unknownSites: number };
+			  }
+			| undefined;
 		expect(chain).toBeDefined();
 		// 修复前：invocation_expression 不在 receiverTypeOf 类型检查 → 第二环起断 → unknownSites > 0；
 		// 修复后：Trim→string 查 builtinMethodReturns→ToUpper→string→TrimEnd→string 链不断，零未知站点
@@ -570,7 +646,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const join = by(r).get("C.cs::C.Join") as { purity: number; effects: Set<string> } | undefined;
+		const join = by(r).get("C.cs::C.Join") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(join).toBeDefined();
 		// MEDIUM-2（复审实证回归）：修复前 Join ∈ 全局 hofCallsArgs → pureGlobals.String 门 →
 		// argFnsOf 收 parts → 未解析 → ? → UNKNOWN 假 UNKNOWN（原 PURE）。修复后 Join 移出全局表 → PURE
@@ -588,7 +666,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const calc = by(r).get("C.cs::C.Calc") as { purity: number; effects: Set<string> } | undefined;
+		const calc = by(r).get("C.cs::C.Calc") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(calc).toBeDefined();
 		// 撞名守卫（复审建议）：Math.Max 的 score 是状态读非回调——若 Max 在全局 HOF 表会被 argFnsOf
 		// 误收 → 假 UNKNOWN。修复后 Max 移入 linqHof、全局表不含 → PURE
@@ -605,7 +685,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const run = by(r).get("C.cs::C.Run") as { purity: number; effects: Set<string> } | undefined;
+		const run = by(r).get("C.cs::C.Run") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(run).toBeDefined();
 		// 成员级白名单（迭代32）：Runtime/CompilerServices 未列 → fall-through → UNKNOWN=1 诚实
 		// （修复前前缀级 System 白名单不含 Runtime 段，同为 UNKNOWN——本用例守卫"成员级不越界放纯"）
@@ -666,7 +748,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const enc = by(r).get("C.cs::C.Enc") as { purity: number; effects: Set<string> } | undefined;
+		const enc = by(r).get("C.cs::C.Enc") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(enc).toBeDefined();
 		// 迭代32 复审 Blocking：初版把 StringBuilder/Encoding/RegularExpressions 放 System 顶层散键，
 		// 但匹配按 rest 首段 "Text" 查 → System.Text.* 整子树 miss 落 ?（55 站翻纯→? 实证）。
@@ -687,10 +771,18 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const hide = by(r).get("C.cs::C.Hide") as { purity: number; effects: Set<string> } | undefined;
-		const ext = by(r).get("C.cs::C.Ext") as { purity: number; effects: Set<string> } | undefined;
-		const direct = by(r).get("C.cs::C.Direct") as { purity: number; effects: Set<string> } | undefined;
-		const local = by(r).get("C.cs::C.Local") as { purity: number; effects: Set<string> } | undefined;
+		const hide = by(r).get("C.cs::C.Hide") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		const ext = by(r).get("C.cs::C.Ext") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		const direct = by(r).get("C.cs::C.Direct") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		const local = by(r).get("C.cs::C.Local") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(hide).toBeDefined();
 		expect(ext).toBeDefined();
 		expect(direct).toBeDefined();
@@ -713,14 +805,18 @@ describe("C# 语言包（迭代19）", () => {
 		const root = project("nunit-pure", {
 			"C.cs": [
 				"public class C {",
-				"    public void T1(string s) { StringAssert.Contains(\"a\", s); }",
+				'    public void T1(string s) { StringAssert.Contains("a", s); }',
 				"    public void T2(string s) { Does.Contain(s); }",
 				"}",
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const t1 = by(r).get("C.cs::C.T1") as { purity: number; effects: Set<string> } | undefined;
-		const t2 = by(r).get("C.cs::C.T2") as { purity: number; effects: Set<string> } | undefined;
+		const t1 = by(r).get("C.cs::C.T1") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		const t2 = by(r).get("C.cs::C.T2") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(t1).toBeDefined();
 		expect(t2).toBeDefined();
 		// 迭代33 TP5：StringAssert/Does 入 pureGlobals（抛异常≠副作用）——修复前 675 站假 UNKNOWN。
@@ -747,9 +843,15 @@ describe("C# 语言包（迭代19）", () => {
 		});
 		const r = await scanProject(root, { useCache: false });
 		const pure = by(r).get("C.cs::C.Pure") as { purity: number } | undefined;
-		const io = by(r).get("C.cs::C.Io") as { purity: number; effects: Set<string> } | undefined;
-		const unlisted = by(r).get("C.cs::C.Unlisted") as { purity: number } | undefined;
-		const userM = by(r).get("C.cs::User.M") as { purity: number; effects: Set<string> } | undefined;
+		const io = by(r).get("C.cs::C.Io") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		const unlisted = by(r).get("C.cs::C.Unlisted") as
+			| { purity: number }
+			| undefined;
+		const userM = by(r).get("C.cs::User.M") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(pure).toBeDefined();
 		expect(io).toBeDefined();
 		expect(unlisted).toBeDefined();
@@ -774,14 +876,16 @@ describe("C# 语言包（迭代19）", () => {
 				"    public void Pre() { var s = new string('x', 2); }",
 				"}",
 				// 项目类撞 pureCtor 名单名（List）且构造体有 io——必须走项目类构造边非 pureCtor
-				"public class List { public List() { System.Console.WriteLine(\"ctor\"); } }",
+				'public class List { public List() { System.Console.WriteLine("ctor"); } }',
 				"public class User { public void M() { var l = new List(); } }",
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
 		const gen = by(r).get("C.cs::C.Gen") as { purity: number } | undefined;
 		const pre = by(r).get("C.cs::C.Pre") as { purity: number } | undefined;
-		const userM = by(r).get("C.cs::User.M") as { purity: number; effects: Set<string> } | undefined;
+		const userM = by(r).get("C.cs::User.M") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(gen).toBeDefined();
 		expect(pre).toBeDefined();
 		expect(userM).toBeDefined();
@@ -794,7 +898,7 @@ describe("C# 语言包（迭代19）", () => {
 		expect(userM!.purity).toBe(2); // new List（项目类撞名单）→ 构造体 io 传导（迭代34 修复防假纯）
 	});
 
-	it("迭代35 A1：参数显式类型绑定——Dictionary/List 参数集合操作判纯（970 站痛点）", async () => {
+	it("迭代35 A1 + 迭代38 B：参数显式类型绑定——纯信箱判纯、容器变异方法判 state（§b-7 统一）", async () => {
 		const root = project("a1-param", {
 			"C.cs": [
 				"using System.Collections.Generic;",
@@ -814,19 +918,23 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const read = by(r).get("C.cs::C.Read") as { purity: number; effects: Set<string> } | undefined;
-		const sum = by(r).get("C.cs::C.Sum") as { purity: number; effects: Set<string> } | undefined;
+		const read = by(r).get("C.cs::C.Read") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		const sum = by(r).get("C.cs::C.Sum") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		const other = by(r).get("C.cs::C.Other") as { purity: number } | undefined;
 		expect(read).toBeDefined();
 		expect(sum).toBeDefined();
 		expect(other).toBeDefined();
-		// 迭代35 A1（InitDeity 970 站集合方法痛点）：Dictionary 参数 TryGetValue/Add、List 参数 Add/Count
-		// → builtinTypeEffects 判纯（集合操作无 io）；string 参数 Trim → string 表 Trim=pure → PURE
+		// 纯读信箱（TryGetValue/Count）与 string 表 Trim 仍 → PURE。
 		expect(read!.effects.has("io")).toBe(false);
-		expect(read!.purity).toBe(0); // Dictionary 参数集合操作 → PURE
-		expect(sum!.effects.has("io")).toBe(false);
-		expect(sum!.purity).toBe(0); // List 参数集合操作 → PURE
-		expect(other!.purity).toBe(0); // string 参数 Trim → PURE（string 表有 Trim）
+		expect(read!.effects.has("state")).toBe(true);
+		expect(read!.purity).toBe(2); // Dictionary 参数：TryGetValue 纯 + Add 变异 → state（IMPURE）
+		expect(sum!.effects.has("state")).toBe(true);
+		expect(sum!.purity).toBe(2); // List 参数：Add 变异 → state（IMPURE）；Count 纯读
+		expect(other!.purity).toBe(0); // string 参数 Trim → PURE（不可变，无变异）
 	});
 
 	it("迭代36 A1 修复：项目类撞表键作参数类型 → 不走表绑定（假纯红线闭合）", async () => {
@@ -841,7 +949,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const use = by(r).get("C.cs::C.Use") as { purity: number; effects: Set<string> } | undefined;
+		const use = by(r).get("C.cs::C.Use") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(use).toBeDefined();
 		// 迭代36 独立审计 High：修复前 ptype="List" 撞 builtinTypeEffects List 键 → Add 判 PURE 假纯
 		// （项目 List.Add 写 Console）。修复后项目类守卫跳过表绑定 → 走全局类解析 → 项目 List.Add io 传导
@@ -853,14 +963,16 @@ describe("C# 语言包（迭代19）", () => {
 		const root = project("overload-union", {
 			"C.cs": [
 				"public class ApiClientHelper {",
-				"    public static int PrepareRequest(int x) { return System.IO.File.ReadAllText(\"a\"); }",
+				'    public static int PrepareRequest(int x) { return System.IO.File.ReadAllText("a"); }',
 				"    public static int PrepareRequest(string s) { return s.Length; }",
 				"    public static int Call() { return PrepareRequest(1); }",
 				"}",
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const call = by(r).get("C.cs::ApiClientHelper.Call") as { purity: number; effects: Set<string> } | undefined;
+		const call = by(r).get("C.cs::ApiClientHelper.Call") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(call).toBeDefined();
 		// 两重载并集边：{io} ∪ {} = {io} → IMPURE（原 ambiguous 记 UNKNOWN 断链——TP2 修复）
 		expect(call!.effects.has("io")).toBe(true);
@@ -884,7 +996,8 @@ describe("C# 语言包（迭代19）", () => {
 
 	it("迭代37 P1-2：项目类构造绑定 → 构造体 io 传导（不假纯）", async () => {
 		const root = project("lb-project", {
-			"Db.cs": "public class MyDb { public void Connect() { System.Console.WriteLine(\"x\"); } }",
+			"Db.cs":
+				'public class MyDb { public void Connect() { System.Console.WriteLine("x"); } }',
 			"C.cs": [
 				"public class C {",
 				"    public void Run() { var db = new MyDb(); db.Connect(); }",
@@ -892,7 +1005,9 @@ describe("C# 语言包（迭代19）", () => {
 			].join("\n"),
 		});
 		const r = await scanProject(root, { useCache: false });
-		const run = by(r).get("C.cs::C.Run") as { purity: number; effects: Set<string> } | undefined;
+		const run = by(r).get("C.cs::C.Run") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
 		expect(run).toBeDefined();
 		// db:"MyDb" → 全局类解析 MyDb.Connect（写 Console io）→ IMPURE（修复前 db.Connect 落 ? → UNKNOWN）
 		expect(run!.effects.has("io")).toBe(true);

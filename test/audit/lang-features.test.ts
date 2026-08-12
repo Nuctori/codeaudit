@@ -13,1015 +13,1159 @@ import { Purity, type Verdict } from "../../src/core/types";
  */
 
 let dir: string;
-beforeAll(() => { dir = mkdtempSync(join(tmpdir(), "codeaudit-lang-")); });
-afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
+beforeAll(() => {
+	dir = mkdtempSync(join(tmpdir(), "codeaudit-lang-"));
+});
+afterAll(() => {
+	rmSync(dir, { recursive: true, force: true });
+});
 
 function project(name: string, files: Record<string, string>): string {
-  const root = join(dir, name);
-  for (const [f, content] of Object.entries(files)) {
-    const p = join(root, f);
-    mkdirSync(join(p, ".."), { recursive: true });
-    writeFileSync(p, content);
-  }
-  return root;
+	const root = join(dir, name);
+	for (const [f, content] of Object.entries(files)) {
+		const p = join(root, f);
+		mkdirSync(join(p, ".."), { recursive: true });
+		writeFileSync(p, content);
+	}
+	return root;
 }
 
 function by(report: { verdicts: Verdict[] }): Map<string, Verdict> {
-  const m = new Map<string, Verdict>();
-  for (const v of report.verdicts) m.set(`${v.chunk.file}::${v.chunk.name}`, v);
-  return m;
+	const m = new Map<string, Verdict>();
+	for (const v of report.verdicts) m.set(`${v.chunk.file}::${v.chunk.name}`, v);
+	return m;
 }
 
 describe("维度21: Python 特性", () => {
-  it("async def / 装饰器 / lambda / 嵌套函数 / 类方法", async () => {
-    const root = project("pyfeat", {
-      "feat.py": [
-        "import functools",
-        "import asyncio",
-        "",
-        "def deco(f):",
-        "    @functools.wraps(f)",
-        "    def wrapper(*a, **k):",
-        "        return f(*a, **k)",
-        "    return wrapper",
-        "",
-        "@deco",
-        "async def fetch_data(uid):",
-        '    print("fetch", uid)',
-        "    return uid",
-        "",
-        "def use_lambda(items):",
-        "    return sorted(items, key=lambda x: x[1])",
-        "",
-        "class Repo:",
-        "    def __init__(self):",
-        "        self.db = None",
-        "",
-        "    @staticmethod",
-        "    def pure_check(x):",
-        "        return x > 0",
-        "",
-        "    def write(self, x):",
-        "        open('f.txt', 'w').write(str(x))",
-        "",
-      ].join("\n"),
-    });
-    const b = by(await scanProject(root));
+	it("async def / 装饰器 / lambda / 嵌套函数 / 类方法", async () => {
+		const root = project("pyfeat", {
+			"feat.py": [
+				"import functools",
+				"import asyncio",
+				"",
+				"def deco(f):",
+				"    @functools.wraps(f)",
+				"    def wrapper(*a, **k):",
+				"        return f(*a, **k)",
+				"    return wrapper",
+				"",
+				"@deco",
+				"async def fetch_data(uid):",
+				'    print("fetch", uid)',
+				"    return uid",
+				"",
+				"def use_lambda(items):",
+				"    return sorted(items, key=lambda x: x[1])",
+				"",
+				"class Repo:",
+				"    def __init__(self):",
+				"        self.db = None",
+				"",
+				"    @staticmethod",
+				"    def pure_check(x):",
+				"        return x > 0",
+				"",
+				"    def write(self, x):",
+				"        open('f.txt', 'w').write(str(x))",
+				"",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
 
-    // async 函数是 chunk；内部 print → io
-    expect(b.get("feat.py::fetch_data")!.purity).toBe(Purity.IMPURE);
-    // 装饰器调用 deco 建边（deco 纯）
-    expect(b.get("feat.py::fetch_data")!.chainCertain).toBe(true);
-    // lambda 不是 chunk，sorted 是纯内置
-    expect(b.get("feat.py::use_lambda")!.purity).toBe(Purity.PURE);
-    // 嵌套函数 wrapper 是独立 chunk
-    expect(b.get("feat.py::wrapper")).toBeDefined();
-    // open(...) 直接效应
-    expect(b.get("feat.py::Repo.write")!.chain).toBe(0);
-    // 静态方法纯
-    expect(b.get("feat.py::Repo.pure_check")!.purity).toBe(Purity.PURE);
-  });
+		// async 函数是 chunk；内部 print → io
+		expect(b.get("feat.py::fetch_data")!.purity).toBe(Purity.IMPURE);
+		// 装饰器调用 deco 建边（deco 纯）
+		expect(b.get("feat.py::fetch_data")!.chainCertain).toBe(true);
+		// lambda 不是 chunk，sorted 是纯内置
+		expect(b.get("feat.py::use_lambda")!.purity).toBe(Purity.PURE);
+		// 嵌套函数 wrapper 是独立 chunk
+		expect(b.get("feat.py::wrapper")).toBeDefined();
+		// open(...) 直接效应
+		expect(b.get("feat.py::Repo.write")!.chain).toBe(0);
+		// 静态方法纯
+		expect(b.get("feat.py::Repo.pure_check")!.purity).toBe(Purity.PURE);
+	});
 
-  it("from . import x（包内点导入）", async () => {
-    const root = project("pydot", {
-      "pkg/__init__.py": "from .core import main\n",
-      "pkg/core.py": "def main():\n    return 1\n",
-      "pkg/user.py": "from . import main\n\ndef run():\n    return main()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("pkg/user.py::run")!.purity).toBe(Purity.PURE);
-    expect(b.get("pkg/user.py::run")!.chainCertain).toBe(true);
-  });
+	it("from . import x（包内点导入）", async () => {
+		const root = project("pydot", {
+			"pkg/__init__.py": "from .core import main\n",
+			"pkg/core.py": "def main():\n    return 1\n",
+			"pkg/user.py": "from . import main\n\ndef run():\n    return main()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("pkg/user.py::run")!.purity).toBe(Purity.PURE);
+		expect(b.get("pkg/user.py::run")!.chainCertain).toBe(true);
+	});
 });
 
 describe("维度22: TypeScript 特性", () => {
-  it("泛型 / 可选链 / getter-setter / 箭头函数链", async () => {
-    const root = project("tsfeat", {
-      "g.ts": [
-        "export function identity<T>(x: T): T { return x; }",
-        "",
-        "export class Box<T> {",
-        "  private v: T | null = null;",
-        "  get value(): T | null { return this.v; }",
-        "  set value(x: T | null) { this.v = x; }",
-        "}",
-        "",
-        "interface Maybe { run?: () => number }",
-        "export function optCall(m: Maybe | null): number {",
-        "  return m?.run?.() ?? 0;",
-        "}",
-        "",
-        "export const pipe = (x: number) => (y: number) => x + y;",
-        "",
-        "export function usePipe(): number {",
-        "  return pipe(1)(2);",
-        "}",
-        "",
-      ].join("\n"),
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("g.ts::identity")!.purity).toBe(Purity.PURE);
-    expect(b.get("g.ts::Box.value")).toBeDefined();
-    // 可选链调用不崩溃；m?.run?.() 是局部对象方法 → 记未知（诚实承认不可见）
-    expect(b.get("g.ts::optCall")).toBeDefined();
-    // pipe(1)(2) 是不可拍平调用（调用结果再调用）→ 记未知，不再静默丢边
-    expect(b.get("g.ts::usePipe")!.purity).toBe(Purity.UNKNOWN);
-  });
+	it("泛型 / 可选链 / getter-setter / 箭头函数链", async () => {
+		const root = project("tsfeat", {
+			"g.ts": [
+				"export function identity<T>(x: T): T { return x; }",
+				"",
+				"export class Box<T> {",
+				"  private v: T | null = null;",
+				"  get value(): T | null { return this.v; }",
+				"  set value(x: T | null) { this.v = x; }",
+				"}",
+				"",
+				"interface Maybe { run?: () => number }",
+				"export function optCall(m: Maybe | null): number {",
+				"  return m?.run?.() ?? 0;",
+				"}",
+				"",
+				"export const pipe = (x: number) => (y: number) => x + y;",
+				"",
+				"export function usePipe(): number {",
+				"  return pipe(1)(2);",
+				"}",
+				"",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("g.ts::identity")!.purity).toBe(Purity.PURE);
+		expect(b.get("g.ts::Box.value")).toBeDefined();
+		// 可选链调用不崩溃；m?.run?.() 是局部对象方法 → 记未知（诚实承认不可见）
+		expect(b.get("g.ts::optCall")).toBeDefined();
+		// pipe(1)(2) 是不可拍平调用（调用结果再调用）→ 记未知，不再静默丢边
+		expect(b.get("g.ts::usePipe")!.purity).toBe(Purity.UNKNOWN);
+	});
 });
 
 describe("维度23: JavaScript 特性", () => {
-  it("require 重命名 / module.exports 形态 / 解构 require", async () => {
-    const root = project("jsfeat", {
-      "lib.js": "function go() { return 1; }\nmodule.exports = { go };\n",
-      "renamed.js": 'const fs2 = require("fs");\nfunction w() { fs2.writeFileSync("a", "b"); }\nmodule.exports = { w };\n',
-      "destructured.js": 'const { go } = require("./lib");\nfunction use() { return go(); }\nmodule.exports = { use };\n',
-    });
-    const b = by(await scanProject(root));
-    // require 重命名后 fs2 仍是命名空间绑定 → fs 表命中
-    expect(b.get("renamed.js::w")!.purity).toBe(Purity.IMPURE);
-    // 解构 require（定义性事实族 D）：{ go } 绑定到 lib.go → 真边 → 确定性 PURE（go 纯函数）
-    const use = b.get("destructured.js::use")!;
-    expect(use.purity).toBe(Purity.PURE);
-  });
+	it("require 重命名 / module.exports 形态 / 解构 require", async () => {
+		const root = project("jsfeat", {
+			"lib.js": "function go() { return 1; }\nmodule.exports = { go };\n",
+			"renamed.js":
+				'const fs2 = require("fs");\nfunction w() { fs2.writeFileSync("a", "b"); }\nmodule.exports = { w };\n',
+			"destructured.js":
+				'const { go } = require("./lib");\nfunction use() { return go(); }\nmodule.exports = { use };\n',
+		});
+		const b = by(await scanProject(root));
+		// require 重命名后 fs2 仍是命名空间绑定 → fs 表命中
+		expect(b.get("renamed.js::w")!.purity).toBe(Purity.IMPURE);
+		// 解构 require（定义性事实族 D）：{ go } 绑定到 lib.go → 真边 → 确定性 PURE（go 纯函数）
+		const use = b.get("destructured.js::use")!;
+		expect(use.purity).toBe(Purity.PURE);
+	});
 });
 
 describe("维度24: TSX 特性", () => {
-  it("泛型组件 + 内联事件处理 + 效应在组件体内", async () => {
-    const root = project("tsxfeat", {
-      "App.tsx": [
-        'import * as fs from "fs";',
-        "",
-        "interface Props<T> { items: T[] }",
-        "",
-        "export function List<T>({ items }: Props<T>) {",
-        "  return <ul>{items.map((x, i) => <li key={i}>{String(x)}</li>)}</ul>;",
-        "}",
-        "",
-        "export function SaveBtn() {",
-        "  const onClick = () => {",
-        '    fs.writeFileSync("save.txt", "x");',
-        "  };",
-        "  return <button onClick={onClick}>save</button>;",
-        "}",
-        "",
-      ].join("\n"),
-    });
-    const r = await scanProject(root);
-    expect(r.stats.parseErrors).toBe(0);
-    const b = by(r);
-    // items.map(...) 是参数方法调用 → 记 `?`，诚实未知
-    expect(b.get("App.tsx::List")!.purity).toBe(Purity.UNKNOWN);
-    // onClick 是变量声明的箭头函数 chunk，含 fs 效应
-    const onClick = b.get("App.tsx::onClick")!;
-    expect(onClick.purity).toBe(Purity.IMPURE);
-    expect(onClick.chain).toBe(0);
-    // SaveBtn 体内没有直接调用 onClick（JSX 属性引用不是调用点）
-    expect(b.get("App.tsx::SaveBtn")).toBeDefined();
-  });
+	it("泛型组件 + 内联事件处理 + 效应在组件体内", async () => {
+		const root = project("tsxfeat", {
+			"App.tsx": [
+				'import * as fs from "fs";',
+				"",
+				"interface Props<T> { items: T[] }",
+				"",
+				"export function List<T>({ items }: Props<T>) {",
+				"  return <ul>{items.map((x, i) => <li key={i}>{String(x)}</li>)}</ul>;",
+				"}",
+				"",
+				"export function SaveBtn() {",
+				"  const onClick = () => {",
+				'    fs.writeFileSync("save.txt", "x");',
+				"  };",
+				"  return <button onClick={onClick}>save</button>;",
+				"}",
+				"",
+			].join("\n"),
+		});
+		const r = await scanProject(root);
+		expect(r.stats.parseErrors).toBe(0);
+		const b = by(r);
+		// items.map(...) 是参数方法调用 → 记 `?`，诚实未知
+		expect(b.get("App.tsx::List")!.purity).toBe(Purity.UNKNOWN);
+		// onClick 是变量声明的箭头函数 chunk，含 fs 效应
+		const onClick = b.get("App.tsx::onClick")!;
+		expect(onClick.purity).toBe(Purity.IMPURE);
+		expect(onClick.chain).toBe(0);
+		// SaveBtn 体内没有直接调用 onClick（JSX 属性引用不是调用点）
+		expect(b.get("App.tsx::SaveBtn")).toBeDefined();
+	});
 });
 
 describe("维度25: 动态导入边界", () => {
-  it("import() 与 require(变量) 不崩溃且诚实标记", async () => {
-    const root = project("dynimp", {
-      "a.ts": [
-        "export async function load(name: string) {",
-        '  const m = await import("./" + name);',
-        "  return m.default;",
-        "}",
-        "",
-        "export function loadCjs(name: string) {",
-        "  return require(name);",
-        "}",
-        "",
-      ].join("\n"),
-    });
-    const r = await scanProject(root);
-    const b = by(r);
-    // 动态说明符无法解析 → 不允许假装成功
-    expect(b.get("a.ts::load")).toBeDefined();
-    expect(b.get("a.ts::loadCjs")).toBeDefined();
-  });
+	it("import() 与 require(变量) 不崩溃且诚实标记", async () => {
+		const root = project("dynimp", {
+			"a.ts": [
+				"export async function load(name: string) {",
+				'  const m = await import("./" + name);',
+				"  return m.default;",
+				"}",
+				"",
+				"export function loadCjs(name: string) {",
+				"  return require(name);",
+				"}",
+				"",
+			].join("\n"),
+		});
+		const r = await scanProject(root);
+		const b = by(r);
+		// 动态说明符无法解析 → 不允许假装成功
+		expect(b.get("a.ts::load")).toBeDefined();
+		expect(b.get("a.ts::loadCjs")).toBeDefined();
+	});
 });
 
 describe("OO 健全性回归：假纯修复", () => {
-  it("super().save() 继承调用不假纯（父类效应不再静默丢失）", async () => {
-    const root = project("oosuper", {
-      "base.py": "class Base:\n    def save(self):\n        print('io')\n",
-      "child.py": "from base import Base\nclass Child(Base):\n    def save(self):\n        super().save()\n",
-    });
-    const b = by(await scanProject(root));
-    // 不可拍平 → 诚实未知，而非 PURE
-    expect(b.get("child.py::Child.save")!.purity).toBe(Purity.UNKNOWN);
-  });
+	it("super().save() 继承调用不假纯（父类效应不再静默丢失）", async () => {
+		const root = project("oosuper", {
+			"base.py": "class Base:\n    def save(self):\n        print('io')\n",
+			"child.py":
+				"from base import Base\nclass Child(Base):\n    def save(self):\n        super().save()\n",
+		});
+		const b = by(await scanProject(root));
+		// 不可拍平 → 诚实未知，而非 PURE
+		expect(b.get("child.py::Child.save")!.purity).toBe(Purity.UNKNOWN);
+	});
 
-  it("导入对象的方法调用不假纯（import { db }; db.query()）", async () => {
-    const root = project("ooobj", {
-      "db.ts": "export const db = { query: (q: string) => console.log(q) };\n",
-      "app.ts": "import { db } from './db';\nexport function run() { db.query('DELETE FROM t'); }\n",
-    });
-    const b = by(await scanProject(root));
-    // 对象方法调用 → 诚实未知，而非 PURE
-    expect(b.get("app.ts::run")!.purity).toBe(Purity.UNKNOWN);
-  });
+	it("导入对象的方法调用不假纯（import { db }; db.query()）", async () => {
+		const root = project("ooobj", {
+			"db.ts": "export const db = { query: (q: string) => console.log(q) };\n",
+			"app.ts":
+				"import { db } from './db';\nexport function run() { db.query('DELETE FROM t'); }\n",
+		});
+		const b = by(await scanProject(root));
+		// 对象方法调用 → 诚实未知，而非 PURE
+		expect(b.get("app.ts::run")!.purity).toBe(Purity.UNKNOWN);
+	});
 
-  it("同名方法冲突 → 并集边（迭代37 P1-3：全候选效应并集，S1/S2/S3 可证安全）", async () => {
-    const root = project("oopoly", {
-      "poly.py": "class C:\n    def m(self):\n        print('a')\n    def m(self):\n        print('b')\n    def run(self):\n        self.m()\n",
-    });
-    const b = by(await scanProject(root));
-    // 两个重载 m 均 print（io）→ 并集 {io} → IMPURE（原记未知，现并集边确定判定）
-    expect(b.get("poly.py::C.run")!.purity).toBe(Purity.IMPURE);
-  });
+	it("同名方法冲突 → 并集边（迭代37 P1-3：全候选效应并集，S1/S2/S3 可证安全）", async () => {
+		const root = project("oopoly", {
+			"poly.py":
+				"class C:\n    def m(self):\n        print('a')\n    def m(self):\n        print('b')\n    def run(self):\n        self.m()\n",
+		});
+		const b = by(await scanProject(root));
+		// 两个重载 m 均 print（io）→ 并集 {io} → IMPURE（原记未知，现并集边确定判定）
+		expect(b.get("poly.py::C.run")!.purity).toBe(Purity.IMPURE);
+	});
 });
 
 describe("公理4：令牌级规范化（身份即内容）", () => {
-  const idOf = async (p: string): Promise<string> => {
-    const r = await scanProject(p);
-    return r.verdicts.find((v) => v.chunk.name === "f")!.chunk.id;
-  };
+	const idOf = async (p: string): Promise<string> => {
+		const r = await scanProject(p);
+		return r.verdicts.find((v) => v.chunk.name === "f")!.chunk.id;
+	};
 
-  it("注释/空白不敏感（改注释、调缩进 id 不变）", async () => {
-    const a = project("ax4a", { "f.py": "def f(x):\n    # 注释\n    return x + 1\n" });
-    const b = project("ax4b", { "f.py": "def f(x):\n    return x + 1\n" });
-    expect(await idOf(a)).toBe(await idOf(b));
-  });
+	it("注释/空白不敏感（改注释、调缩进 id 不变）", async () => {
+		const a = project("ax4a", {
+			"f.py": "def f(x):\n    # 注释\n    return x + 1\n",
+		});
+		const b = project("ax4b", { "f.py": "def f(x):\n    return x + 1\n" });
+		expect(await idOf(a)).toBe(await idOf(b));
+	});
 
-  it("字符串内容敏感（旧正则会把 \"a  b\" 与 \"a b\" 塌缩为同 id）", async () => {
-    const a = project("ax4c", { "f.py": 'def f(x):\n    return "a  b"\n' });
-    const b = project("ax4d", { "f.py": 'def f(x):\n    return "a b"\n' });
-    expect(await idOf(a)).not.toBe(await idOf(b));
-  });
+	it('字符串内容敏感（旧正则会把 "a  b" 与 "a b" 塌缩为同 id）', async () => {
+		const a = project("ax4c", { "f.py": 'def f(x):\n    return "a  b"\n' });
+		const b = project("ax4d", { "f.py": 'def f(x):\n    return "a b"\n' });
+		expect(await idOf(a)).not.toBe(await idOf(b));
+	});
 
-  it("整除 // 不被当注释（旧正则 x//2 与 x//3 同 id）", async () => {
-    const a = project("ax4e", { "f.py": "def f(x):\n    return x // 2\n" });
-    const b = project("ax4f", { "f.py": "def f(x):\n    return x // 3\n" });
-    expect(await idOf(a)).not.toBe(await idOf(b));
-  });
+	it("整除 // 不被当注释（旧正则 x//2 与 x//3 同 id）", async () => {
+		const a = project("ax4e", { "f.py": "def f(x):\n    return x // 2\n" });
+		const b = project("ax4f", { "f.py": "def f(x):\n    return x // 3\n" });
+		expect(await idOf(a)).not.toBe(await idOf(b));
+	});
 
-  it("TS 私有字段 # 不被剥离（旧正则 this.#a 与 this.#b 同 id）", async () => {
-    const a = project("ax4g", { "g.ts": "export class C {\n  #a = 1;\n  f() { return this.#a; }\n}\n" });
-    const b = project("ax4h", { "g.ts": "export class C {\n  #b = 1;\n  f() { return this.#b; }\n}\n" });
-    const idA = (await scanProject(a)).verdicts.find((v) => v.chunk.name === "C.f")!.chunk.id;
-    const idB = (await scanProject(b)).verdicts.find((v) => v.chunk.name === "C.f")!.chunk.id;
-    expect(idA).not.toBe(idB);
-  });
+	it("TS 私有字段 # 不被剥离（旧正则 this.#a 与 this.#b 同 id）", async () => {
+		const a = project("ax4g", {
+			"g.ts": "export class C {\n  #a = 1;\n  f() { return this.#a; }\n}\n",
+		});
+		const b = project("ax4h", {
+			"g.ts": "export class C {\n  #b = 1;\n  f() { return this.#b; }\n}\n",
+		});
+		const idA = (await scanProject(a)).verdicts.find(
+			(v) => v.chunk.name === "C.f",
+		)!.chunk.id;
+		const idB = (await scanProject(b)).verdicts.find(
+			(v) => v.chunk.name === "C.f",
+		)!.chunk.id;
+		expect(idA).not.toBe(idB);
+	});
 });
 
 describe("HOF 回调边（map/filter 吞回调效应修复）", () => {
-  it("map(warn, xs) 中 warn 的 io 效应传播到调用方", async () => {
-    const root = project("hof1", {
-      "hof.py": "def warn(x):\n    print(x)\n\ndef run(xs):\n    return list(map(warn, xs))\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("hof.py::warn")!.purity).toBe(Purity.IMPURE);
-    expect(b.get("hof.py::run")!.purity).toBe(Purity.IMPURE); // 修复前 PURE（假纯）
-  });
+	it("map(warn, xs) 中 warn 的 io 效应传播到调用方", async () => {
+		const root = project("hof1", {
+			"hof.py":
+				"def warn(x):\n    print(x)\n\ndef run(xs):\n    return list(map(warn, xs))\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("hof.py::warn")!.purity).toBe(Purity.IMPURE);
+		expect(b.get("hof.py::run")!.purity).toBe(Purity.IMPURE); // 修复前 PURE（假纯）
+	});
 
-  it("sorted(xs, key=warn) 关键字实参同样保留效应", async () => {
-    const root = project("hof2", {
-      "hof.py": "def warn(x):\n    print(x)\n\ndef run2(xs):\n    return sorted(xs, key=warn)\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("hof.py::run2")!.purity).toBe(Purity.IMPURE);
-  });
+	it("sorted(xs, key=warn) 关键字实参同样保留效应", async () => {
+		const root = project("hof2", {
+			"hof.py":
+				"def warn(x):\n    print(x)\n\ndef run2(xs):\n    return sorted(xs, key=warn)\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("hof.py::run2")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("functools.reduce 模块成员 HOF", async () => {
-    const root = project("hof3", {
-      "hof.py": "import functools\ndef warn(a, b):\n    print(a)\n    return b\n\ndef run3(xs):\n    return functools.reduce(warn, xs, 0)\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("hof.py::run3")!.purity).toBe(Purity.IMPURE);
-  });
+	it("functools.reduce 模块成员 HOF", async () => {
+		const root = project("hof3", {
+			"hof.py":
+				"import functools\ndef warn(a, b):\n    print(a)\n    return b\n\ndef run3(xs):\n    return functools.reduce(warn, xs, 0)\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("hof.py::run3")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("Array.from(xs, cb) TS 全局 HOF", async () => {
-    const root = project("hof4", {
-      "hof.ts": "function cb(x: number) { console.log(x); return x; }\nexport function run4(xs: number[]) { return Array.from(xs, cb); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("hof.ts::run4")!.purity).toBe(Purity.IMPURE);
-  });
+	it("Array.from(xs, cb) TS 全局 HOF", async () => {
+		const root = project("hof4", {
+			"hof.ts":
+				"function cb(x: number) { console.log(x); return x; }\nexport function run4(xs: number[]) { return Array.from(xs, cb); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("hof.ts::run4")!.purity).toBe(Purity.IMPURE);
+	});
 });
 
 describe("标注回读（AI 标注闭环注入端）", () => {
-  it("PURE 标注移除 chunk 自身 `?`，下游随之翻案", async () => {
-    const root = project("ann1", {
-      "a.py": "import weirdlib\ndef source():\n    weirdlib.run()\ndef caller():\n    source()\n",
-    });
-    const r0 = await scanProject(root);
-    const src = r0.verdicts.find((v) => v.chunk.name === "source")!;
-    expect(src.purity).toBe(Purity.UNKNOWN);
-    expect(r0.verdicts.find((v) => v.chunk.name === "caller")!.purity).toBe(Purity.UNKNOWN);
-    const r1 = await scanProject(root, { annotations: new Map([[src.chunk.id, "PURE"]]) });
-    expect(r1.verdicts.find((v) => v.chunk.name === "source")!.purity).toBe(Purity.PURE);
-    expect(r1.verdicts.find((v) => v.chunk.name === "caller")!.purity).toBe(Purity.PURE);
-  });
+	it("PURE 标注移除 chunk 自身 `?`，下游随之翻案", async () => {
+		const root = project("ann1", {
+			"a.py":
+				"import weirdlib\ndef source():\n    weirdlib.run()\ndef caller():\n    source()\n",
+		});
+		const r0 = await scanProject(root);
+		const src = r0.verdicts.find((v) => v.chunk.name === "source")!;
+		expect(src.purity).toBe(Purity.UNKNOWN);
+		expect(r0.verdicts.find((v) => v.chunk.name === "caller")!.purity).toBe(
+			Purity.UNKNOWN,
+		);
+		const r1 = await scanProject(root, {
+			annotations: new Map([[src.chunk.id, "PURE"]]),
+		});
+		expect(r1.verdicts.find((v) => v.chunk.name === "source")!.purity).toBe(
+			Purity.PURE,
+		);
+		expect(r1.verdicts.find((v) => v.chunk.name === "caller")!.purity).toBe(
+			Purity.PURE,
+		);
+	});
 
-  it("IMPURE 标注加直接效应并传播", async () => {
-    const root = project("ann2", {
-      "a.py": "import weirdlib\ndef source():\n    weirdlib.run()\ndef caller():\n    source()\n",
-    });
-    const r0 = await scanProject(root);
-    const src = r0.verdicts.find((v) => v.chunk.name === "source")!;
-    const r1 = await scanProject(root, { annotations: new Map([[src.chunk.id, "IMPURE"]]) });
-    expect(r1.verdicts.find((v) => v.chunk.name === "source")!.purity).toBe(Purity.IMPURE);
-    expect(r1.verdicts.find((v) => v.chunk.name === "caller")!.purity).toBe(Purity.IMPURE);
-  });
+	it("IMPURE 标注加直接效应并传播", async () => {
+		const root = project("ann2", {
+			"a.py":
+				"import weirdlib\ndef source():\n    weirdlib.run()\ndef caller():\n    source()\n",
+		});
+		const r0 = await scanProject(root);
+		const src = r0.verdicts.find((v) => v.chunk.name === "source")!;
+		const r1 = await scanProject(root, {
+			annotations: new Map([[src.chunk.id, "IMPURE"]]),
+		});
+		expect(r1.verdicts.find((v) => v.chunk.name === "source")!.purity).toBe(
+			Purity.IMPURE,
+		);
+		expect(r1.verdicts.find((v) => v.chunk.name === "caller")!.purity).toBe(
+			Purity.IMPURE,
+		);
+	});
 });
 
 describe("迭代1：影响面方向 + 模块导出面解析（D 四件套）", () => {
-  it("影响面方向：标注 u 释放其调用方（a 调 b、b 含 ? → I(b)=2）", async () => {
-    const root = project("infl1", {
-      "a.py": "import b\ndef a():\n    b.source()\n",
-      "b.py": "import weirdlib\ndef source():\n    weirdlib.run()\n",
-    });
-    const r = await scanProject(root);
-    const chunks = r.verdicts.map((v) => v.chunk);
-    const infl = influenceAnalysis(chunks);
-    const bKey = chunks.find((c) => c.file.endsWith("b.py") && c.name === "source")!.key;
-    expect(infl.get(bKey)).toBe(2); // b 自身 + 调用方 a
-  });
+	it("影响面方向：标注 u 释放其调用方（a 调 b、b 含 ? → I(b)=2）", async () => {
+		const root = project("infl1", {
+			"a.py": "import b\ndef a():\n    b.source()\n",
+			"b.py": "import weirdlib\ndef source():\n    weirdlib.run()\n",
+		});
+		const r = await scanProject(root);
+		const chunks = r.verdicts.map((v) => v.chunk);
+		const infl = influenceAnalysis(chunks);
+		const bKey = chunks.find(
+			(c) => c.file.endsWith("b.py") && c.name === "source",
+		)!.key;
+		expect(infl.get(bKey)).toBe(2); // b 自身 + 调用方 a
+	});
 
-  it("HOF 成员形回调不假纯：Array.from(xs, this.log)", async () => {
-    const root = project("hofmem", {
-      "ui.ts": "class UI {\n  log(x: string) { console.log(x); }\n  build(xs: string[]) { return Array.from(xs, this.log); }\n}\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("ui.ts::UI.build")!.purity).toBe(Purity.IMPURE);
-  });
+	it("HOF 成员形回调不假纯：Array.from(xs, this.log)", async () => {
+		const root = project("hofmem", {
+			"ui.ts":
+				"class UI {\n  log(x: string) { console.log(x); }\n  build(xs: string[]) { return Array.from(xs, this.log); }\n}\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("ui.ts::UI.build")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("from-import 类成员：from db import Conn; Conn.open() → 真边", async () => {
-    const root = project("fm1", {
-      "db.py": "class Conn:\n    def open(self):\n        print('io')\n",
-      "use.py": "from db import Conn\ndef run():\n    Conn.open(Conn())\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("use.py::run")!.purity).toBe(Purity.IMPURE);
-  });
+	it("from-import 类成员：from db import Conn; Conn.open() → 真边", async () => {
+		const root = project("fm1", {
+			"db.py": "class Conn:\n    def open(self):\n        print('io')\n",
+			"use.py": "from db import Conn\ndef run():\n    Conn.open(Conn())\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("use.py::run")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("from-import 成员遮蔽守卫：绑定被重绑后不解析（防假纯）", async () => {
-    const root = project("fm2", {
-      "db.py": "class conn:\n    def execute(self):\n        pass\n",
-      "use.py": "from db import conn\ndef run():\n    conn = make_evil()\n    conn.execute()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("use.py::run")!.purity).toBe(Purity.UNKNOWN);
-  });
+	it("from-import 成员遮蔽守卫：绑定被重绑后不解析（防假纯）", async () => {
+		const root = project("fm2", {
+			"db.py": "class conn:\n    def execute(self):\n        pass\n",
+			"use.py":
+				"from db import conn\ndef run():\n    conn = make_evil()\n    conn.execute()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("use.py::run")!.purity).toBe(Purity.UNKNOWN);
+	});
 
-  it("别名再导出：export { a as b } from → 消费者解析", async () => {
-    const root = project("alias1", {
-      "lib.ts": "export function a() { console.log('x'); }\n",
-      "barrel.ts": "export { a as b } from './lib';\n",
-      "use.ts": "import { b } from './barrel';\nexport function run() { b(); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("use.ts::run")!.purity).toBe(Purity.IMPURE);
-  });
+	it("别名再导出：export { a as b } from → 消费者解析", async () => {
+		const root = project("alias1", {
+			"lib.ts": "export function a() { console.log('x'); }\n",
+			"barrel.ts": "export { a as b } from './lib';\n",
+			"use.ts":
+				"import { b } from './barrel';\nexport function run() { b(); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("use.ts::run")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("export * as ns from → 命名空间绑定解析", async () => {
-    const root = project("ns1", {
-      "lib.ts": "export function go() { console.log('x'); }\n",
-      "barrel.ts": "export * as ns from './lib';\n",
-      "use.ts": "import { ns } from './barrel';\nexport function run() { ns.go(); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("use.ts::run")!.purity).toBe(Purity.IMPURE);
-  });
+	it("export * as ns from → 命名空间绑定解析", async () => {
+		const root = project("ns1", {
+			"lib.ts": "export function go() { console.log('x'); }\n",
+			"barrel.ts": "export * as ns from './lib';\n",
+			"use.ts":
+				"import { ns } from './barrel';\nexport function run() { ns.go(); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("use.ts::run")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("Python 点连模块：import a.b; a.b.fn() → 模块内解析", async () => {
-    const root = project("dot1", {
-      "pkg/a.py": "def fn():\n    print('io')\n",
-      "pkg/__init__.py": "",
-      "main.py": "import pkg.a\ndef run():\n    pkg.a.fn()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("main.py::run")!.purity).toBe(Purity.IMPURE);
-  });
+	it("Python 点连模块：import a.b; a.b.fn() → 模块内解析", async () => {
+		const root = project("dot1", {
+			"pkg/a.py": "def fn():\n    print('io')\n",
+			"pkg/__init__.py": "",
+			"main.py": "import pkg.a\ndef run():\n    pkg.a.fn()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("main.py::run")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("纯库 from-import 成员：immutable Map.isMap → PURE", async () => {
-    const root = project("g2", {
-      "use.ts": "import { Map } from 'immutable';\nexport function isM(x: unknown) { return Map.isMap(x); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("use.ts::isM")!.purity).toBe(Purity.PURE);
-  });
+	it("纯库 from-import 成员：immutable Map.isMap → PURE", async () => {
+		const root = project("g2", {
+			"use.ts":
+				"import { Map } from 'immutable';\nexport function isM(x: unknown) { return Map.isMap(x); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("use.ts::isM")!.purity).toBe(Purity.PURE);
+	});
 });
 
 describe("迭代2：module id 锚点 + egg 框架命名空间", () => {
-  it("module chunk 的 id 按文件限定（标注不跨文件泄漏）", async () => {
-    const root = project("modid", {
-      "a.py": "def f():\n    return 1\n",
-      "b.py": "def g():\n    return 2\n",
-    });
-    const r = await scanProject(root);
-    const mods = r.verdicts.filter((v) => v.chunk.name === "<module>");
-    expect(mods.length).toBe(2);
-    expect(mods[0]!.chunk.id).not.toBe(mods[1]!.chunk.id);
-    expect(mods[0]!.chunk.id).toContain("module@");
-  });
+	it("module chunk 的 id 按文件限定（标注不跨文件泄漏）", async () => {
+		const root = project("modid", {
+			"a.py": "def f():\n    return 1\n",
+			"b.py": "def g():\n    return 2\n",
+		});
+		const r = await scanProject(root);
+		const mods = r.verdicts.filter((v) => v.chunk.name === "<module>");
+		expect(mods.length).toBe(2);
+		expect(mods[0]!.chunk.id).not.toBe(mods[1]!.chunk.id);
+		expect(mods[0]!.chunk.id).toContain("module@");
+	});
 
-  it("egg 框架命名空间：ctx.model.X → io", async () => {
-    const root = project("egg1", {
-      "c.js": "async function index() {\n  const { ctx } = this;\n  const users = await ctx.model.Orders.findAll();\n  ctx.body = users;\n}\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("c.js::index")!.purity).toBe(Purity.IMPURE);
-  });
+	it("egg 框架命名空间：ctx.model.X → io", async () => {
+		const root = project("egg1", {
+			"c.js":
+				"async function index() {\n  const { ctx } = this;\n  const users = await ctx.model.Orders.findAll();\n  ctx.body = users;\n}\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("c.js::index")!.purity).toBe(Purity.IMPURE);
+	});
 });
 
 describe("标注会计：? 多重性 + 标注曲线", () => {
-  it("unknownSites 保留未解析调用点数（calls 的 ? 是去重单哨兵）", async () => {
-    const root = project("usites", {
-      "a.py": "import weirdlib\ndef f():\n    weirdlib.a()\n    weirdlib.b()\n",
-    });
-    const r = await scanProject(root);
-    const f = r.verdicts.find((v) => v.chunk.name === "f")!;
-    expect(f.chunk.calls.has("?")).toBe(true);
-    expect(f.chunk.unknownSites).toBe(2);
-  });
+	it("unknownSites 保留未解析调用点数（calls 的 ? 是去重单哨兵）", async () => {
+		const root = project("usites", {
+			"a.py": "import weirdlib\ndef f():\n    weirdlib.a()\n    weirdlib.b()\n",
+		});
+		const r = await scanProject(root);
+		const f = r.verdicts.find((v) => v.chunk.name === "f")!;
+		expect(f.chunk.calls.has("?")).toBe(true);
+		expect(f.chunk.unknownSites).toBe(2);
+	});
 
-  it("标注曲线精确：a 调 b、b 含 ? → 标 b 释放 a 和 b", async () => {
-    const root = project("curve1", {
-      "a.py": "import b\ndef a():\n    b.source()\n",
-      "b.py": "import weirdlib\ndef source():\n    weirdlib.run()\n",
-    });
-    const r = await scanProject(root);
-    const chunks = r.verdicts.map((v) => v.chunk);
-    const budget = annotationBudget(chunks);
-    const bKey = chunks.find((c) => c.file.endsWith("b.py") && c.name === "source")!.key;
-    const curve = annotationCurve(budget, [bKey]);
-    expect(curve[0]).toBe(2); // a + b 都 UNKNOWN
-    expect(curve[1]).toBe(0); // 标 b 后全部释放
-    expect(budget.deps.get(bKey)).toBe(1); // b 依赖自身 1 个源
-  });
+	it("标注曲线精确：a 调 b、b 含 ? → 标 b 释放 a 和 b", async () => {
+		const root = project("curve1", {
+			"a.py": "import b\ndef a():\n    b.source()\n",
+			"b.py": "import weirdlib\ndef source():\n    weirdlib.run()\n",
+		});
+		const r = await scanProject(root);
+		const chunks = r.verdicts.map((v) => v.chunk);
+		const budget = annotationBudget(chunks);
+		const bKey = chunks.find(
+			(c) => c.file.endsWith("b.py") && c.name === "source",
+		)!.key;
+		const curve = annotationCurve(budget, [bKey]);
+		expect(curve[0]).toBe(2); // a + b 都 UNKNOWN
+		expect(curve[1]).toBe(0); // 标 b 后全部释放
+		expect(budget.deps.get(bKey)).toBe(1); // b 依赖自身 1 个源
+	});
 });
 
 describe("步骤2：字面量接收者（三方评审最小形态）", () => {
-  it("硬纯方法判纯：\"x\".upper() / (5).bit_length() / b\"x\".decode()", async () => {
-    const root = project("lit1", {
-      "a.py": "def a():\n    return \"x\".upper()\n\ndef b():\n    return (5).bit_length()\n\ndef c():\n    return b'x'.decode()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::a")!.purity).toBe(Purity.PURE);
-    expect(b.get("a.py::b")!.purity).toBe(Purity.PURE);
-    expect(b.get("a.py::c")!.purity).toBe(Purity.PURE);
-  });
+	it('硬纯方法判纯："x".upper() / (5).bit_length() / b"x".decode()', async () => {
+		const root = project("lit1", {
+			"a.py":
+				"def a():\n    return \"x\".upper()\n\ndef b():\n    return (5).bit_length()\n\ndef c():\n    return b'x'.decode()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::a")!.purity).toBe(Purity.PURE);
+		expect(b.get("a.py::b")!.purity).toBe(Purity.PURE);
+		expect(b.get("a.py::c")!.purity).toBe(Purity.PURE);
+	});
 
-  it("表外方法 → 诚实未知（F9）；协议分派方法（join）表外", async () => {
-    const root = project("lit2", {
-      "a.py": "def a():\n    return \"x\".custom_method()\n\ndef b(xs):\n    return \" \".join(xs)\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::a")!.purity).toBe(Purity.UNKNOWN);
-    expect(b.get("a.py::b")!.purity).toBe(Purity.UNKNOWN); // join 对参数 __iter__ 分派 → 层 2 表外
-  });
+	it("表外方法 → 诚实未知（F9）；协议分派方法（join）表外", async () => {
+		const root = project("lit2", {
+			"a.py":
+				'def a():\n    return "x".custom_method()\n\ndef b(xs):\n    return " ".join(xs)\n',
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::a")!.purity).toBe(Purity.UNKNOWN);
+		expect(b.get("a.py::b")!.purity).toBe(Purity.UNKNOWN); // join 对参数 __iter__ 分派 → 层 2 表外
+	});
 
-  it("数组字面量 HOF：cb 的 io 经 [1,2,3].map(cb) 传播，不被本地同名 map 劫持", async () => {
-    const root = project("lit3", {
-      "lib.ts": "function map(xs: number[], cb: any) { return xs; }\nexport function log(x: number) { console.log(x); }\nexport function run(xs: number[]) { return [1, 2, 3].map(log); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("lib.ts::run")!.purity).toBe(Purity.IMPURE); // 经 log 的 io；本地 map 未被错连
-  });
+	it("数组字面量 HOF：cb 的 io 经 [1,2,3].map(cb) 传播，不被本地同名 map 劫持", async () => {
+		const root = project("lit3", {
+			"lib.ts":
+				"function map(xs: number[], cb: any) { return xs; }\nexport function log(x: number) { console.log(x); }\nexport function run(xs: number[]) { return [1, 2, 3].map(log); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("lib.ts::run")!.purity).toBe(Purity.IMPURE); // 经 log 的 io；本地 map 未被错连
+	});
 
-  it("template 字面量：插值内调用的 io 独立捕获", async () => {
-    const root = project("lit4", {
-      "a.ts": "export function danger() { console.log('x'); }\nexport function run(n: number) { return `${danger()}`.trim(); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.ts::run")!.purity).toBe(Purity.IMPURE);
-  });
+	it("template 字面量：插值内调用的 io 独立捕获", async () => {
+		const root = project("lit4", {
+			"a.ts":
+				"export function danger() { console.log('x'); }\nexport function run(n: number) { return `${danger()}`.trim(); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.ts::run")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("标识符接收者不变：xs.map(cb) 仍 UNKNOWN", async () => {
-    const root = project("lit5", {
-      "a.ts": "export function cb(x: number) { return x; }\nexport function run(xs: number[]) { return xs.map(cb); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.ts::run")!.purity).toBe(Purity.UNKNOWN);
-  });
+	it("标识符接收者不变：xs.map(cb) 仍 UNKNOWN", async () => {
+		const root = project("lit5", {
+			"a.ts":
+				"export function cb(x: number) { return x; }\nexport function run(xs: number[]) { return xs.map(cb); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.ts::run")!.purity).toBe(Purity.UNKNOWN);
+	});
 });
 
 describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合）", () => {
-  it("标注按 (file, id) 锚定：同内容跨文件不误放行", async () => {
-    const root = project("annfile", {
-      "a.py": "import weirdlib\ndef f():\n    weirdlib.run()\n",
-      "b.py": "import weirdlib\ndef f():\n    weirdlib.run()\n",
-    });
-    const r = await scanProject(root);
-    const a = r.verdicts.find((v) => v.chunk.file === "a.py" && v.chunk.name === "f")!;
-    const b = r.verdicts.find((v) => v.chunk.file === "b.py" && v.chunk.name === "f")!;
-    expect(a.chunk.id).toBe(b.chunk.id); // 同内容同 id（公理4）
-    // 带 file 的标注只放行 a.py 实例（同 id⇒同判定为假：import 上下文可不同）
-    const r1 = await scanProject(root, { annotations: new Map([[`${a.chunk.file}\u0000${a.chunk.id}`, "PURE"]]) });
-    expect(r1.verdicts.find((v) => v.chunk.file === "a.py" && v.chunk.name === "f")!.purity).toBe(Purity.PURE);
-    expect(r1.verdicts.find((v) => v.chunk.file === "b.py" && v.chunk.name === "f")!.purity).toBe(Purity.UNKNOWN);
-  });
+	it("标注按 (file, id) 锚定：同内容跨文件不误放行", async () => {
+		const root = project("annfile", {
+			"a.py": "import weirdlib\ndef f():\n    weirdlib.run()\n",
+			"b.py": "import weirdlib\ndef f():\n    weirdlib.run()\n",
+		});
+		const r = await scanProject(root);
+		const a = r.verdicts.find(
+			(v) => v.chunk.file === "a.py" && v.chunk.name === "f",
+		)!;
+		const b = r.verdicts.find(
+			(v) => v.chunk.file === "b.py" && v.chunk.name === "f",
+		)!;
+		expect(a.chunk.id).toBe(b.chunk.id); // 同内容同 id（公理4）
+		// 带 file 的标注只放行 a.py 实例（同 id⇒同判定为假：import 上下文可不同）
+		const r1 = await scanProject(root, {
+			annotations: new Map([[`${a.chunk.file}\u0000${a.chunk.id}`, "PURE"]]),
+		});
+		expect(
+			r1.verdicts.find((v) => v.chunk.file === "a.py" && v.chunk.name === "f")!
+				.purity,
+		).toBe(Purity.PURE);
+		expect(
+			r1.verdicts.find((v) => v.chunk.file === "b.py" && v.chunk.name === "f")!
+				.purity,
+		).toBe(Purity.UNKNOWN);
+	});
 
-  it("裸名遮蔽守卫：局部赋值后不解析到顶层同名函数", async () => {
-    const root = project("shadow", {
-      "a.py": "def helper():\n    print('io')\n\ndef run():\n    helper = local()\n    helper()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::run")!.purity).toBe(Purity.UNKNOWN); // helper 是局部变量，不连顶层 helper
-  });
+	it("裸名遮蔽守卫：局部赋值后不解析到顶层同名函数", async () => {
+		const root = project("shadow", {
+			"a.py":
+				"def helper():\n    print('io')\n\ndef run():\n    helper = local()\n    helper()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::run")!.purity).toBe(Purity.UNKNOWN); // helper 是局部变量，不连顶层 helper
+	});
 
-  it("裸名调用不指向类方法（方法不在裸名作用域）", async () => {
-    const root = project("methodbare", {
-      "a.py": "class C:\n    def run(self):\n        pass\n\ndef call():\n    run()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::call")!.purity).toBe(Purity.UNKNOWN);
-  });
+	it("裸名调用不指向类方法（方法不在裸名作用域）", async () => {
+		const root = project("methodbare", {
+			"a.py":
+				"class C:\n    def run(self):\n        pass\n\ndef call():\n    run()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::call")!.purity).toBe(Purity.UNKNOWN);
+	});
 
-  it("无条件 HOF 实参未解析 → 记未知（const f = console.log; [1].map(f)）", async () => {
-    const root = project("hofunres", {
-      "a.ts": "export function run() { const f = console.log; return [1].map(f); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.ts::run")!.purity).toBe(Purity.UNKNOWN); // f 是变量实参 → 不能证明纯
-  });
+	it("无条件 HOF 实参未解析 → 记未知（const f = console.log; [1].map(f)）", async () => {
+		const root = project("hofunres", {
+			"a.ts":
+				"export function run() { const f = console.log; return [1].map(f); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.ts::run")!.purity).toBe(Purity.UNKNOWN); // f 是变量实参 → 不能证明纯
+	});
 
-  it("不变量机检在真实扫描上为零违规（健全性证书）", async () => {
-    const root = project("inv0", { "a.py": "import os\ndef f():\n    os.getcwd()\n" });
-    const r = await scanProject(root);
-    expect(r.stats.invariantViolations).toBe(0);
-  });
+	it("不变量机检在真实扫描上为零违规（健全性证书）", async () => {
+		const root = project("inv0", {
+			"a.py": "import os\ndef f():\n    os.getcwd()\n",
+		});
+		const r = await scanProject(root);
+		expect(r.stats.invariantViolations).toBe(0);
+	});
 
-  it("模块级重绑遮蔽 import：conn = other 后不解析到 db 的纯方法", async () => {
-    const root = project("modrebind", {
-      "db.py": "class conn:\n    def execute(self):\n        pass\n",
-      "use.py": "from db import conn\nconn = make_evil()\ndef f():\n    conn.execute()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("use.py::f")!.purity).toBe(Purity.UNKNOWN); // 模块级重绑 → 不解析
-  });
+	it("模块级重绑遮蔽 import：conn = other 后不解析到 db 的纯方法", async () => {
+		const root = project("modrebind", {
+			"db.py": "class conn:\n    def execute(self):\n        pass\n",
+			"use.py":
+				"from db import conn\nconn = make_evil()\ndef f():\n    conn.execute()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("use.py::f")!.purity).toBe(Purity.UNKNOWN); // 模块级重绑 → 不解析
+	});
 
-  it("参数遮蔽命名空间 import：def f(math): math.foo() → 未知", async () => {
-    const root = project("paramshadow", {
-      "a.py": "import math\ndef f(math):\n    math.foo()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN); // math 是参数 → 遮蔽 import
-  });
+	it("参数遮蔽命名空间 import：def f(math): math.foo() → 未知", async () => {
+		const root = project("paramshadow", {
+			"a.py": "import math\ndef f(math):\n    math.foo()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN); // math 是参数 → 遮蔽 import
+	});
 
-  it("构造器体 io 并入 class chunk（S1 修复）：def f(): return Conn() → IMPURE", async () => {
-    const root = project("ctorio", {
-      "a.py": "class Conn:\n    def __init__(self):\n        print('io')\ndef f():\n    return Conn()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::f")!.purity).toBe(Purity.IMPURE);
-    expect(b.get("a.py::Conn")!.purity).toBe(Purity.IMPURE); // 类 chunk 含构造器效应
-  });
+	it("构造器体 io 并入 class chunk（S1 修复）：def f(): return Conn() → IMPURE", async () => {
+		const root = project("ctorio", {
+			"a.py":
+				"class Conn:\n    def __init__(self):\n        print('io')\ndef f():\n    return Conn()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::f")!.purity).toBe(Purity.IMPURE);
+		expect(b.get("a.py::Conn")!.purity).toBe(Purity.IMPURE); // 类 chunk 含构造器效应
+	});
 
-  it("熵/时钟/PRNG 判 io（跨语言一致）：crypto.randomBytes / datetime.now / Date.now / Math.random / secrets", async () => {
-    const root = project("io-tables", {
-      "a.ts": "import { randomBytes } from 'crypto';\nexport function f() { return randomBytes(16); }\nexport function g() { return Date.now(); }\nexport function r() { return Math.random(); }\n",
-      "b.py": "from datetime import datetime\nimport secrets\ndef h():\n    return datetime.now()\ndef s():\n    return secrets.token_hex()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.ts::f")!.purity).toBe(Purity.IMPURE);
-    expect(b.get("a.ts::g")!.purity).toBe(Purity.IMPURE);
-    expect(b.get("a.ts::r")!.purity).toBe(Purity.IMPURE); // Math.random 与 random.random 同源判 io
-    expect(b.get("b.py::h")!.purity).toBe(Purity.IMPURE);
-    expect(b.get("b.py::s")!.purity).toBe(Purity.IMPURE); // secrets = os.urandom 熵读取
-  });
+	it("熵/时钟/PRNG 判 io（跨语言一致）：crypto.randomBytes / datetime.now / Date.now / Math.random / secrets", async () => {
+		const root = project("io-tables", {
+			"a.ts":
+				"import { randomBytes } from 'crypto';\nexport function f() { return randomBytes(16); }\nexport function g() { return Date.now(); }\nexport function r() { return Math.random(); }\n",
+			"b.py":
+				"from datetime import datetime\nimport secrets\ndef h():\n    return datetime.now()\ndef s():\n    return secrets.token_hex()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.ts::f")!.purity).toBe(Purity.IMPURE);
+		expect(b.get("a.ts::g")!.purity).toBe(Purity.IMPURE);
+		expect(b.get("a.ts::r")!.purity).toBe(Purity.IMPURE); // Math.random 与 random.random 同源判 io
+		expect(b.get("b.py::h")!.purity).toBe(Purity.IMPURE);
+		expect(b.get("b.py::s")!.purity).toBe(Purity.IMPURE); // secrets = os.urandom 熵读取
+	});
 
-  it("协议内建判未知：hash(x) → UNKNOWN（与 builtinTypeEffects 协议表外纪律一致）", async () => {
-    const root = project("proto", {
-      "a.py": "def f(x):\n    return hash(x)\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN);
-  });
+	it("协议内建判未知：hash(x) → UNKNOWN（与 builtinTypeEffects 协议表外纪律一致）", async () => {
+		const root = project("proto", {
+			"a.py": "def f(x):\n    return hash(x)\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN);
+	});
 
-  it("原型链键不崩溃（迭代2 B1）：hasOwnProperty/toString 作接收者不再 TypeError", async () => {
-    const root = project("protochain", {
-      "a.ts": "export function safeGet(obj: any, key: string) {\n  if (!hasOwnProperty.call(obj, key)) return null;\n  return obj[key];\n}\n",
-    });
-    const r = await scanProject(root); // 修复前此调用 TypeError（frameworkIo 继承查找）→ 整扫崩溃
-    expect(r.verdicts.some((v) => v.chunk.name === "safeGet")).toBe(true);
-    const b = by(r);
-    expect(b.get("a.ts::safeGet")!.purity).toBe(Purity.UNKNOWN); // 未解析接收者 → 诚实未知
-  });
+	it("原型链键不崩溃（迭代2 B1）：hasOwnProperty/toString 作接收者不再 TypeError", async () => {
+		const root = project("protochain", {
+			"a.ts":
+				"export function safeGet(obj: any, key: string) {\n  if (!hasOwnProperty.call(obj, key)) return null;\n  return obj[key];\n}\n",
+		});
+		const r = await scanProject(root); // 修复前此调用 TypeError（frameworkIo 继承查找）→ 整扫崩溃
+		expect(r.verdicts.some((v) => v.chunk.name === "safeGet")).toBe(true);
+		const b = by(r);
+		expect(b.get("a.ts::safeGet")!.purity).toBe(Purity.UNKNOWN); // 未解析接收者 → 诚实未知
+	});
 
-  it("parseError 文件 chunk 降级 UNKNOWN（迭代2 H1）：未闭合字符串吞调用不再假纯", async () => {
-    const root = project("parsedeck", {
-      "a.py": "def f():\n    return \"unterminated\nimport os\nos.system(\"ls\")\n",
-    });
-    const r = await scanProject(root);
-    expect(r.stats.parseErrors).toBe(1);
-    const b = by(r);
-    expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN); // 修复前 PURE（调用被吞）
-  });
+	it("parseError 文件 chunk 降级 UNKNOWN（迭代2 H1）：未闭合字符串吞调用不再假纯", async () => {
+		const root = project("parsedeck", {
+			"a.py":
+				'def f():\n    return "unterminated\nimport os\nos.system("ls")\n',
+		});
+		const r = await scanProject(root);
+		expect(r.stats.parseErrors).toBe(1);
+		const b = by(r);
+		expect(b.get("a.py::f")!.purity).toBe(Purity.UNKNOWN); // 修复前 PURE（调用被吞）
+	});
 
-  it("from-import HOF 回调边（迭代2 维护）：from functools import reduce; reduce(write, xs) → IMPURE", async () => {
-    const root = project("hoffrom", {
-      "a.py": "from functools import reduce\ndef write(x):\n    print(x)\ndef f(xs):\n    return reduce(write, xs)\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::f")!.purity).toBe(Purity.IMPURE); // write 的 io 经回调边保留
-  });
+	it("from-import HOF 回调边（迭代2 维护）：from functools import reduce; reduce(write, xs) → IMPURE", async () => {
+		const root = project("hoffrom", {
+			"a.py":
+				"from functools import reduce\ndef write(x):\n    print(x)\ndef f(xs):\n    return reduce(write, xs)\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::f")!.purity).toBe(Purity.IMPURE); // write 的 io 经回调边保留
+	});
 
-  it("TS 构造器效应（迭代3 B1）：new Conn() 构造器 io 传播 → IMPURE（与 Python S1 同构）", async () => {
-    const root = project("tsctor", {
-      "a.ts": "export class Conn {\n  constructor() { console.log('io'); }\n}\nexport function f() { return new Conn(); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.ts::Conn")!.purity).toBe(Purity.IMPURE);
-    expect(b.get("a.ts::f")!.purity).toBe(Purity.IMPURE); // 修复前 PURE（new_expression 不是 call 节点）
-  });
+	it("TS 构造器效应（迭代3 B1）：new Conn() 构造器 io 传播 → IMPURE（与 Python S1 同构）", async () => {
+		const root = project("tsctor", {
+			"a.ts":
+				"export class Conn {\n  constructor() { console.log('io'); }\n}\nexport function f() { return new Conn(); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.ts::Conn")!.purity).toBe(Purity.IMPURE);
+		expect(b.get("a.ts::f")!.purity).toBe(Purity.IMPURE); // 修复前 PURE（new_expression 不是 call 节点）
+	});
 
-  it("时钟读取跨形态（迭代3 语言）：Date()/new Date() → UNKNOWN；Date.now → IMPURE；Date.parse → PURE", async () => {
-    const root = project("tsdate", {
-      "a.ts": "export function f() { return Date(); }\nexport function g() { return new Date(); }\nexport function h() { return Date.now(); }\nexport function k() { return Date.parse('2020-01-01'); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.ts::f")!.purity).toBe(Purity.UNKNOWN); // 裸 Date() 时钟读取
-    expect(b.get("a.ts::g")!.purity).toBe(Purity.UNKNOWN); // new Date() 时钟读取
-    expect(b.get("a.ts::h")!.purity).toBe(Purity.IMPURE);
-    expect(b.get("a.ts::k")!.purity).toBe(Purity.PURE); // Date.parse 纯计算
-  });
+	it("时钟读取跨形态（迭代3 语言）：Date()/new Date() → UNKNOWN；Date.now → IMPURE；Date.parse → PURE", async () => {
+		const root = project("tsdate", {
+			"a.ts":
+				"export function f() { return Date(); }\nexport function g() { return new Date(); }\nexport function h() { return Date.now(); }\nexport function k() { return Date.parse('2020-01-01'); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.ts::f")!.purity).toBe(Purity.UNKNOWN); // 裸 Date() 时钟读取
+		expect(b.get("a.ts::g")!.purity).toBe(Purity.UNKNOWN); // new Date() 时钟读取
+		expect(b.get("a.ts::h")!.purity).toBe(Purity.IMPURE);
+		expect(b.get("a.ts::k")!.purity).toBe(Purity.PURE); // Date.parse 纯计算
+	});
 
-  it("Python uuid 熵读取（迭代3 跨语言一致）：uuid.uuid4() → IMPURE（与 TS uuid.v4 对齐）", async () => {
-    const root = project("pyuuid", {
-      "a.py": "import uuid\ndef f():\n    return uuid.uuid4()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::f")!.purity).toBe(Purity.IMPURE);
-  });
+	it("Python uuid 熵读取（迭代3 跨语言一致）：uuid.uuid4() → IMPURE（与 TS uuid.v4 对齐）", async () => {
+		const root = project("pyuuid", {
+			"a.py": "import uuid\ndef f():\n    return uuid.uuid4()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::f")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("H1 降级不可被 PURE 标注撤销（迭代3 #1）：parseError chunk 保持 UNKNOWN/chainCertain=false", async () => {
-    const root = project("parsedeck-ann", {
-      "a.py": "def f():\n    return \"unterminated\nimport os\nos.system(\"ls\")\n",
-    });
-    const base = await scanProject(root);
-    const f = base.verdicts.find((v) => v.chunk.name === "f")!;
-    const ann = new Map<string, "PURE" | "IMPURE">([[f.chunk.id, "PURE"]]); // 标注者按可见函数体判 PURE
-    const r = await scanProject(root, { annotations: ann, useCache: false });
-    const v = r.verdicts.find((x) => x.chunk.name === "f")!;
-    expect(v.purity).toBe(Purity.UNKNOWN); // 降级不可撤销（body 不可信）
-    expect(v.chainCertain).toBe(false);
-  });
+	it("H1 降级不可被 PURE 标注撤销（迭代3 #1）：parseError chunk 保持 UNKNOWN/chainCertain=false", async () => {
+		const root = project("parsedeck-ann", {
+			"a.py":
+				'def f():\n    return "unterminated\nimport os\nos.system("ls")\n',
+		});
+		const base = await scanProject(root);
+		const f = base.verdicts.find((v) => v.chunk.name === "f")!;
+		const ann = new Map<string, "PURE" | "IMPURE">([[f.chunk.id, "PURE"]]); // 标注者按可见函数体判 PURE
+		const r = await scanProject(root, { annotations: ann, useCache: false });
+		const v = r.verdicts.find((x) => x.chunk.name === "f")!;
+		expect(v.purity).toBe(Purity.UNKNOWN); // 降级不可撤销（body 不可信）
+		expect(v.chainCertain).toBe(false);
+	});
 
-  it("标注解析优先级（迭代3 #4）：file 锚定覆写裸 id", async () => {
-    const root = project("annprio", {
-      "a.py": "def f():\n    return x.unknown()\n",
-      "b.py": "def f():\n    return x.unknown()\n",
-    });
-    const base = await scanProject(root);
-    const bv = base.verdicts.find((v) => v.chunk.file === "b.py" && v.chunk.name === "f")!;
-    const ann = new Map<string, "PURE" | "IMPURE">([
-      [bv.chunk.id, "PURE"], // 裸 id：内容寻址 → 两实例都命中
-      [`b.py\u0000${bv.chunk.id}`, "IMPURE"], // 显式实例覆写
-    ]);
-    const r = await scanProject(root, { annotations: ann, useCache: false });
-    const a = r.verdicts.find((v) => v.chunk.file === "a.py" && v.chunk.name === "f")!;
-    const b = r.verdicts.find((v) => v.chunk.file === "b.py" && v.chunk.name === "f")!;
-    expect(b.purity).toBe(Purity.IMPURE); // 实例覆写生效
-    expect(a.purity).toBe(Purity.PURE); // 无覆写 → 裸 id 生效
-  });
+	it("标注解析优先级（迭代3 #4）：file 锚定覆写裸 id", async () => {
+		const root = project("annprio", {
+			"a.py": "def f():\n    return x.unknown()\n",
+			"b.py": "def f():\n    return x.unknown()\n",
+		});
+		const base = await scanProject(root);
+		const bv = base.verdicts.find(
+			(v) => v.chunk.file === "b.py" && v.chunk.name === "f",
+		)!;
+		const ann = new Map<string, "PURE" | "IMPURE">([
+			[bv.chunk.id, "PURE"], // 裸 id：内容寻址 → 两实例都命中
+			[`b.py\u0000${bv.chunk.id}`, "IMPURE"], // 显式实例覆写
+		]);
+		const r = await scanProject(root, { annotations: ann, useCache: false });
+		const a = r.verdicts.find(
+			(v) => v.chunk.file === "a.py" && v.chunk.name === "f",
+		)!;
+		const b = r.verdicts.find(
+			(v) => v.chunk.file === "b.py" && v.chunk.name === "f",
+		)!;
+		expect(b.purity).toBe(Purity.IMPURE); // 实例覆写生效
+		expect(a.purity).toBe(Purity.PURE); // 无覆写 → 裸 id 生效
+	});
 
-  it("class: 接收者遮蔽守卫（迭代4 F1）：局部变量遮蔽类名 → 诚实 UNKNOWN 而非错边 IMPURE", async () => {
-    const root = project("ctor-shadow", {
-      "a.ts": "export class Conn {\n  q() { console.log('io'); }\n}\nexport function e() {\n  const Conn = factory();\n  return new Conn().q();\n}\nexport function factory() { return { q() { return 1; } }; }\n",
-    });
-    const b = by(await scanProject(root));
-    // new Conn() 内层已因遮蔽走 `?`；class: 接收者不再错边到真类 → UNKNOWN（修复前错边 → IMPURE）
-    expect(b.get("a.ts::e")!.purity).toBe(Purity.UNKNOWN);
-  });
+	it("class: 接收者遮蔽守卫（迭代4 F1）：局部变量遮蔽类名 → 诚实 UNKNOWN 而非错边 IMPURE", async () => {
+		const root = project("ctor-shadow", {
+			"a.ts":
+				"export class Conn {\n  q() { console.log('io'); }\n}\nexport function e() {\n  const Conn = factory();\n  return new Conn().q();\n}\nexport function factory() { return { q() { return 1; } }; }\n",
+		});
+		const b = by(await scanProject(root));
+		// new Conn() 内层已因遮蔽走 `?`；class: 接收者不再错边到真类 → UNKNOWN（修复前错边 → IMPURE）
+		expect(b.get("a.ts::e")!.purity).toBe(Purity.UNKNOWN);
+	});
 
-  it("parseError chunk 的 IMPURE 标注放行、PURE 拒（迭代4 F2）", async () => {
-    const root = project("parsedeck-imp", {
-      "a.py": "def f():\n    return \"unterminated\nimport os\nos.system(\"ls\")\n",
-    });
-    const base = await scanProject(root);
-    const f = base.verdicts.find((v) => v.chunk.name === "f")!;
-    const ann = new Map<string, "PURE" | "IMPURE">([[`a.py\u0000${f.chunk.id}`, "IMPURE"]]);
-    const r = await scanProject(root, { annotations: ann, useCache: false });
-    const v = r.verdicts.find((x) => x.chunk.name === "f")!;
-    expect(v.purity).toBe(Purity.IMPURE); // 保守方向标注仍生效（迭代4 放宽）
-  });
-  it("混合模块纯成员（继续做：:p 标记）：json.dumps/crypto.createHash/uuid.parse/datetime.combine → PURE；io 成员保持 IMPURE", async () => {
-    const root = project("puremembers", {
-      "a.py": "import json\nfrom datetime import datetime\ndef dumps(x):\n    return json.dumps(x)\ndef dumpfile(x):\n    json.dump(x, open('f', 'w'))\ndef combine(a, b):\n    return datetime.combine(a, b)\ndef now():\n    return datetime.now()\n",
-      "b.ts": "import { createHash, randomBytes } from 'crypto';\nimport { parse } from 'uuid';\nexport function h() { return createHash('sha256'); }\nexport function r() { return randomBytes(16); }\nexport function up(s: string) { return parse(s); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::dumps")!.purity).toBe(Purity.PURE);
-    expect(b.get("a.py::dumpfile")!.purity).toBe(Purity.IMPURE); // json.dump 写文件
-    expect(b.get("a.py::combine")!.purity).toBe(Purity.PURE);
-    expect(b.get("a.py::now")!.purity).toBe(Purity.IMPURE); // 时钟读取保持
-    expect(b.get("b.ts::h")!.purity).toBe(Purity.PURE);
-    expect(b.get("b.ts::r")!.purity).toBe(Purity.IMPURE);
-    expect(b.get("b.ts::up")!.purity).toBe(Purity.PURE);
-  });
+	it("parseError chunk 的 IMPURE 标注放行、PURE 拒（迭代4 F2）", async () => {
+		const root = project("parsedeck-imp", {
+			"a.py":
+				'def f():\n    return "unterminated\nimport os\nos.system("ls")\n',
+		});
+		const base = await scanProject(root);
+		const f = base.verdicts.find((v) => v.chunk.name === "f")!;
+		const ann = new Map<string, "PURE" | "IMPURE">([
+			[`a.py\u0000${f.chunk.id}`, "IMPURE"],
+		]);
+		const r = await scanProject(root, { annotations: ann, useCache: false });
+		const v = r.verdicts.find((x) => x.chunk.name === "f")!;
+		expect(v.purity).toBe(Purity.IMPURE); // 保守方向标注仍生效（迭代4 放宽）
+	});
+	it("混合模块纯成员（继续做：:p 标记）：json.dumps/crypto.createHash/uuid.parse/datetime.combine → PURE；io 成员保持 IMPURE", async () => {
+		const root = project("puremembers", {
+			"a.py":
+				"import json\nfrom datetime import datetime\ndef dumps(x):\n    return json.dumps(x)\ndef dumpfile(x):\n    json.dump(x, open('f', 'w'))\ndef combine(a, b):\n    return datetime.combine(a, b)\ndef now():\n    return datetime.now()\n",
+			"b.ts":
+				"import { createHash, randomBytes } from 'crypto';\nimport { parse } from 'uuid';\nexport function h() { return createHash('sha256'); }\nexport function r() { return randomBytes(16); }\nexport function up(s: string) { return parse(s); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::dumps")!.purity).toBe(Purity.PURE);
+		expect(b.get("a.py::dumpfile")!.purity).toBe(Purity.IMPURE); // json.dump 写文件
+		expect(b.get("a.py::combine")!.purity).toBe(Purity.PURE);
+		expect(b.get("a.py::now")!.purity).toBe(Purity.IMPURE); // 时钟读取保持
+		expect(b.get("b.ts::h")!.purity).toBe(Purity.PURE);
+		expect(b.get("b.ts::r")!.purity).toBe(Purity.IMPURE);
+		expect(b.get("b.ts::up")!.purity).toBe(Purity.PURE);
+	});
 
-  it("Promise executor 回调边（F4）：new Promise(executor) 命名实参 io 传播 → IMPURE", async () => {
-    const root = project("promexec", {
-      "a.ts": "import { writeFileSync } from 'fs';\nfunction executor(res: any) { writeFileSync('x', 'y'); res(); }\nexport function run() { return new Promise(executor); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.ts::run")!.purity).toBe(Purity.IMPURE); // executor 的 io 经回调边
-  });
+	it("Promise executor 回调边（F4）：new Promise(executor) 命名实参 io 传播 → IMPURE", async () => {
+		const root = project("promexec", {
+			"a.ts":
+				"import { writeFileSync } from 'fs';\nfunction executor(res: any) { writeFileSync('x', 'y'); res(); }\nexport function run() { return new Promise(executor); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.ts::run")!.purity).toBe(Purity.IMPURE); // executor 的 io 经回调边
+	});
 
-  it("nesting 差一修复（继续做）：箭头函数与 function 声明同语义 nest 相等", async () => {
-    const root = project("nestfix", {
-      "a.ts": "export const g = () => { if (1) return 2; };\nexport function f() { if (1) return 2; }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.ts::g")!.chunk.nesting).toBe(b.get("a.ts::f")!.chunk.nesting);
-    expect(b.get("a.ts::g")!.chunk.nesting).toBe(1); // if 一层，箭头函数值不计自身
-  });
+	it("nesting 差一修复（继续做）：箭头函数与 function 声明同语义 nest 相等", async () => {
+		const root = project("nestfix", {
+			"a.ts":
+				"export const g = () => { if (1) return 2; };\nexport function f() { if (1) return 2; }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.ts::g")!.chunk.nesting).toBe(
+			b.get("a.ts::f")!.chunk.nesting,
+		);
+		expect(b.get("a.ts::g")!.chunk.nesting).toBe(1); // if 一层，箭头函数值不计自身
+	});
 
-  it("Python 赋值 lambda 提为命名 chunk（继续做）：模块级 handler = lambda: os.system() 不再假 IMPURE module", async () => {
-    const root = project("py-lambda", {
-      "a.py": "import os\nhandler = lambda msg: os.system(msg)\nPRICE = lambda x: x * 2\n",
-    });
-    const b = by(await scanProject(root));
-    const mod = b.get("a.py::<module>")!;
-    expect(mod.purity).toBe(Purity.PURE); // 修复前 module IMPURE（lambda 定义不执行体）
-    expect(b.get("a.py::handler")!.purity).toBe(Purity.IMPURE); // lambda 自己的判定单元
-    expect(b.get("a.py::PRICE")!.purity).toBe(Purity.PURE);
-  });
+	it("Python 赋值 lambda 提为命名 chunk（继续做）：模块级 handler = lambda: os.system() 不再假 IMPURE module", async () => {
+		const root = project("py-lambda", {
+			"a.py":
+				"import os\nhandler = lambda msg: os.system(msg)\nPRICE = lambda x: x * 2\n",
+		});
+		const b = by(await scanProject(root));
+		const mod = b.get("a.py::<module>")!;
+		expect(mod.purity).toBe(Purity.PURE); // 修复前 module IMPURE（lambda 定义不执行体）
+		expect(b.get("a.py::handler")!.purity).toBe(Purity.IMPURE); // lambda 自己的判定单元
+		expect(b.get("a.py::PRICE")!.purity).toBe(Purity.PURE);
+	});
 
-  it("实参 lambda 保持归外层（继续做）：模块级 map(lambda: io) → module IMPURE；方法内赋值 lambda → 类成员 chunk", async () => {
-    const root = project("py-lambda2", {
-      "a.py": "import os\nresults = list(map(lambda x: os.system(x), ['a']))\n",
-      "b.py": "class Svc:\n    def m(self, xs):\n        f = lambda x: self.log(x)\n        return sorted(xs, key=f)\n    def log(self, x):\n        print(x)\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::<module>")!.purity).toBe(Purity.IMPURE); // map 执行时调用 lambda → io 在模块加载路径
-    expect(b.get("b.py::Svc.f")!.purity).toBe(Purity.IMPURE); // 方法内赋值 lambda 归属类成员
-    expect(b.get("b.py::Svc.m")!.purity).toBe(Purity.IMPURE);
-  });
+	it("实参 lambda 保持归外层（继续做）：模块级 map(lambda: io) → module IMPURE；方法内赋值 lambda → 类成员 chunk", async () => {
+		const root = project("py-lambda2", {
+			"a.py": "import os\nresults = list(map(lambda x: os.system(x), ['a']))\n",
+			"b.py":
+				"class Svc:\n    def m(self, xs):\n        f = lambda x: self.log(x)\n        return sorted(xs, key=f)\n    def log(self, x):\n        print(x)\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::<module>")!.purity).toBe(Purity.IMPURE); // map 执行时调用 lambda → io 在模块加载路径
+		expect(b.get("b.py::Svc.f")!.purity).toBe(Purity.IMPURE); // 方法内赋值 lambda 归属类成员
+		expect(b.get("b.py::Svc.m")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("time 无参时钟成员（迭代6 B1）：strftime/localtime/ctime 无参读当前时钟 → UNKNOWN 非 PURE", async () => {
-    const root = project("timeclock", {
-      "a.py": "import time\ndef fmt(): return time.strftime('%Y-%m-%d')\ndef lt(): return time.localtime()\ndef ct(): return time.ctime()\ndef mk(t): return time.mktime(t)\ndef sp(s, f): return time.strptime(s, f)\ndef now(): return time.time()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::fmt")!.purity).toBe(Purity.UNKNOWN); // 无参 strftime 读时钟
-    expect(b.get("a.py::lt")!.purity).toBe(Purity.UNKNOWN);
-    expect(b.get("a.py::ct")!.purity).toBe(Purity.UNKNOWN);
-    expect(b.get("a.py::mk")!.purity).toBe(Purity.PURE); // mktime 必须传参，纯转换
-    expect(b.get("a.py::sp")!.purity).toBe(Purity.PURE); // strptime 必须传参
-    expect(b.get("a.py::now")!.purity).toBe(Purity.IMPURE);
-  });
+	it("time 无参时钟成员（迭代6 B1）：strftime/localtime/ctime 无参读当前时钟 → UNKNOWN 非 PURE", async () => {
+		const root = project("timeclock", {
+			"a.py":
+				"import time\ndef fmt(): return time.strftime('%Y-%m-%d')\ndef lt(): return time.localtime()\ndef ct(): return time.ctime()\ndef mk(t): return time.mktime(t)\ndef sp(s, f): return time.strptime(s, f)\ndef now(): return time.time()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::fmt")!.purity).toBe(Purity.UNKNOWN); // 无参 strftime 读时钟
+		expect(b.get("a.py::lt")!.purity).toBe(Purity.UNKNOWN);
+		expect(b.get("a.py::ct")!.purity).toBe(Purity.UNKNOWN);
+		expect(b.get("a.py::mk")!.purity).toBe(Purity.PURE); // mktime 必须传参，纯转换
+		expect(b.get("a.py::sp")!.purity).toBe(Purity.PURE); // strptime 必须传参
+		expect(b.get("a.py::now")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("analyzeChange 库 API（diff 影响面）：改动文件的反向可达闭包含 via 证据", async () => {
-    const root = project("changeapi", {
-      "lib.ts": "export function base() { return 1; }\nexport function helper() { return base(); }\n",
-      "mid.ts": "import { helper } from './lib';\nexport function mid() { return helper(); }\n",
-      "top.ts": "import { mid } from './mid';\nexport function top() { return mid(); }\nexport function unrelated() { return 2; }\n",
-    });
-    const impact = await analyzeChange(root, ["lib.ts"], { useCache: false });
-    expect(impact.summary.changedFiles).toBe(1);
-    expect(impact.summary.changedChunks).toBe(3); // base + helper + <module> 伪 chunk
-    // 传递影响：mid.ts::mid (depth1 via helper) → top.ts::top (depth2 via mid)
-    const affected = impact.affected.map((x) => x.name);
-    expect(affected).toContain("mid");
-    expect(affected).toContain("top");
-    expect(affected).not.toContain("unrelated"); // 不调用改动链 → 不受影响
-    const mid = impact.affected.find((x) => x.name === "mid")!;
-    expect(mid.depth).toBe(1);
-    expect(mid.via).toMatch(/^lib\.ts::/); // 影响路径证据：mid 直接调 lib.ts 的 helper
-    expect(mid.viaName).toBe("helper"); // 可读证据
-    const top = impact.affected.find((x) => x.name === "top")!;
-    expect(top.depth).toBe(2);
-    expect(top.via).toMatch(/^mid\.ts::/); // 经 mid 传递
-    expect(top.viaName).toBe("mid");
-    expect(impact.summary.maxDepth).toBe(2);
-  });
+	it("analyzeChange 库 API（diff 影响面）：改动文件的反向可达闭包含 via 证据", async () => {
+		const root = project("changeapi", {
+			"lib.ts":
+				"export function base() { return 1; }\nexport function helper() { return base(); }\n",
+			"mid.ts":
+				"import { helper } from './lib';\nexport function mid() { return helper(); }\n",
+			"top.ts":
+				"import { mid } from './mid';\nexport function top() { return mid(); }\nexport function unrelated() { return 2; }\n",
+		});
+		const impact = await analyzeChange(root, ["lib.ts"], { useCache: false });
+		expect(impact.summary.changedFiles).toBe(1);
+		expect(impact.summary.changedChunks).toBe(3); // base + helper + <module> 伪 chunk
+		// 传递影响：mid.ts::mid (depth1 via helper) → top.ts::top (depth2 via mid)
+		const affected = impact.affected.map((x) => x.name);
+		expect(affected).toContain("mid");
+		expect(affected).toContain("top");
+		expect(affected).not.toContain("unrelated"); // 不调用改动链 → 不受影响
+		const mid = impact.affected.find((x) => x.name === "mid")!;
+		expect(mid.depth).toBe(1);
+		expect(mid.via).toMatch(/^lib\.ts::/); // 影响路径证据：mid 直接调 lib.ts 的 helper
+		expect(mid.viaName).toBe("helper"); // 可读证据
+		const top = impact.affected.find((x) => x.name === "top")!;
+		expect(top.depth).toBe(2);
+		expect(top.via).toMatch(/^mid\.ts::/); // 经 mid 传递
+		expect(top.viaName).toBe("mid");
+		expect(impact.summary.maxDepth).toBe(2);
+	});
 
-  it("chainPath 传染路径（用户需求可解释性）：db→service→api 效应源到调用者路径", async () => {
-    const root = project("chainpath", {
-      "a.py": "import sqlite3\ndef db(): return sqlite3.connect('x')\ndef mid(): return db()\ndef top(): return mid()\n",
-    });
-    const b = by(await scanProject(root));
-    const top = b.get("a.py::top")!;
-    expect(top.purity).toBe(Purity.IMPURE);
-    expect(top.chain).toBe(2);
-    expect(top.chainPath.length).toBe(3); // db → mid → top
-    expect(top.chainPath[0]).toContain("a.py::"); // 源 chunk
-    expect(top.chainPath[top.chainPath.length - 1]).toBe(top.chunk.key); // 终点 = 本 chunk
-    const mid = b.get("a.py::mid")!;
-    expect(mid.chainPath.length).toBe(2);
-  });
+	it("chainPath 传染路径（用户需求可解释性）：db→service→api 效应源到调用者路径", async () => {
+		const root = project("chainpath", {
+			"a.py":
+				"import sqlite3\ndef db(): return sqlite3.connect('x')\ndef mid(): return db()\ndef top(): return mid()\n",
+		});
+		const b = by(await scanProject(root));
+		const top = b.get("a.py::top")!;
+		expect(top.purity).toBe(Purity.IMPURE);
+		expect(top.chain).toBe(2);
+		expect(top.chainPath.length).toBe(3); // db → mid → top
+		expect(top.chainPath[0]).toContain("a.py::"); // 源 chunk
+		expect(top.chainPath[top.chainPath.length - 1]).toBe(top.chunk.key); // 终点 = 本 chunk
+		const mid = b.get("a.py::mid")!;
+		expect(mid.chainPath.length).toBe(2);
+	});
 
-  it("compareReports 判定变化（用户需求可解释性）：diff 引入 fs → 相关 chunk 变化清单", async () => {
-    const root = project("cmp", {
-      "a.ts": "import { writeFileSync } from 'fs';\nexport function io() { writeFileSync('x', 'y'); }\nexport function caller() { return io(); }\n",
-    });
-    const before = await scanProject(root, { useCache: false });
-    // 改动：io 增加 console.log（内容变 → 内容寻址 key 变 → 编辑视为 deleted+added）；新增函数 fresh
-    writeFileSync(join(root, "a.ts"), "import { writeFileSync } from 'fs';\nexport function io() { writeFileSync('x', 'y'); console.log('z'); }\nexport function caller() { return io(); }\nexport function fresh() { return 1; }\n");
-    const after = await scanProject(root, { useCache: false });
-    const deltas = compareReports(before.verdicts, after.verdicts);
-    const fresh = deltas.find((d) => d.name === "fresh");
-    expect(fresh).toBeDefined();
-    expect(fresh!.purityFrom).toBe(-1); // 新增
-    expect(fresh!.purityTo).toBe(Purity.PURE);
-    // 编辑的 io：旧 key deleted（purityTo=-1）+ 新 key added（purityFrom=-1）——内容寻址语义
-    expect(deltas.some((d) => d.name === "io" && d.purityTo === -1)).toBe(true); // 删侧
-    expect(deltas.some((d) => d.name === "io" && d.purityFrom === -1)).toBe(true); // 增侧
-    // 未编辑的 caller：key 稳定、判定链变化（io 新增 io 效应 → 传播）→ delta 含 effectsAdded=io
-    const callerDelta = deltas.find((d) => d.name === "caller");
-    expect(callerDelta).toBeDefined();
-    expect(callerDelta!.effectsAdded).toContain("io");
-  });
+	it("compareReports 判定变化（用户需求可解释性）：diff 引入 fs → 相关 chunk 变化清单", async () => {
+		const root = project("cmp", {
+			"a.ts":
+				"import { writeFileSync } from 'fs';\nexport function io() { writeFileSync('x', 'y'); }\nexport function caller() { return io(); }\n",
+		});
+		const before = await scanProject(root, { useCache: false });
+		// 改动：io 增加 console.log（内容变 → 内容寻址 key 变 → 编辑视为 deleted+added）；新增函数 fresh
+		writeFileSync(
+			join(root, "a.ts"),
+			"import { writeFileSync } from 'fs';\nexport function io() { writeFileSync('x', 'y'); console.log('z'); }\nexport function caller() { return io(); }\nexport function fresh() { return 1; }\n",
+		);
+		const after = await scanProject(root, { useCache: false });
+		const deltas = compareReports(before.verdicts, after.verdicts);
+		const fresh = deltas.find((d) => d.name === "fresh");
+		expect(fresh).toBeDefined();
+		expect(fresh!.purityFrom).toBe(-1); // 新增
+		expect(fresh!.purityTo).toBe(Purity.PURE);
+		// 编辑的 io：旧 key deleted（purityTo=-1）+ 新 key added（purityFrom=-1）——内容寻址语义
+		expect(deltas.some((d) => d.name === "io" && d.purityTo === -1)).toBe(true); // 删侧
+		expect(deltas.some((d) => d.name === "io" && d.purityFrom === -1)).toBe(
+			true,
+		); // 增侧
+		// 未编辑的 caller：key 稳定、判定链变化（io 新增 io 效应 → 传播）→ delta 含 effectsAdded=io
+		const callerDelta = deltas.find((d) => d.name === "caller");
+		expect(callerDelta).toBeDefined();
+		expect(callerDelta!.effectsAdded).toContain("io");
+	});
 
-  it("状态写建模（用户需求 2026-08-11）：self.x=/this.x=/global 声明 → state 效应，纯函数保持 PURE", async () => {
-    const root = project("statewrite", {
-      "a.py": "class Counter:\n    def inc(self):\n        self.count += 1\n    def read(self):\n        return self.count\ncounter = 0\ndef bump():\n    global counter\n    counter += 1\ndef pure_fn(x):\n    return x * 2\n",
-      "b.ts": "export class Store {\n  set(x: number) { this.v = x; }\n  get() { return this.v; }\n}\nexport function pure(x: number) { return x + 1; }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::Counter.inc")!.purity).toBe(Purity.IMPURE); // self.count += 1
-    expect(b.get("a.py::Counter.inc")!.effects.has("state")).toBe(true);
-    expect(b.get("a.py::bump")!.purity).toBe(Purity.IMPURE); // global counter
-    expect(b.get("a.py::Counter.read")!.purity).toBe(Purity.PURE); // 只读不写
-    expect(b.get("a.py::pure_fn")!.purity).toBe(Purity.PURE);
-    expect(b.get("b.ts::Store.set")!.purity).toBe(Purity.IMPURE); // this.v = x
-    expect(b.get("b.ts::Store.get")!.purity).toBe(Purity.PURE);
-  });
+	it("状态写建模（用户需求 2026-08-11）：self.x=/this.x=/global 声明 → state 效应，纯函数保持 PURE", async () => {
+		const root = project("statewrite", {
+			"a.py":
+				"class Counter:\n    def inc(self):\n        self.count += 1\n    def read(self):\n        return self.count\ncounter = 0\ndef bump():\n    global counter\n    counter += 1\ndef pure_fn(x):\n    return x * 2\n",
+			"b.ts":
+				"export class Store {\n  set(x: number) { this.v = x; }\n  get() { return this.v; }\n}\nexport function pure(x: number) { return x + 1; }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::Counter.inc")!.purity).toBe(Purity.IMPURE); // self.count += 1
+		expect(b.get("a.py::Counter.inc")!.effects.has("state")).toBe(true);
+		expect(b.get("a.py::bump")!.purity).toBe(Purity.IMPURE); // global counter
+		expect(b.get("a.py::Counter.read")!.purity).toBe(Purity.PURE); // 只读不写
+		expect(b.get("a.py::pure_fn")!.purity).toBe(Purity.PURE);
+		expect(b.get("b.ts::Store.set")!.purity).toBe(Purity.IMPURE); // this.v = x
+		expect(b.get("b.ts::Store.get")!.purity).toBe(Purity.PURE);
+	});
 
-  it("外部对象属性写（盲区3 数据流）：user.status='banned' / cfg.timeout= → state；局部新建对象不算", async () => {
-    const root = project("mutwrite", {
-      "a.py": "def validate_user(user):\n    user.status = 'banned'\n    return True\ndef build_local():\n    o = {}\n    o.x = 1\n    return o\n",
-      "b.ts": "export function mutate(cfg: any) { cfg.timeout = 5000; }\nexport function local() { const o = { a: 1 }; o.b = 2; return o; }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::validate_user")!.purity).toBe(Purity.IMPURE); // 参数对象属性写
-    expect(b.get("a.py::validate_user")!.effects.has("state")).toBe(true);
-    expect(b.get("a.py::build_local")!.purity).toBe(Purity.PURE); // 局部新建不算
-    expect(b.get("b.ts::mutate")!.purity).toBe(Purity.IMPURE);
-    expect(b.get("b.ts::local")!.purity).toBe(Purity.PURE);
-  });
+	it("外部对象属性写（盲区3 数据流）：user.status='banned' / cfg.timeout= → state；局部新建对象不算", async () => {
+		const root = project("mutwrite", {
+			"a.py":
+				"def validate_user(user):\n    user.status = 'banned'\n    return True\ndef build_local():\n    o = {}\n    o.x = 1\n    return o\n",
+			"b.ts":
+				"export function mutate(cfg: any) { cfg.timeout = 5000; }\nexport function local() { const o = { a: 1 }; o.b = 2; return o; }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::validate_user")!.purity).toBe(Purity.IMPURE); // 参数对象属性写
+		expect(b.get("a.py::validate_user")!.effects.has("state")).toBe(true);
+		expect(b.get("a.py::build_local")!.purity).toBe(Purity.PURE); // 局部新建不算
+		expect(b.get("b.ts::mutate")!.purity).toBe(Purity.IMPURE);
+		expect(b.get("b.ts::local")!.purity).toBe(Purity.PURE);
+	});
 
-  it("异常传播（盲区1）：raise ValueError / throw new RangeError → throwsTypes 沿调用链传播", async () => {
-    const root = project("throws", {
-      "a.py": "def parse(x):\n    raise ValueError('bad')\ndef caller():\n    return parse(x)\ndef safe():\n    return 1\n",
-      "b.ts": "export function parse(s: string): number { throw new RangeError('x'); }\nexport function caller() { return parse('a'); }\n",
-    });
-    const r = await scanProject(root);
-    const by2 = new Map(r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]));
-    expect(by2.get("a.py::parse")!.throwsTypes).toContain("ValueError");
-    expect(by2.get("a.py::caller")!.throwsTypes).toContain("ValueError"); // 未捕获向上传播
-    expect(by2.get("a.py::safe")!.throwsTypes).toEqual([]);
-    expect(by2.get("b.ts::parse")!.throwsTypes).toContain("RangeError");
-    expect(by2.get("b.ts::caller")!.throwsTypes).toContain("RangeError");
-  });
+	it("异常传播（盲区1）：raise ValueError / throw new RangeError → throwsTypes 沿调用链传播", async () => {
+		const root = project("throws", {
+			"a.py":
+				"def parse(x):\n    raise ValueError('bad')\ndef caller():\n    return parse(x)\ndef safe():\n    return 1\n",
+			"b.ts":
+				"export function parse(s: string): number { throw new RangeError('x'); }\nexport function caller() { return parse('a'); }\n",
+		});
+		const r = await scanProject(root);
+		const by2 = new Map(
+			r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]),
+		);
+		expect(by2.get("a.py::parse")!.throwsTypes).toContain("ValueError");
+		expect(by2.get("a.py::caller")!.throwsTypes).toContain("ValueError"); // 未捕获向上传播
+		expect(by2.get("a.py::safe")!.throwsTypes).toEqual([]);
+		expect(by2.get("b.ts::parse")!.throwsTypes).toContain("RangeError");
+		expect(by2.get("b.ts::caller")!.throwsTypes).toContain("RangeError");
+	});
 
-  it("异常 catch 细化（迭代7 ④）：try/except ValueError 吞掉、TS catch{} 吞一切、未捕获保留", async () => {
-    const root = project("catchdet", {
-      "a.py": "def parse(x):\n    raise ValueError('bad')\ndef safe_parse(x):\n    try:\n        return parse(x)\n    except ValueError:\n        return None\ndef risky(x):\n    return parse(x)\n",
-      "b.ts": "export function boom(): never { throw new RangeError('x'); }\nexport function handled() { try { return boom(); } catch { return 0; } }\n",
-    });
-    const r = await scanProject(root);
-    const by2 = new Map(r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]));
-    expect(by2.get("a.py::safe_parse")!.throwsTypes).toEqual([]); // except ValueError 吞掉
-    expect(by2.get("a.py::risky")!.throwsTypes).toContain("ValueError"); // 未捕获保留
-    expect(by2.get("b.ts::handled")!.throwsTypes).toEqual([]); // catch {} 吞一切
-  });
+	it("异常 catch 细化（迭代7 ④）：try/except ValueError 吞掉、TS catch{} 吞一切、未捕获保留", async () => {
+		const root = project("catchdet", {
+			"a.py":
+				"def parse(x):\n    raise ValueError('bad')\ndef safe_parse(x):\n    try:\n        return parse(x)\n    except ValueError:\n        return None\ndef risky(x):\n    return parse(x)\n",
+			"b.ts":
+				"export function boom(): never { throw new RangeError('x'); }\nexport function handled() { try { return boom(); } catch { return 0; } }\n",
+		});
+		const r = await scanProject(root);
+		const by2 = new Map(
+			r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]),
+		);
+		expect(by2.get("a.py::safe_parse")!.throwsTypes).toEqual([]); // except ValueError 吞掉
+		expect(by2.get("a.py::risky")!.throwsTypes).toContain("ValueError"); // 未捕获保留
+		expect(by2.get("b.ts::handled")!.throwsTypes).toEqual([]); // catch {} 吞一切
+	});
 
-  it("TS 模块级裸标识符状态写（终裁 Step1 {closure}）：count++/count=count-1 → state；局部声明排除", async () => {
-    const root = project("closurewrite", {
-      "counter.ts": "let count = 0;\nexport function inc() { count++; }\nexport function dec() { count = count - 1; }\nexport function read() { return count; }\nexport function local() { let y = 0; y = 5; return y; }\n",
-    });
-    const r = await scanProject(root);
-    const b = by(r);
-    expect(b.get("counter.ts::inc")!.purity).toBe(Purity.IMPURE); // 修复前 PURE（S1 假纯洞）
-    expect(b.get("counter.ts::dec")!.purity).toBe(Purity.IMPURE);
-    expect(b.get("counter.ts::local")!.purity).toBe(Purity.PURE); // let 声明排除
-    expect(b.get("counter.ts::read")!.purity).toBe(Purity.PURE); // 读不是效应
-    expect(b.get("counter.ts::read")!.stateDeps).toContain("count"); // 读方耦合
-  });
+	it("TS 模块级裸标识符状态写（终裁 Step1 {closure}）：count++/count=count-1 → state；局部声明排除", async () => {
+		const root = project("closurewrite", {
+			"counter.ts":
+				"let count = 0;\nexport function inc() { count++; }\nexport function dec() { count = count - 1; }\nexport function read() { return count; }\nexport function local() { let y = 0; y = 5; return y; }\n",
+		});
+		const r = await scanProject(root);
+		const b = by(r);
+		expect(b.get("counter.ts::inc")!.purity).toBe(Purity.IMPURE); // 修复前 PURE（S1 假纯洞）
+		expect(b.get("counter.ts::dec")!.purity).toBe(Purity.IMPURE);
+		expect(b.get("counter.ts::local")!.purity).toBe(Purity.PURE); // let 声明排除
+		expect(b.get("counter.ts::read")!.purity).toBe(Purity.PURE); // 读不是效应
+		expect(b.get("counter.ts::read")!.stateDeps).toContain("count"); // 读方耦合
+	});
 
-  it("迭代8 F1/F2：TS += 状态写检测、catch-and-rethrow 异常保留", async () => {
-    const root = project("f12", {
-      "b.ts": "export class C {\n  private count = 0;\n  bumpPlus() { this.count += 1; }\n  inc() { this.count++; }\n}\n",
-      "a.py": "def multi(n):\n    if n < 0: raise ValueError('neg')\n    raise TypeError('bad')\ndef rethrow(n):\n    try:\n        return multi(n)\n    except ValueError:\n        raise\ndef handled(n):\n    try:\n        return multi(n)\n    except ValueError:\n        return None\n",
-    });
-    const r = await scanProject(root);
-    const b = by(r);
-    expect(b.get("b.ts::C.bumpPlus")!.purity).toBe(Purity.IMPURE); // TS += 状态写（修复前 PURE）
-    expect(b.get("b.ts::C.inc")!.purity).toBe(Purity.IMPURE); // ++
-    const by2 = new Map(r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]));
-    expect(by2.get("a.py::rethrow")!.throwsTypes).toContain("ValueError"); // 重抛保留（修复前被吞）
-    expect(by2.get("a.py::rethrow")!.throwsTypes).toContain("TypeError");
-    expect(by2.get("a.py::handled")!.throwsTypes).toContain("TypeError"); // ValueError 被吞
-    expect(by2.get("a.py::handled")!.throwsTypes).not.toContain("ValueError");
-  });
+	it("迭代8 F1/F2：TS += 状态写检测、catch-and-rethrow 异常保留", async () => {
+		const root = project("f12", {
+			"b.ts":
+				"export class C {\n  private count = 0;\n  bumpPlus() { this.count += 1; }\n  inc() { this.count++; }\n}\n",
+			"a.py":
+				"def multi(n):\n    if n < 0: raise ValueError('neg')\n    raise TypeError('bad')\ndef rethrow(n):\n    try:\n        return multi(n)\n    except ValueError:\n        raise\ndef handled(n):\n    try:\n        return multi(n)\n    except ValueError:\n        return None\n",
+		});
+		const r = await scanProject(root);
+		const b = by(r);
+		expect(b.get("b.ts::C.bumpPlus")!.purity).toBe(Purity.IMPURE); // TS += 状态写（修复前 PURE）
+		expect(b.get("b.ts::C.inc")!.purity).toBe(Purity.IMPURE); // ++
+		const by2 = new Map(
+			r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]),
+		);
+		expect(by2.get("a.py::rethrow")!.throwsTypes).toContain("ValueError"); // 重抛保留（修复前被吞）
+		expect(by2.get("a.py::rethrow")!.throwsTypes).toContain("TypeError");
+		expect(by2.get("a.py::handled")!.throwsTypes).toContain("TypeError"); // ValueError 被吞
+		expect(by2.get("a.py::handled")!.throwsTypes).not.toContain("ValueError");
+	});
 
-  it("读方传播 stateDeps（迭代8 视角2）：send_email↔user.status 耦合可见、判定不变", async () => {
-    const root = project("statedeps", {
-      "a.py": "def validate_user(user):\n    user.status = 'banned'\n    return True\ndef send_email(user):\n    if user.status == 'active':\n        send()\n    return user.status\n",
-      "b.ts": "export class Store {\n  private v = 0;\n  set(x: number) { this.v = x; }\n  get() { return this.v; }\n}\n",
-    });
-    const r = await scanProject(root);
-    const by2 = new Map(r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]));
-    expect(by2.get("a.py::send_email")!.stateDeps).toContain("user.status"); // 读到被 validate_user 写的位置
-    expect(by2.get("a.py::validate_user")!.stateDeps).toEqual([]); // 写者无依赖
-    expect(by2.get("b.ts::Store.get")!.stateDeps).toContain("self.v"); // set 写、get 读
-    // 隔离：stateDeps 非空时 purity 不变（get 读 → PURE；send_email 的 UNKNOWN 来自 send() 未解析，非 stateDeps）
-    expect(by2.get("b.ts::Store.get")!.purity).toBe(Purity.PURE);
-    expect(by2.get("a.py::validate_user")!.purity).toBe(Purity.IMPURE); // state 效应照常
-  });
+	it("读方传播 stateDeps（迭代8 视角2）：send_email↔user.status 耦合可见、判定不变", async () => {
+		const root = project("statedeps", {
+			"a.py":
+				"def validate_user(user):\n    user.status = 'banned'\n    return True\ndef send_email(user):\n    if user.status == 'active':\n        send()\n    return user.status\n",
+			"b.ts":
+				"export class Store {\n  private v = 0;\n  set(x: number) { this.v = x; }\n  get() { return this.v; }\n}\n",
+		});
+		const r = await scanProject(root);
+		const by2 = new Map(
+			r.verdicts.map((v) => [`${v.chunk.file}::${v.chunk.name}`, v]),
+		);
+		expect(by2.get("a.py::send_email")!.stateDeps).toContain("user.status"); // 读到被 validate_user 写的位置
+		expect(by2.get("a.py::validate_user")!.stateDeps).toEqual([]); // 写者无依赖
+		expect(by2.get("b.ts::Store.get")!.stateDeps).toContain("self.v"); // set 写、get 读
+		// 隔离：stateDeps 非空时 purity 不变（get 读 → PURE；send_email 的 UNKNOWN 来自 send() 未解析，非 stateDeps）
+		expect(by2.get("b.ts::Store.get")!.purity).toBe(Purity.PURE);
+		expect(by2.get("a.py::validate_user")!.purity).toBe(Purity.IMPURE); // state 效应照常
+	});
 
-  it("analyzeChange 边界：环/自环终止、空/不匹配文件标记 unmatchedFiles、反斜杠路径归一化", async () => {
-    const root = project("changeedge", {
-      "a.ts": "export function a() { return b(); }\nexport function b() { return a(); }\nexport function s() { return s(); }\nexport function leaf() { return 1; }\n",
-      "use.ts": "import { a } from './a';\nexport function use() { return a(); }\n",
-    });
-    // 环 a⇄b + 自环 s：BFS 终止、无重复；use 受影响 depth1 via a
-    const ring = await analyzeChange(root, ["a.ts"], { useCache: false });
-    expect(ring.affected.some((x) => x.name === "use")).toBe(true);
-    expect(ring.affected.filter((x) => x.name === "use").length).toBe(1); // 去重
-    // 空 changedFiles → 干净空结果
-    const empty = await analyzeChange(root, [], { useCache: false });
-    expect(empty.summary.changedChunks).toBe(0);
-    expect(empty.summary.affectedChunks).toBe(0);
-    // 不匹配路径 → unmatchedFiles 标记（静默空结果可观测）
-    const nomatch = await analyzeChange(root, ["nope.ts", "./a.ts"], { useCache: false });
-    expect(nomatch.summary.unmatchedFiles).toBe(1); // nope.ts 未匹配（./a.ts 归一化后匹配）
-    expect(nomatch.summary.changedFiles).toBe(1);
-    // 反斜杠路径（Windows）归一化匹配
-    const win = await analyzeChange(root, ["a.ts".replace("/", "\\")], { useCache: false });
-    expect(win.summary.changedFiles).toBe(1);
-  });
+	it("analyzeChange 边界：环/自环终止、空/不匹配文件标记 unmatchedFiles、反斜杠路径归一化", async () => {
+		const root = project("changeedge", {
+			"a.ts":
+				"export function a() { return b(); }\nexport function b() { return a(); }\nexport function s() { return s(); }\nexport function leaf() { return 1; }\n",
+			"use.ts":
+				"import { a } from './a';\nexport function use() { return a(); }\n",
+		});
+		// 环 a⇄b + 自环 s：BFS 终止、无重复；use 受影响 depth1 via a
+		const ring = await analyzeChange(root, ["a.ts"], { useCache: false });
+		expect(ring.affected.some((x) => x.name === "use")).toBe(true);
+		expect(ring.affected.filter((x) => x.name === "use").length).toBe(1); // 去重
+		// 空 changedFiles → 干净空结果
+		const empty = await analyzeChange(root, [], { useCache: false });
+		expect(empty.summary.changedChunks).toBe(0);
+		expect(empty.summary.affectedChunks).toBe(0);
+		// 不匹配路径 → unmatchedFiles 标记（静默空结果可观测）
+		const nomatch = await analyzeChange(root, ["nope.ts", "./a.ts"], {
+			useCache: false,
+		});
+		expect(nomatch.summary.unmatchedFiles).toBe(1); // nope.ts 未匹配（./a.ts 归一化后匹配）
+		expect(nomatch.summary.changedFiles).toBe(1);
+		// 反斜杠路径（Windows）归一化匹配
+		const win = await analyzeChange(root, ["a.ts".replace("/", "\\")], {
+			useCache: false,
+		});
+		expect(win.summary.changedFiles).toBe(1);
+	});
 });
 
 describe("定义性事实族（用户覆写会议否决后实施）", () => {
-  it("A 模块级值绑定：from db import conn; conn.execute()（实例绑定 → 类成员边）", async () => {
-    const root = project("dfa", {
-      "db.py": "class DB:\n    def execute(self):\n        print('io')\nconn = DB()\n",
-      "use.py": "from db import conn\ndef f():\n    conn.execute()\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("use.py::f")!.purity).toBe(Purity.IMPURE);
-  });
+	it("A 模块级值绑定：from db import conn; conn.execute()（实例绑定 → 类成员边）", async () => {
+		const root = project("dfa", {
+			"db.py":
+				"class DB:\n    def execute(self):\n        print('io')\nconn = DB()\n",
+			"use.py": "from db import conn\ndef f():\n    conn.execute()\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("use.py::f")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("A2 TS 导出单例：export const db = new Pool(); db.query()", async () => {
-    const root = project("dfa2", {
-      "db.ts": "export class Pool { query(q: string) { console.log(q); } }\nexport const db = new Pool();\n",
-      "use.ts": "import { db } from './db';\nexport function run() { db.query('DELETE'); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("use.ts::run")!.purity).toBe(Purity.IMPURE);
-  });
+	it("A2 TS 导出单例：export const db = new Pool(); db.query()——迭代38 规则7：JS 构造器可 return 任意对象 → 不产 trusted 绑定 → UNKNOWN（假纯洞 B2 闭合）", async () => {
+		const root = project("dfa2", {
+			"db.ts":
+				"export class Pool { query(q: string) { console.log(q); } }\nexport const db = new Pool();\n",
+			"use.ts":
+				"import { db } from './db';\nexport function run() { db.query('DELETE'); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("use.ts::run")!.purity).toBe(Purity.UNKNOWN);
+	});
 
-  it("B 构造器接收者：new Conn().open() → 类成员真边", async () => {
-    const root = project("dfb", {
-      "db.ts": "export class Conn { open() { console.log('io'); } }\n",
-      "use.ts": "import { Conn } from './db';\nexport function run() { return new Conn().open(); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("use.ts::run")!.purity).toBe(Purity.IMPURE);
-  });
+	it("B 构造器接收者：new Conn().open()——迭代38 规则7：JS/TS class: 接收者不可信 → UNKNOWN（假纯洞 B2 闭合）", async () => {
+		const root = project("dfb", {
+			"db.ts": "export class Conn { open() { console.log('io'); } }\n",
+			"use.ts":
+				"import { Conn } from './db';\nexport function run() { return new Conn().open(); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("use.ts::run")!.purity).toBe(Purity.UNKNOWN);
+	});
 
-  it("C 链式返回类型：' x '.strip().upper() / ' a '.trim().toLowerCase() → PURE", async () => {
-    const root = project("dfc", {
-      "a.py": "def f():\n    return ' x '.strip().upper()\n",
-      "b.ts": "export function g() { return ' a '.trim().toLowerCase(); }\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("a.py::f")!.purity).toBe(Purity.PURE);
-    expect(b.get("b.ts::g")!.purity).toBe(Purity.PURE);
-  });
+	it("C 链式返回类型：' x '.strip().upper() / ' a '.trim().toLowerCase() → PURE", async () => {
+		const root = project("dfc", {
+			"a.py": "def f():\n    return ' x '.strip().upper()\n",
+			"b.ts": "export function g() { return ' a '.trim().toLowerCase(); }\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("a.py::f")!.purity).toBe(Purity.PURE);
+		expect(b.get("b.ts::g")!.purity).toBe(Purity.PURE);
+	});
 
-  it("D require 解构：const { go } = require('./lib') → 导出签名解析", async () => {
-    const root = project("dfd", {
-      "lib.js": "function go() { console.log('x'); }\nmodule.exports = { go };\n",
-      "use.js": "const { go } = require('./lib');\nfunction run() { go(); }\nmodule.exports = { run };\n",
-    });
-    const b = by(await scanProject(root));
-    expect(b.get("use.js::run")!.purity).toBe(Purity.IMPURE);
-  });
+	it("D require 解构：const { go } = require('./lib') → 导出签名解析", async () => {
+		const root = project("dfd", {
+			"lib.js":
+				"function go() { console.log('x'); }\nmodule.exports = { go };\n",
+			"use.js":
+				"const { go } = require('./lib');\nfunction run() { go(); }\nmodule.exports = { run };\n",
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("use.js::run")!.purity).toBe(Purity.IMPURE);
+	});
 
-  it("E 迭代37 P0-1 通用机制：frameworkAttrPrefix 缺失时前缀链不误判 io（Python 无此字段 → 方向安全）", async () => {
-    // Python pack 无 frameworkAttrPrefix（仅 C# 定义）——obj.attr 链不得被前缀表误判 io。
-    // 验证可选字段缺失 = 零行为影响（link 查表 undefined → 落回 ? 诚实）。
-    const root = project("fap-none", {
-      "a.py": "def f(item):\n    item.gameObject.SetActive(False)\n    return 1\n",
-    });
-    const b = by(await scanProject(root));
-    const v = b.get("a.py::f")!;
-    // Python 下 item.gameObject.SetActive 是动态分派（obj=item 变量，无类型）→ UNKNOWN 诚实，非 io
-    expect(v.purity).toBe(Purity.UNKNOWN);
-  });
+	it("E 迭代37 P0-1 通用机制：frameworkAttrPrefix 缺失时前缀链不误判 io（Python 无此字段 → 方向安全）", async () => {
+		// Python pack 无 frameworkAttrPrefix（仅 C# 定义）——obj.attr 链不得被前缀表误判 io。
+		// 验证可选字段缺失 = 零行为影响（link 查表 undefined → 落回 ? 诚实）。
+		const root = project("fap-none", {
+			"a.py":
+				"def f(item):\n    item.gameObject.SetActive(False)\n    return 1\n",
+		});
+		const b = by(await scanProject(root));
+		const v = b.get("a.py::f")!;
+		// Python 下 item.gameObject.SetActive 是动态分派（obj=item 变量，无类型）→ UNKNOWN 诚实，非 io
+		expect(v.purity).toBe(Purity.UNKNOWN);
+	});
 
-  it("F 迭代37 P0-1 C# 语义保持：frameworkAttrPrefix 命中 → io（与 frameworkIo 同槽位）", async () => {
-    // C# frameworkAttrPrefix = { gameObject: [SetActive, ...] }——X.gameObject.SetActive → io
-    // （等价迁移验证：原 L646-654 硬编码分支行为逐字保持）
-    const root = project("fap-csharp", {
-      "C.cs": [
-        "public class C {",
-        "    public void Hide(GameObject item) { item.gameObject.SetActive(false); }",
-        "}",
-      ].join("\n"),
-    });
-    const b = by(await scanProject(root));
-    const v = b.get("C.cs::C.Hide")!;
-    expect(v.purity).toBe(Purity.IMPURE);
-    expect([...v.effects]).toContain("io");
-  });
+	it("F 迭代37 P0-1 C# 语义保持：frameworkAttrPrefix 命中 → io（与 frameworkIo 同槽位）", async () => {
+		// C# frameworkAttrPrefix = { gameObject: [SetActive, ...] }——X.gameObject.SetActive → io
+		// （等价迁移验证：原 L646-654 硬编码分支行为逐字保持）
+		const root = project("fap-csharp", {
+			"C.cs": [
+				"public class C {",
+				"    public void Hide(GameObject item) { item.gameObject.SetActive(false); }",
+				"}",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		const v = b.get("C.cs::C.Hide")!;
+		expect(v.purity).toBe(Purity.IMPURE);
+		expect([...v.effects]).toContain("io");
+	});
 });

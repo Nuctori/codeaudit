@@ -258,7 +258,8 @@ export const typescriptPack: LangPack = {
   // egg.js 惯例：ctx.model（sequelize DB）/ ctx.service（业务层）/ ctx.app —— 均为 io 边界
   implicitThis: false,
   assignmentScopesLocals: false,
-  bareNameMeansThisInMethod: false,
+	bareNameMeansThisInMethod: false,
+	trustedCtor: false, // JS/TS 构造器可 return 任意对象 → 不产 trusted 绑定（迭代38 规则7，B2 假纯洞）
   frameworkIo: { ctx: ["model", "service", "app"] },
   extractImports: extractEsmImports,
   resolveModule: (module, fromFile, projectFiles) =>

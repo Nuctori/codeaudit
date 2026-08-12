@@ -1,7 +1,8 @@
-# codeaudit 技术债摘要（迭代 37 重基线 / 无特例语言无关最小化后）
+# codeaudit 技术债摘要（迭代 38 重基线 / 继承·多态 + mutate 语义统一后）
 
-> 重基线于迭代 37（2026-08-13）：原文档为迭代 19 快照（`01dd226`，216/216），已过期 23 轮。
-> 现基线：HEAD `c90f401`，307/307 测试，LangPack 达成「无特例语言无关」（E/Φ 分解：引擎零语言常量，差异全经 pack 数据/行为注入——docs/iter37/03-synthesis.md §1.3）。
+> 重基线于迭代 38（2026-08-13）：LangPack 达成「无特例语言无关」后，新增继承/多态最小健全版（迭代38 A）、
+> A1 mutate 语义统一（迭代38 B）、JS 构造器不可信门（规则7）、--state 序列化上界、gameObject 单源。
+> 现基线：325/325 测试（vitest 串行）+ tsc 干净。评审：docs/iter38/03-synthesis.md（数学家 01 + Jeff 02 交叉裁决）。
 > 分类：**A. 形式正确性修复（已修）** / **B. 工程妥协（有意，方向安全）** / **C. 无主债（应还）** / **D. 外部债（非本仓库可修）**
 
 ---
@@ -60,6 +61,30 @@
 | 统一效应表冲动 | 过度抽象 | P2-1 明确不做 + G3' 护栏注释（pack.ts 通道分派语义声明） |
 
 **验收口径**（docs/iter37/03-synthesis.md §4）：`grep "gameObject" src/engine/` 仅剩记账槽位字符串 ✓；`pack.name` 在 extractor 控制流 = 0 ✓；305→307 全绿 ✓。
+
+## 迭代 38 清空项（本轮闭合）
+
+| 项 | 类型 | 闭合方式 |
+| --- | --- | --- |
+| 继承/多态真空（self/new C()/参数接收者落 ?） | 精度回收 | A：classExtends 提取 + link 祖先闭包并集（规则1 全并集，规则2 同名类并集）+ 后代守卫降 ?（H4 假纯洞闭合）+ 基类 ctor 并集 + 隐式 ctor 纯 |
+| 动态 extends 假纯通道 | 假纯 | 规则3 健全版：语言存在动态 heritage → 该语言多态分派整体 ? |
+| 参数容器方法变异 d.Add 判纯 vs d[0]=1 判 state | 假纯/语义分叉 | B：builtinMutators 表（C#/Python 9+8 方法）→ state 效应；sort 回调义务保留（规则5）；H6 内建子类守卫 → ? |
+| JS/TS `new C()` 构造器 return 任意对象信任类型 | 假纯（P1-2 已落地洞） | 规则7：trustedCtor=false → 不产 trusted localBinding/moduleBindings，class: 接收者落 ? |
+| --state 序列化无上界（500×1.3万读者可崩） | 崩溃 | capStateCoupling：compact 前缀和 + 二分，64M 工程上界（8× 余量） |
+| csharp gameObject 双份清单漂移 | 漂移 | gameObjectMembers 单一数据源 |
+
+## 迭代 38 新增债（有意残余 + 升级路径）
+
+| # | 债 | 语义 | 升级路径 |
+| --- | --- | --- | --- |
+| B7 | **C# virtual 精度**：多态守卫不区分 virtual/非 virtual——所有方法视同可覆写 → 基类 self 调用一律 ? | 非 virtual 静态分派本可精确；? 是健全降级 | 提取 virtual/override 修饰符，非 virtual 免守卫（预期显著降 C# 基类噪音） |
+| B8 | **项目外子类不可见**（库/插件扩展你的类） | 多态并集漏项目外覆写 → 假纯通道（文档化） | 与项目外写者同族，无静态解 |
+| B9 | **moduleBindings 不接继承**（db = new Pool() 只查 own-class） | 模块单例基类方法 → ?（诚实） | resolveClassMember 入 resolveFromObjectImport（参数管道 ~6 行） |
+| B10 | **mutate 无 stateWrites 位置** | --state 耦合图漏该方法变异（下界，元数据级） | 变异方法名作位置（`d.append`）需读方对称匹配 |
+| B11 | **C# 字段初始化器效应不建模**（int x = ReadFile()） | 隐式 ctor 纯的健全性前提（预存在残余） | 字段初始化器归入 class chunk（与 ctor 体合并同款） |
+| B12 | **Python __new__ 逃逸**（C() 可 return 任意对象） | lb/trustedCtor 对 Python 的残余（同 monkey-patch 族） | 文档化接受 |
+
+**验收口径**（docs/iter38/03-synthesis.md）：11 个反例测试（MRO 并集/同名类/动态 extends/H6/sort 回调/JS 构造器/mutate/字面量豁免/基类 ctor/多态守卫）全绿；tsc 干净；vitest 串行 325/325。
 
 ## 总体评估
 
