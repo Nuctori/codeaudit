@@ -88,6 +88,9 @@ export interface RawFileFacts {
 	readonly classExtends?: Readonly<Record<string, readonly string[]>>;
 	/** 迭代38 A：文件内存在动态 extends（class B extends getBase()）→ 该语言多态分派整体 ?（健全版规则3）。 */
 	readonly hasDynamicExtends?: boolean;
+	/** 迭代39 B7：virtual 族方法（类名 → 方法名列表）。C# virtual/override/abstract（无 sealed）；
+	 *  base_list ≥2 命名子节点（基类 + 接口）→ 该类全部方法隐含 virtual 族（保守，B13 残余为单接口形态）。 */
+	readonly virtualMembers?: Readonly<Record<string, readonly string[]>>;
 }
 
 export interface LangPack {
@@ -174,6 +177,55 @@ export interface LangPack {
 	/** 迭代38 A 规则7：构造器结果可信（new C() 必返回 C 实例或抛）——C#/Python true；
 	 *  JS/TS false（构造器可 return 任意对象）→ 不产 trusted localBinding，class: 接收者落 ?。 */
 	readonly trustedCtor?: boolean;
+	/** 迭代39 B7：类方法默认多态（Python/JS 一切方法原型分派 → true 即现状宽守卫；
+	 *  C# false → 仅 virtual/override/abstract 族降 ?，非 virtual 静态分派精确（L4）。 */
+	readonly polymorphicMethods?: boolean;
+	/** 迭代39：模块说明符前缀别名（JS/TS "node:" ≡ 无前缀——运行时同模块）。引擎零语言常量完整态。 */
+	readonly stripModulePrefixes?: readonly string[];
+	/** 迭代39 P2-1：AST 形状投影表（π 数据侧）——extractor 的节点类型判定统一走此表。
+	 *  只含「哪类节点是哪种 IR 事件」的语言数据；字段结构/拍平逻辑留在 extractor（跨语言同构）。
+	 *  未声明 = 空集（该语言无此形态）。新语言接入 = 纯数据，零 extractor 改动。 */
+	readonly astShapes?: Readonly<{
+		/** 外部状态写语句节点（global/nonlocal 声明）。 */
+		writeStmts: readonly string[];
+		/** 赋值形态写节点（assignment/augmented_assignment/...）。 */
+		writeAssigns: readonly string[];
+		/** 增量写节点（update_expression / ++ -- 一元）。 */
+		writeUpdates: readonly string[];
+		/** 一元增减节点（postfix/prefix_unary_expression）。 */
+		writeUnary: readonly string[];
+		/** 成员访问节点（attribute/member_expression/member_access...）。 */
+		memberNodes: readonly string[];
+		/** 成员访问内部包装（member_binding_expression，C# ?. 链）。 */
+		memberWrapNodes: readonly string[];
+		/** 调用形态节点（call/call_expression/invocation...）。 */
+		callShapes: readonly string[];
+		/** 构造调用节点（object_creation_expression/new_expression）。 */
+		ctorCallNodes: readonly string[];
+		/** 参数节点（parameter/typed_parameter...）。 */
+		paramNodes: readonly string[];
+		/** 抛出/捕获节点。 */
+		throwNodes: readonly string[];
+		catchNodes: readonly string[];
+		/** 类基类容器节点（base_list/class_heritage）。 */
+		heritageNodes: readonly string[];
+		/** this 形态节点（this/this_expression）。 */
+		thisNodes: readonly string[];
+		/** 类方法声明节点（method_declaration/method_definition）。 */
+		methodNodes: readonly string[];
+		/** 解包表达式节点（parenthesized/as/satisfies/non_null——字面量接收者剥壳）。 */
+		unwrapNodes: readonly string[];
+		/** 语句解包包装（export_statement/expression_statement——模块绑定/赋值提取）。 */
+		stmtWrapNodes: readonly string[];
+		/** 构造绑定赋值节点（**不含** augmented——x += C() 是增量非构造，独立审计必修 3）。 */
+		bindAssigns: readonly string[];
+		/** 声明节点（variable_declarator/variable_declaration/lexical_declaration）。 */
+		declNodes: readonly string[];
+		/** 初始化器父节点（initializer_expression——对象初始化器非外部写）。 */
+		initializerParentNodes: readonly string[];
+		/** 默认导出容器（export_statement）。 */
+		exportStmtNodes: readonly string[];
+	}>;
 	/** 迭代38 B：参数共享容器的方法变异（list.append / List.Add / dict.clear…）→ state 效应
 	 *  （与参数下标写 d[0]=1 → stateWrites 同语义统一，iter36 §b-7）。
 	 *  只收真实高频变异方法；局部绑定（lb）不接（局部对象变异不可见）；TS/JS 不可达不加（死表）。 */

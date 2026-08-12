@@ -1,8 +1,9 @@
-# codeaudit 技术债摘要（迭代 38 重基线 / 继承·多态 + mutate 语义统一后）
+# codeaudit 技术债摘要（迭代 39 重基线 / 数学模型细化后）
 
-> 重基线于迭代 38（2026-08-13）：LangPack 达成「无特例语言无关」后，新增继承/多态最小健全版（迭代38 A）、
-> A1 mutate 语义统一（迭代38 B）、JS 构造器不可信门（规则7）、--state 序列化上界、gameObject 单源。
-> 现基线：325/325 测试（vitest 串行）+ tsc 干净。评审：docs/iter38/03-synthesis.md（数学家 01 + Jeff 02 交叉裁决）。
+> 重基线于迭代 39（2026-08-13）：数学模型细化为 M=(IR,Σ,Λ,π,H,F)（docs/iter39/00-model.md），
+> 收掉 P0-1（字段初始化器假纯洞）、B7（C# virtual 精确分派）、B9（moduleBindings 继承）、
+> B10（mutate 写位置）、node: 数据化、AST 形状契约网（P2-2）、投影数据化（P2-1）。
+> 现基线：335/335 测试（vitest 串行）+ tsc 干净 + 真实扫描冒烟通过。评审：迭代39 独立审计。
 > 分类：**A. 形式正确性修复（已修）** / **B. 工程妥协（有意，方向安全）** / **C. 无主债（应还）** / **D. 外部债（非本仓库可修）**
 
 ---
@@ -84,7 +85,27 @@
 | B11 | **C# 字段初始化器效应不建模**（int x = ReadFile()） | 隐式 ctor 纯的健全性前提（预存在残余） | 字段初始化器归入 class chunk（与 ctor 体合并同款） |
 | B12 | **Python __new__ 逃逸**（C() 可 return 任意对象） | lb/trustedCtor 对 Python 的残余（同 monkey-patch 族） | 文档化接受 |
 
-**验收口径**（docs/iter38/03-synthesis.md）：11 个反例测试（MRO 并集/同名类/动态 extends/H6/sort 回调/JS 构造器/mutate/字面量豁免/基类 ctor/多态守卫）全绿；tsc 干净；vitest 串行 325/325。
+## 迭代 39 清空项（本轮闭合）
+
+| 项 | 类型 | 闭合方式 |
+| --- | --- | --- |
+| P0-1/B11 字段初始化器假纯洞 | 假纯（迭代38 隐式 ctor 纯引入） | L5：ctor 分支并集闭包全部 class chunk 原始调用（含基类字段初始化器）；隐式纯条件收紧为「闭包无显式 ctor ∧ 全部 class chunk 零调用」 |
+| B7 C# virtual 精度 | 精度（宽守卫） | L4：polymorphicMethods=false + virtualMembers 提取（virtual/override/abstract，sealed 排除，base_list≥2 接口启发）+ BFS 首声明层 virtual 守卫；非 virtual 静态分派精确 |
+| B9 moduleBindings 继承 | 精度 | resolveFromObjectImport 模块绑定走 resolveClassMember(polymorphic=false)（HierarchyCtx 参数束） |
+| B10 mutate 无写位置 | 元数据 | Sink.addStateWrite → stateWrites 合并出站（位置 = 参数名，前缀匹配读者） |
+| node: 硬编码 ×2 | 引擎语言常量 | stripModulePrefixes 数据化（link effectFromModule + effectUsage P2/P4 判据） |
+| P2-2 形状契约网 | 工程 | ast-shape.test.ts 6 契约（typed_parameter/base_list 子节点/extends_clause 包层/修饰符/接口启发/动态 heritage）——wasm 升级防静默失效 |
+| P2-1 投影数据化 | 架构 | astShapes 19 集投影表（四 pack 全声明）+ extractor 全部节点类型判定走表；identifier/property/type_identifier/predefined_type = tree-sitter 跨语言公共名（非语言常量，模型注明） |
+| 探针实证新缺陷 | 正确性 | TS class_heritage 内包 extends_clause（静态基类此前全漏 + 误标 dynamic）——形状契约网捕获 |
+
+## 迭代 39 新增债（有意残余 + 升级路径）
+
+| # | 债 | 语义 | 升级路径 |
+| --- | --- | --- | --- |
+| B13 | **C# 接口作静态类型接收者**（IRepo r; r.Get()）——已修（interface_declaration 方法无条件 virtual，审计必修 2）；残余 = **单接口基类实现的类方法隐含 virtual**（base_list 单子无法区分接口与外部类） | 接口接收者已闭合；类侧残余罕见 | 接口清单数据（IDisposable 等） |
+| B14 | ~~属性访问器并入 class chunk~~（审计修正：访问器体是独立 chunk 从未并入，文档幻觉）——实际残余 = **静态初始化器并入 new C()**（静态初始化器在类型加载时执行非实例化——过近似 S2 方向安全） | L5 过近似 | 静态初始化器独立建模 |
+
+**验收口径**（docs/iter39/00-model.md + 独立审计必修 5 反例）：337/337（迭代39 缺口闭合 4 + ast-shape 6 契约 + B7 拆分 2 + 审计反例 2）；tsc 干净；真实扫描分布正常。
 
 ## 总体评估
 

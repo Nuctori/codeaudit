@@ -122,18 +122,25 @@ export class Extractor {
 			moduleBindings: this.moduleBindingsOf(root),
 			classExtends: ce.map,
 			hasDynamicExtends: ce.dynamic || undefined,
+			virtualMembers: this.virtualMembersOf(root) || undefined,
 			parseError: root.hasError,
 		};
 	}
 
-	/** 模块级单赋值绑定（模块级值绑定溯源，A）：名称 → 构造类名；last-write-wins；定义遮蔽赋值。 */
+	/** 模块级单赋值绑定（模块级值绑定溯源，A）：名称 → 构造类名；last-write-wins；定义遮蔽赋值。
+	 *  迭代39 P2-1：包装/声明/赋值节点走投影表。 */
 	private moduleBindingsOf(root: SyntaxNode): Record<string, string> {
 		const bindings: Record<string, string> = {};
+		const stmtWraps = shapesOf(this.pack, "stmtWrapNodes");
+		const decls = shapesOf(this.pack, "declNodes");
+		const assigns = shapesOf(this.pack, "bindAssigns"); // 不含 augmented（x += C() 非构造绑定）
+		const ctorCalls = shapesOf(this.pack, "ctorCallNodes");
+		const callShapes = shapesOf(this.pack, "callShapes");
 		for (const stmt0 of root.children) {
 			// 解包包装节点：TS export const x = ...（export_statement→variable_declarator）、
 			// Python 表达式语句（expression_statement→assignment）
 			let stmt: SyntaxNode = stmt0;
-			if (stmt.type === "export_statement") {
+			if (stmtWraps.includes(stmt.type) && stmt.type === "export_statement") {
 				const decl = stmt.children.find(
 					(c) =>
 						c.type === "variable_declaration" ||
@@ -142,21 +149,12 @@ export class Extractor {
 				if (decl)
 					stmt =
 						decl.children.find((c) => c.type === "variable_declarator") ?? stmt;
-			} else if (stmt.type === "expression_statement") {
+			} else if (stmtWraps.includes(stmt.type)) {
 				const inner = stmt.children[0];
-				if (
-					inner &&
-					(inner.type === "assignment" ||
-						inner.type === "assignment_expression")
-				)
-					stmt = inner;
+				if (inner && assigns.includes(inner.type)) stmt = inner;
 			}
 			// 赋值/声明：x = C() / const x = new C() / const x = C()
-			if (
-				stmt.type === "assignment" ||
-				stmt.type === "variable_declarator" ||
-				stmt.type === "assignment_expression"
-			) {
+			if (assigns.includes(stmt.type) || decls.includes(stmt.type)) {
 				const left =
 					stmt.childForFieldName("left") ?? stmt.childForFieldName("name");
 				const value =
@@ -167,7 +165,7 @@ export class Extractor {
 					value
 				) {
 					let cls: string | null = null;
-					if (value.type === "call" || value.type === "call_expression") {
+					if (callShapes.includes(value.type)) {
 						const fn = value.childForFieldName("function") ?? value.children[0];
 						if (
 							fn &&
@@ -175,7 +173,10 @@ export class Extractor {
 							fn.text !== "require"
 						)
 							cls = fn.text;
-					} else if (value.type === "new_expression" && this.pack.trustedCtor !== false) {
+					} else if (
+						ctorCalls.includes(value.type) &&
+						this.pack.trustedCtor !== false
+					) {
 						// 迭代38 规则7：JS/TS 构造器可 return 任意对象 → new X() 不产 trusted 绑定（假纯洞 B2）
 						const ctor =
 							value.childForFieldName("constructor") ?? value.children[1];
@@ -189,12 +190,7 @@ export class Extractor {
 					if (cls !== null) bindings[left.text] = cls;
 					else delete bindings[left.text]; // 非类赋值/重绑 → 清除（不可证）
 				}
-			} else if (
-				stmt.type === "function_definition" ||
-				stmt.type === "class_definition" ||
-				stmt.type === "function_declaration" ||
-				stmt.type === "class_declaration"
-			) {
+			} else if (this.pack.chunkNodes.includes(stmt.type)) {
 				const nameNode = stmt.childForFieldName("name");
 				if (nameNode) delete bindings[nameNode.text]; // 定义遮蔽赋值绑定
 			}
@@ -227,10 +223,10 @@ export class Extractor {
 		]);
 		const visit = (n: SyntaxNode): void => {
 			if (n !== node && nested.has(n.type)) return; // 嵌套 chunk 的绑定归它们
+			// 迭代39 P2-1：声明/赋值节点走投影表（bindAssigns 不含 augmented——增量非构造绑定）
 			if (
-				n.type === "variable_declarator" ||
-				n.type === "assignment" ||
-				n.type === "assignment_expression"
+				shapesOf(this.pack, "declNodes").includes(n.type) ||
+				shapesOf(this.pack, "bindAssigns").includes(n.type)
 			) {
 				const left =
 					n.childForFieldName("left") ??
@@ -276,12 +272,14 @@ export class Extractor {
 
 	/** 构造调用形态 RHS → 类型名（C# new X() / TS new X() / Python|TS 类调用 X()）；非构造 → null。 */
 	private ctorClsOf(value: SyntaxNode): string | null {
-		if (value.type === "object_creation_expression") {
+		const ctorCalls = shapesOf(this.pack, "ctorCallNodes");
+		const callShapes = shapesOf(this.pack, "callShapes");
+		if (ctorCalls.includes(value.type) && value.type === "object_creation_expression") {
 			// C#：new X(...) / new X<T>(...) → type 字段（ctorTypeName 已处理泛型剥除）
 			const t = value.childForFieldName("type");
 			return t !== null ? ctorTypeName(t) : null;
 		}
-		if (value.type === "new_expression") {
+		if (ctorCalls.includes(value.type) && value.type === "new_expression") {
 			// 迭代38 规则7：JS/TS 构造器可 return 任意对象 → new X() 不产 trusted localBinding（假纯洞 B2）
 			if (this.pack.trustedCtor === false) return null;
 			// TS/JS：new X(...)
@@ -293,7 +291,7 @@ export class Extractor {
 				return ctor.text;
 			return null;
 		}
-		if (value.type === "call" || value.type === "call_expression") {
+		if (callShapes.includes(value.type)) {
 			// Python/TS 类调用：x = C()（函数名 RHS 也绑——消费端 kind=class 校验兜底 ?）
 			const fn = value.childForFieldName("function") ?? value.children[0];
 			if (
@@ -330,6 +328,9 @@ export class Extractor {
 							c.type === "property_identifier"
 						) {
 							bases.push(c.text);
+						} else if (c.type === "extends_clause") {
+							// 迭代39：TS class_heritage 内包一层 extends_clause（extends 表达式）
+							for (const k of c.children) if (k.isNamed) pushBase(k);
 						} else if (c.type === "generic_name") {
 							const t = ctorTypeName(c); // List<int> → List（末段）
 							if (t !== null) bases.push(t);
@@ -345,10 +346,12 @@ export class Extractor {
 						if (sup) for (const c of sup.children) if (c.isNamed) pushBase(c);
 					} else {
 						// C# base_list 是**子节点**非字段（探针实证）/ TS class_heritage 命名子节点
+						// 迭代39 P2-1：heritage 容器节点走投影表
 						const bl =
 							n.childForFieldName("base_list") ??
-							n.children.find((c) => c.type === "base_list") ??
-							n.children.find((c) => c.type === "class_heritage") ??
+							n.children.find((c) =>
+								shapesOf(this.pack, "heritageNodes").includes(c.type),
+							) ??
 							null;
 						if (bl) for (const c of bl.children) if (c.isNamed) pushBase(c);
 					}
@@ -361,41 +364,89 @@ export class Extractor {
 		return { map, dynamic };
 	}
 
-	/** 状态写位置提取（迭代8 视角2）：self.x= / this.x= / global、nonlocal 声明 → 位置列表（空 = 非写）。 */
+	/** 迭代39 B7：virtual 族方法提取（C# method_declaration 修饰符 virtual/override/abstract，无 sealed）。
+	 *  sealed override 不可再覆写 → 静态分派精确，排除。base_list ≥2 命名子节点（基类 + 接口）→
+	 *  该类全部方法隐含 virtual 族（接口实现隐式 virtual，保守并集；单接口形态 = B13 残余）。
+	 *  Python/JS 走 pack.polymorphicMethods（一切方法多态），不需本表。 */
+	private virtualMembersOf(root: SyntaxNode): Record<string, readonly string[]> | null {
+		const out: Record<string, string[]> = {};
+		const visit = (n: SyntaxNode): void => {
+			if (this.pack.classNodes.includes(n.type)) {
+				const name = n.childForFieldName("name");
+				if (name) {
+					// base_list 命名子节点数（C#：首 = 基类，其余 = 接口；TS class_heritage 单类）
+					// 迭代39 P2-1：heritage 容器走投影表
+					const bl =
+						n.childForFieldName("base_list") ??
+						n.children.find((c) =>
+							shapesOf(this.pack, "heritageNodes").includes(c.type),
+						) ??
+						null;
+					const namedBases = bl
+						? bl.children.filter((c) => c.isNamed).length
+						: 0;
+					const allVirtual = namedBases >= 2; // 接口存在 → 方法可能隐含 virtual
+					// 迭代39 审计必修 2：**接口声明本身** = 全部方法无条件 virtual（C# 接口分派恒动态——
+					// 接口作静态类型的接收者会精确解析到无方法体的接口 chunk → 假纯，独立审计反例）
+					const isInterface = n.type === "interface_declaration";
+					// 方法在 declaration_list 内（非直接子节点）——递归，嵌套类/结构体边界即停（归它们自己）
+					const walk = (node: SyntaxNode): void => {
+						if (node !== n && this.pack.classNodes.includes(node.type)) return;
+						if (shapesOf(this.pack, "methodNodes").includes(node.type)) {
+							const mn = node.childForFieldName("name");
+							if (mn) {
+								const mods = node.children.map((x) => x.text); // 修饰符 token 可能命名/匿名——全子节点文本匹配
+								const sealed = mods.includes("sealed");
+								const virtual =
+									mods.includes("virtual") ||
+									mods.includes("override") ||
+									mods.includes("abstract");
+								if (!sealed && (allVirtual || virtual || isInterface)) {
+									(out[name.text] ??= []).push(mn.text);
+								}
+							}
+							return;
+						}
+						for (const c of node.children) walk(c);
+					};
+					for (const c of n.children) walk(c);
+				}
+			}
+			for (const c of n.children) visit(c);
+		};
+		visit(root);
+		return Object.keys(out).length > 0 ? out : null;
+	}
+
+	/** 状态写位置提取（迭代8 视角2）：self.x= / this.x= / global、nonlocal 声明 → 位置列表（空 = 非写）。
+	 *  迭代39 P2-1：节点类型判定走 pack 投影表。 */
 	private stateWritePos(node: SyntaxNode, chunk: MutableChunk): string[] {
-		if (
-			node.type === "global_statement" ||
-			node.type === "nonlocal_statement"
-		) {
+		if (shapesOf(this.pack, "writeStmts").includes(node.type)) {
 			// Python：global counter, x → 声明名列表
 			return node.children
 				.filter((c) => c.type === "identifier")
 				.map((c) => c.text);
 		}
-		if (
-			node.type === "assignment" ||
-			node.type === "augmented_assignment" ||
-			node.type === "assignment_expression" ||
-			node.type === "augmented_assignment_expression"
-		) {
-			// TS/JS：x = y → assignment_expression；x += y → augmented_assignment_expression（迭代8 F1）
+		if (shapesOf(this.pack, "writeAssigns").includes(node.type)) {
 			// 迭代25：C# 对象初始化器（new C { A = v }）——新鲜对象属性初始化，非外部状态写。
 			// TS/JS 对象字面量是 pair 节点、从不触发写分支；Python dict 同理——本跳过是对齐语义。
-			if (node.parent?.type === "initializer_expression") return [];
+			if (
+				shapesOf(this.pack, "initializerParentNodes").includes(
+					node.parent?.type ?? "",
+				)
+			)
+				return [];
 			const left = node.childForFieldName("left") ?? node.children[0];
 			const pos = this.externalWritePos(left, chunk);
 			return pos !== null ? [pos] : [];
 		}
-		if (node.type === "update_expression") {
+		if (shapesOf(this.pack, "writeUpdates").includes(node.type)) {
 			// TS：this.x++ / this.x--
 			const arg = node.childForFieldName("argument") ?? node.children[0];
 			const pos = this.externalWritePos(arg, chunk);
 			return pos !== null ? [pos] : [];
 		}
-		if (
-			node.type === "postfix_unary_expression" ||
-			node.type === "prefix_unary_expression"
-		) {
+		if (shapesOf(this.pack, "writeUnary").includes(node.type)) {
 			// 迭代25：C# i++ / this.x++ / ++i。操作数是唯一 named 子节点（++/-- 是匿名 token）；
 			// 不用 children[0]（prefix 的 children[0] 是 `++`）——web-tree-sitter 引用比较恒真（iter24 教训）。
 			// 注意：!x / -x / ~x 同为 prefix_unary_expression 但语义是**读**（逻辑非/取负）——只认 ++/-- 操作符。
@@ -420,20 +471,17 @@ export class Extractor {
 	 *  - 边缘：a.b?.c() 内层成员（parent 是 conditional_access_expression 的调用链）；
 	 *  - obj/attr 提取按类型分支（C# 字段是 expression/name；?. 的 name 在 member_binding_expression 内）。 */
 	private stateReadPos(node: SyntaxNode, chunk: MutableChunk): string[] {
+		// 迭代39 P2-1：节点类型判定走 pack 投影表
+		const S = shapesOf(this.pack, "memberNodes");
+		const SW = shapesOf(this.pack, "memberWrapNodes");
+		const SC = shapesOf(this.pack, "callShapes");
+		const SCT = shapesOf(this.pack, "ctorCallNodes");
 		if (node.type === "identifier") {
 			// 裸标识符读（模块级 let / 闭包外层变量）：∉ 参数 且 ∉ 局部赋值 → 外部状态读（终裁 Step1）。
 			// 迭代24：成员访问结构（obj.attr / obj?.attr）的子标识符由成员节点统一承担——跳过，避免
 			// C#/Python 成员名（identifier 类型）被当裸变量读（Foo.instance.x 的 instance/成员名全误读）。
 			const p = node.parent;
-			if (
-				p &&
-				(p.type === "attribute" ||
-					p.type === "member_expression" ||
-					p.type === "member_access_expression" ||
-					p.type === "conditional_access_expression" ||
-					p.type === "member_binding_expression")
-			)
-				return [];
+			if (p && (S.includes(p.type) || SW.includes(p.type))) return [];
 			// 迭代26-27：统一声明名抑制——声明名不是裸变量读（parent 的 name 字段指向自身、
 			// 或声明结构中的名字位置）。.id 判等（iter24 教训：`===` 恒假）。
 			const p2 = p;
@@ -464,8 +512,12 @@ export class Extractor {
 				if (inIdx >= 0 && kids.some((c, i) => c.id === node.id && i < inIdx))
 					return [];
 			}
-			// ⑤ 异常变量：TS/JS catch_clause 唯一 identifier 直接子节点；Python except as_pattern_target 的唯一 identifier
-			if (p2 && (p2.type === "catch_clause" || p2.type === "as_pattern_target"))
+			// ⑤ 异常变量：catch_clause（TS 经投影表）/ except as_pattern_target 的唯一 identifier
+			if (
+				p2 &&
+				(shapesOf(this.pack, "catchNodes").includes(p2.type) ||
+					p2.type === "as_pattern_target")
+			)
 				return [];
 			if (
 				!chunk.params.includes(node.text) &&
@@ -474,26 +526,12 @@ export class Extractor {
 				return [node.text];
 			return [];
 		}
-		if (
-			node.type !== "attribute" &&
-			node.type !== "member_expression" &&
-			node.type !== "member_access_expression" &&
-			node.type !== "conditional_access_expression"
-		)
-			return [];
+		if (!S.includes(node.type)) return [];
 		const parent = node.parent;
 		const isAssignmentParent = (t: string): boolean =>
-			t === "assignment" ||
-			t === "augmented_assignment" ||
-			t === "assignment_expression" ||
-			t === "augmented_assignment_expression" ||
-			t === "update_expression";
-		const isCallLike = (t: string): boolean =>
-			t === "call" ||
-			t === "call_expression" ||
-			t === "new_expression" ||
-			t === "invocation_expression" ||
-			t === "object_creation_expression";
+			shapesOf(this.pack, "writeAssigns").includes(t) ||
+			shapesOf(this.pack, "writeUpdates").includes(t);
+		const isCallLike = (t: string): boolean => SC.includes(t) || SCT.includes(t);
 		if (parent && isAssignmentParent(parent.type)) {
 			// 赋值左值跳过（写侧已处理；augmented/update 的右值读由右侧表达式节点捕获）
 			const left =
@@ -511,7 +549,7 @@ export class Extractor {
 		}
 		// 边缘：a.b?.c() 内层成员——member_access_expression(a.b) 的 parent 是 conditional_access_expression
 		// （非调用），但该 conditional 是 invocation 的 function 链一部分 → 排除内层成员
-		if (parent && parent.type === "conditional_access_expression") {
+		if (parent && S.includes(parent.type) && parent.type === "conditional_access_expression") {
 			const gp = parent.parent;
 			if (gp && isCallLike(gp.type)) {
 				const fn = gp.childForFieldName("function") ?? gp.children[0] ?? null;
@@ -524,9 +562,7 @@ export class Extractor {
 		let attrNode: SyntaxNode | null = null;
 		if (node.type === "conditional_access_expression") {
 			obj = node.children[0] ?? null;
-			const mbe = node.children.find(
-				(c) => c.type === "member_binding_expression",
-			);
+			const mbe = node.children.find((c) => SW.includes(c.type));
 			attrNode = mbe ? (mbe.namedChildren[0] ?? null) : null;
 		} else {
 			obj =
@@ -572,8 +608,10 @@ export class Extractor {
 	/** 异常捕获类型提取（迭代7 ④）：catch_clause（TS catch {} / catch(e) → "*" 吞一切）；
 	 *  Python except_clause（except ValueError → "ValueError"；裸 except: → "*"）。非捕获节点 → null。 */
 	private catchTypeOf(node: SyntaxNode): string | null {
-		if (node.type === "catch_clause") return "*"; // TS/JS catch 无条件吞一切（无类型化 catch）
-		if (node.type === "except_clause") {
+		const catches = shapesOf(this.pack, "catchNodes");
+		if (catches.includes(node.type) && node.type === "catch_clause")
+			return "*"; // TS/JS catch 无条件吞一切（无类型化 catch）
+		if (catches.includes(node.type)) {
 			// Python：except ValueError: / except (A, B): / except: / except Exception as e:
 			const typ = node.children.find(
 				(c) =>
@@ -597,11 +635,7 @@ export class Extractor {
 		const params = root.childForFieldName("parameters");
 		if (!params) return out;
 		const push = (n: SyntaxNode): void => {
-			if (
-				n.type === "parameter" ||
-				n.type === "parameter_declaration" ||
-				n.type === "typed_parameter"
-			) {
+			if (shapesOf(this.pack, "paramNodes").includes(n.type)) {
 				const named = n.childForFieldName("name");
 				if (
 					named &&
@@ -617,10 +651,11 @@ export class Extractor {
 				// 迭代38：tree-sitter-python typed_parameter 无 name 字段（子节点 = identifier 裸名）
 				(n.type === "typed_parameter"
 					? (n.children.find(
-							(c) => c.type === "identifier" || c.type === "property_identifier",
+							(c) =>
+								c.type === "identifier" || c.type === "property_identifier",
 						) ?? null)
 					: null);
-				n.childForFieldName("name") ?? n.childForFieldName("pattern");
+			n.childForFieldName("name") ?? n.childForFieldName("pattern");
 			if (
 				named &&
 				(named.type === "identifier" || named.type === "property_identifier")
@@ -642,18 +677,14 @@ export class Extractor {
 		const params = root.childForFieldName("parameters");
 		if (!params) return out;
 		for (const c of params.children) {
-			if (
-				c.type !== "parameter" &&
-				c.type !== "parameter_declaration" &&
-				c.type !== "typed_parameter"
-			)
-				continue;
+			if (!shapesOf(this.pack, "paramNodes").includes(c.type)) continue;
 			// 迭代38：typed_parameter 无 name 字段——name = 首个 identifier 子节点（探针实证）
 			const name =
 				c.childForFieldName("name") ??
 				(c.type === "typed_parameter"
 					? (c.children.find(
-							(x) => x.type === "identifier" || x.type === "property_identifier",
+							(x) =>
+								x.type === "identifier" || x.type === "property_identifier",
 						) ?? null)
 					: null);
 			const type = c.childForFieldName("type");
@@ -699,7 +730,8 @@ export class Extractor {
 
 	/** 异常抛出类型提取（盲区1）：raise X / throw new Y() → 类型文本；裸 raise/throw → "*"；非抛出节点 → null。 */
 	private thrownTypeOf(node: SyntaxNode): string | null {
-		if (node.type === "raise_statement") {
+		// 迭代39 P2-1：抛出节点走投影表
+		if (shapesOf(this.pack, "throwNodes").includes(node.type) && node.type === "raise_statement") {
 			// Python：raise / raise ValueError / raise ValueError("x")
 			const exc = node.children.find(
 				(c) =>
@@ -711,13 +743,14 @@ export class Extractor {
 			if (exc.type === "call") {
 				const fn = exc.childForFieldName("function") ?? exc.children[0];
 				if (!fn) return "*";
-				const flat = flattenCallTarget(fn);
+				const flat = flattenCallTarget(fn, this.pack);
 				return flat !== null ? flat.split(".").pop()! : "*";
 			}
-			const flat = flattenCallTarget(exc);
+			const flat = flattenCallTarget(exc, this.pack);
 			return flat !== null ? flat.split(".").pop()! : "*";
 		}
-		if (node.type === "throw_statement") {
+		// 迭代39 P2-1：throw 节点走投影表
+		if (shapesOf(this.pack, "throwNodes").includes(node.type) && node.type === "throw_statement") {
 			// TS/JS：throw new Error() / throw err / throw "x"
 			const arg =
 				node.childForFieldName("argument") ??
@@ -914,9 +947,11 @@ export class Extractor {
 	 *  module.exports.handler = fn → 成员名（非函数字面量 RHS 不建——identifier 导出走既有
 	 *  function_declaration chunk）。module.exports = fn（默认导出）左值是 exports 自身 → null。 */
 	private cjsExportName(node: SyntaxNode): string | null {
-		if (node.type !== "assignment_expression") return null;
+		// 迭代39 P2-1：赋值/成员节点走投影表
+		if (!shapesOf(this.pack, "writeAssigns").includes(node.type)) return null;
 		const left = node.childForFieldName("left") ?? node.children[0] ?? null;
-		if (!left || left.type !== "member_expression") return null;
+		if (!left || !shapesOf(this.pack, "memberNodes").includes(left.type))
+			return null;
 		const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
 		const attr =
 			left.childForFieldName("property") ??
@@ -994,7 +1029,11 @@ export class Extractor {
 		// 迭代33 C1 构造器建模：C# object_creation_expression（new X(...)）——取 type 字段剥壳为类型名，
 		// 产 ctor 标记走专用分支（link.ts 构造分支）。tree-sitter-c_sharp 无 constructor/function 字段
 		// （wasm 实证：field type 是 identifier/generic_name；implicit new() 无 type → UNRESOLVED 诚实）。
-		if (node.type === "object_creation_expression") {
+		// 迭代39 P2-1：构造调用节点走投影表（C# object_creation_expression 产 ctor 标记）。
+		if (
+			shapesOf(this.pack, "ctorCallNodes").includes(node.type) &&
+			node.type === "object_creation_expression"
+		) {
 			const typeNode = node.childForFieldName("type") ?? null;
 			if (typeNode) {
 				const name = ctorTypeName(typeNode);
@@ -1018,6 +1057,7 @@ export class Extractor {
 			};
 		}
 		const fn =
+			shapesOf(this.pack, "ctorCallNodes").includes(node.type) &&
 			node.type === "new_expression"
 				? (node.childForFieldName("constructor") ?? node.children[0])
 				: (node.childForFieldName("function") ?? node.children[0]);
@@ -1029,14 +1069,11 @@ export class Extractor {
 				receiver: null,
 				argFns,
 			};
-		const flat = flattenCallTarget(fn);
+		const flat = flattenCallTarget(fn, this.pack);
 		if (flat === null) {
 			// 接收者事实：字面量 / 链式（"x".strip().upper() 的 upper 接收者是 strip 的返回类型）/ 构造器
-			if (
-				fn.type === "attribute" ||
-				fn.type === "member_expression" ||
-				fn.type === "member_access_expression"
-			) {
+			// 迭代39 P2-1：成员节点走投影表
+			if (shapesOf(this.pack, "memberNodes").includes(fn.type)) {
 				const obj = fn.childForFieldName("object") ?? fn.children[0];
 				// Python attribute 无命名字段（children: [obj, ., name]）；TS member_expression 有 property 字段
 				const attr =
@@ -1086,9 +1123,9 @@ export class Extractor {
 	private receiverTypeOf(obj: SyntaxNode): string | null {
 		const lit = literalReceiverType(obj, this.pack);
 		if (lit !== null) return lit;
+		// 迭代39 P2-1：构造器接收者节点走投影表
 		if (
-			obj.type === "new_expression" ||
-			obj.type === "object_creation_expression"
+			shapesOf(this.pack, "ctorCallNodes").includes(obj.type)
 		) {
 			// 迭代33 C1：object_creation_expression（C# new X()）与 new_expression 对称——取类型名走 class: 分支
 			// （此前 C# 构造器被 literalReceivers 短路为 "object" → new List<int>().Add(x) 链断）
@@ -1100,19 +1137,14 @@ export class Extractor {
 			if (name !== null) return `class:${name}`;
 			return null;
 		}
-		if (
-			obj.type === "call" ||
-			obj.type === "call_expression" ||
-			obj.type === "invocation_expression"
-		) {
+		// 迭代39 P2-1：调用接收者节点走投影表
+		if (shapesOf(this.pack, "callShapes").includes(obj.type)) {
 			// 迭代31 S1：C# 调用节点是 invocation_expression（此前缺失 → C# 链第二环起全断，
 			// 21,488 bare <unresolved> 站点大块来源）。fn 字段与 attribute/member 提取与 TS/Python 同构。
 			const fn = obj.childForFieldName("function") ?? obj.children[0];
 			if (
 				fn &&
-				(fn.type === "attribute" ||
-					fn.type === "member_expression" ||
-					fn.type === "member_access_expression")
+				shapesOf(this.pack, "memberNodes").includes(fn.type)
 			) {
 				const innerObj = fn.childForFieldName("object") ?? fn.children[0];
 				const innerAttr =
@@ -1148,12 +1180,8 @@ export class Extractor {
 		const pushArg = (n: SyntaxNode): void => {
 			if (n.type === "identifier" || n.type === "property_identifier") {
 				out.push(n.text);
-			} else if (
-				n.type === "attribute" ||
-				n.type === "member_expression" ||
-				n.type === "member_access_expression"
-			) {
-				const flat = flattenCallTarget(n);
+			} else if (shapesOf(this.pack, "memberNodes").includes(n.type)) {
+				const flat = flattenCallTarget(n, this.pack);
 				if (flat !== null) out.push(flat);
 			}
 		};
@@ -1221,6 +1249,15 @@ export class Extractor {
 		for (const c of root.children) walk(c);
 		return out;
 	}
+}
+
+/** 迭代39 P2-1：投影表访问——未声明集 = 空（该语言无此形态）。 */
+const EMPTY_SHAPES: readonly string[] = [];
+function shapesOf(
+	pack: LangPack,
+	key: keyof NonNullable<LangPack["astShapes"]>,
+): readonly string[] {
+	return pack.astShapes?.[key] ?? EMPTY_SHAPES;
 }
 
 interface MutableChunk {
@@ -1297,15 +1334,11 @@ function fresh(
 	};
 }
 
-/** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。 */
+/** 字面量接收者判定：解包括号/断言后查 literalReceivers 表；bytes 前缀（b"..."）按文本区分。
+ *  迭代39 P2-1：解包节点走投影表。 */
 function literalReceiverType(node: SyntaxNode, pack: LangPack): string | null {
 	let n = node;
-	while (
-		n.type === "parenthesized_expression" ||
-		n.type === "as_expression" ||
-		n.type === "satisfies_expression" ||
-		n.type === "non_null_expression"
-	) {
+	while (shapesOf(pack, "unwrapNodes").includes(n.type)) {
 		const inner =
 			n.childForFieldName("expression") ??
 			n.childForFieldName("value") ??
@@ -1320,30 +1353,30 @@ function literalReceiverType(node: SyntaxNode, pack: LangPack): string | null {
 	return t;
 }
 
-/** 把 member/attribute 链拍平成点连文本；动态部分（下标、调用结果）返回 null。 */
-function flattenCallTarget(node: SyntaxNode): string | null {
+/** 把 member/attribute 链拍平成点连文本；动态部分（下标、调用结果）返回 null。
+ *  迭代39 P2-1：成员/this 节点判定走 pack 投影表；identifier/property_identifier/type_identifier/
+ *  predefined_type 是 tree-sitter 跨语言公共节点名（非语言常量）。 */
+function flattenCallTarget(node: SyntaxNode, pack: LangPack): string | null {
+	const members = shapesOf(pack, "memberNodes");
+	const thisNodes = shapesOf(pack, "thisNodes");
+	const memberWraps = shapesOf(pack, "memberWrapNodes");
 	if (
 		node.type === "identifier" ||
 		node.type === "property_identifier" ||
-		node.type === "this" ||
-		node.type === "this_expression" || // C#（迭代19）：this.gameObject 的 this 节点
+		thisNodes.includes(node.type) ||
 		node.type === "type_identifier" ||
-		node.type === "predefined_type" // C#（迭代20）：string/int/float 等 builtin 类型（string.IsNullOrWhiteSpace）
+		node.type === "predefined_type"
 	) {
 		return node.text;
 	}
-	if (
-		node.type === "attribute" ||
-		node.type === "member_expression" ||
-		node.type === "member_access_expression"
-	) {
+	if (members.includes(node.type) && node.type !== "conditional_access_expression") {
 		const obj = node.childForFieldName("object") ?? node.children[0];
 		const attr =
 			node.childForFieldName("attribute") ??
 			node.childForFieldName("property") ??
 			node.childForFieldName("name");
 		if (!obj || !attr) return null;
-		const objText = flattenCallTarget(obj);
+		const objText = flattenCallTarget(obj, pack);
 		if (objText === null) return null;
 		// C# 泛型成员（迭代19）：Resources.Load<GameObject> → 剥 type_argument_list 取方法名
 		if (attr.type === "generic_name") {
@@ -1363,14 +1396,12 @@ function flattenCallTarget(node: SyntaxNode): string | null {
 		}
 		return null;
 	}
-	if (node.type === "conditional_access_expression") {
+	if (members.includes(node.type) && node.type === "conditional_access_expression") {
 		// C# null 条件访问（迭代20）：obj?.Method → obj 部分 flatten + member_binding 标识符
 		const expr = node.children[0];
-		const binding = node.children.find(
-			(c) => c.type === "member_binding_expression",
-		);
+		const binding = node.children.find((c) => memberWraps.includes(c.type));
 		if (expr === undefined || binding === undefined) return null;
-		const objText = flattenCallTarget(expr);
+		const objText = flattenCallTarget(expr, pack);
 		if (objText === null) return null;
 		const id = binding.children.find(
 			(c) => c.type === "identifier" || c.type === "property_identifier",
@@ -1414,12 +1445,13 @@ function ctorTypeName(node: SyntaxNode): string | null {
 	return null;
 }
 
-/** 默认导出登记：export default function foo / export default class Bar。 */
+/** 默认导出登记：export default function foo / export default class Bar。
+ *  迭代39 P2-1：导出容器节点走投影表。 */
 function findDefaultExport(root: SyntaxNode, pack: LangPack): string | null {
 	let found: string | null = null;
 	const visit = (n: SyntaxNode): void => {
 		if (found !== null) return;
-		if (n.type === "export_statement") {
+		if (shapesOf(pack, "exportStmtNodes").includes(n.type)) {
 			const hasDefault = n.children.some((c) => c.type === "default");
 			if (hasDefault) {
 				for (const c of n.children) {

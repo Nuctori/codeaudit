@@ -125,11 +125,30 @@ function validFacts(f: RawFileFacts | undefined): f is RawFileFacts {
 		(typeof f.classExtends !== "object" ||
 			f.classExtends === null ||
 			Object.entries(f.classExtends).some(
-				([k, v]) => typeof k !== "string" || !Array.isArray(v) || v.some((b) => typeof b !== "string"),
+				([k, v]) =>
+					typeof k !== "string" ||
+					!Array.isArray(v) ||
+					v.some((b) => typeof b !== "string"),
 			))
 	)
 		return false;
-	if (f.hasDynamicExtends !== undefined && typeof f.hasDynamicExtends !== "boolean")
+	if (
+		f.hasDynamicExtends !== undefined &&
+		typeof f.hasDynamicExtends !== "boolean"
+	)
+		return false;
+	// 迭代39 B7：virtualMembers 可选字段形状校验（畸形缓存 → 全量重扫）
+	if (
+		f.virtualMembers !== undefined &&
+		(typeof f.virtualMembers !== "object" ||
+			f.virtualMembers === null ||
+			Object.entries(f.virtualMembers).some(
+				([k, v]) =>
+					typeof k !== "string" ||
+					!Array.isArray(v) ||
+					v.some((m) => typeof m !== "string"),
+			))
+	)
 		return false;
 	if (!f.chunks.some((c) => c?.name === "<module>")) return false; // 真文件必有 <module> 伪块：chunks:[] 空包穿透防护
 	let totalCalls = 0;

@@ -34,9 +34,17 @@ export interface EffectTableUsage {
 	}>;
 }
 
+/** 迭代39：模块键前缀别名规范化（与 link.effectModuleName 同语义——语言数据驱动）。 */
+function stripModulePrefixesOf(pack: LangPack, m: string): string {
+	let s = m;
+	for (const p of pack.stripModulePrefixes ?? [])
+		if (s.startsWith(p)) s = s.slice(p.length);
+	return s;
+}
+
 /** provably-dead 判定（P1-P4——锁定查找码现状，单测防漂移）：
  *  P1 遮蔽：同类别 impure 键为 string 效应且 pure 同键 → pure 不可达（effectFromModule/branch4 先查 impure return）。
- *  P2 node: 前缀不可达（effectFromModule 先 replace(/^node:/,"")——该键永不命中）。
+ *  P2 stripModulePrefixes 前缀不可达（effectFromModule 先规范化——该键永不命中）。
  *  P3 形态不可达：builtinTypeEffects 类型键 ∉ literalReceivers 值域。
  *  P4 相对路径不可达：impureModules 键以 ./ ../ 开头（resolveModule 必命中项目文件，永不 consult 表）。 */
 export function classifyUsage(
@@ -85,7 +93,7 @@ export function classifyUsage(
 				table === "frameworkPure"
 					? `pure:${key}` // 迭代30：纯前缀命中槽位 pure:<obj>.<prefix>
 					: table.startsWith("impureModules") || table.startsWith("pureModules")
-						? `module:${key.replace(/^node:/, "")}`
+						? `module:${stripModulePrefixesOf(pack, key)}` // 迭代39：语言数据驱动的别名规范化
 						: table.includes("Globals") || table.includes("Builtins")
 							? `${table.includes("Globals") ? "global" : "builtin"}:${key}`
 							: `module:${key}`;
@@ -111,9 +119,11 @@ export function classifyUsage(
 			if (
 				!evidence &&
 				(table === "impureModules" || table === "pureModules") &&
-				/^(\.\/|\.\.\/|node:)/.test(key)
+				(/^(\.\/|\.\.\/)/.test(key) ||
+					stripModulePrefixesOf(pack, key) !== key)
 			) {
-				evidence = /^node:/.test(key) ? "P2" : "P4";
+				// 迭代39：P2/P4 判据走 pack 数据（stripModulePrefixes），不再硬编码 node:
+				evidence = stripModulePrefixesOf(pack, key) !== key ? "P2" : "P4";
 			}
 			if (h > 0) {
 				hits++;

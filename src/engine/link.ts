@@ -40,6 +40,18 @@ interface FileIndex {
 	readonly chunkByKey: Map<string, RawChunk>;
 }
 
+/** 迭代39：类层次上下文（import 解析通道复用 resolveClassMember 的参数束）。 */
+interface HierarchyCtx {
+	globalClasses: ReadonlyMap<
+		string,
+		{ file: string; key: string; lang: string }[]
+	>;
+	superMap: ReadonlyMap<string, ReadonlySet<string>>;
+	hasSubclass: ReadonlySet<string>;
+	langHasDynamicExtends: ReadonlySet<string>;
+	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>;
+}
+
 export interface LinkOutput {
 	readonly chunks: Chunk[];
 	/** 效应表使用率（迭代21 数学解 B——link 期计数，scan 装配为 stats.effectTableUsage）。 */
@@ -176,8 +188,21 @@ export function link(
 	const superMap = new Map<string, Set<string>>();
 	const hasSubclass = new Set<string>();
 	const langHasDynamicExtends = new Set<string>();
+	// 迭代39 B7：virtual 族方法（per-lang 合并，同名类并集）
+	const virtualMembers = new Map<string, Set<string>>();
 	for (const fi of files.values()) {
 		if (fi.facts.hasDynamicExtends) langHasDynamicExtends.add(fi.pack.name);
+		if (fi.facts.virtualMembers) {
+			for (const [cls, ms] of Object.entries(fi.facts.virtualMembers)) {
+				const vk = `${fi.pack.name}\u0000${cls}`;
+				let vs = virtualMembers.get(vk);
+				if (!vs) {
+					vs = new Set();
+					virtualMembers.set(vk, vs);
+				}
+				for (const m of ms) vs.add(m);
+			}
+		}
 		if (!fi.facts.classExtends) continue;
 		for (const [cls, bases] of Object.entries(fi.facts.classExtends)) {
 			const k = `${fi.pack.name}\u0000${cls}`;
@@ -234,6 +259,8 @@ export function link(
 		for (const [key, rc] of fi.chunkByKey) {
 			const direct = new Set<Effect>();
 			const calls = new Set<string>();
+			// 迭代39 B10：link 期新增写位置（参数容器 mutate）——出站时与 facts.stateWrites 合并
+			const extraStateWrites: string[] = [];
 			let unknownSites = 0; // `?` 多重性：calls 是 Set 只记一个 `?`，此处记未解析调用点数
 			const unknownCalls: Array<{
 				attr: string;
@@ -255,7 +282,7 @@ export function link(
 				rawModule: string,
 				member: string | null,
 			): boolean => {
-				const module = rawModule.replace(/^node:/, ""); // node:fs ≡ fs
+				const module = effectModuleName(rawModule, fi.pack); // node:fs ≡ fs（语言数据，迭代39）
 				const rule = fi.pack.impureModules[module];
 				// 迭代33 TP4 修复：effectFromModule 是 sink 构造（L244 加前缀）之前的独立闭包——
 				// 5 处 bump 必须同样加 pack 前缀，否则 module 命中键无前缀 → classifyUsage 按 pack 过滤后
@@ -310,11 +337,12 @@ export function link(
 					files,
 					projectFiles,
 					resolveSymbol,
-				resolveMod,
-				globalClasses,
-				superMap,
-				hasSubclass,
-				langHasDynamicExtends,
+					resolveMod,
+					globalClasses,
+					superMap,
+					hasSubclass,
+					langHasDynamicExtends,
+					virtualMembers,
 					{
 						addEdge: (k) => calls.add(k),
 						addEffect: (e) => direct.add(e),
@@ -397,6 +425,9 @@ export function link(
 							}
 						},
 						effectFromModule,
+						addStateWrite: (pos) => {
+							extraStateWrites.push(pos);
+						},
 					},
 				);
 			}
@@ -436,7 +467,10 @@ export function link(
 				thrownTypes: rc.thrownTypes,
 				catches: rc.catches,
 				stateReads: rc.stateReads,
-				stateWrites: rc.stateWrites,
+				stateWrites:
+					extraStateWrites.length > 0
+						? [...rc.stateWrites, ...extraStateWrites]
+						: rc.stateWrites,
 			});
 		}
 	}
@@ -462,6 +496,8 @@ interface Sink {
 		hof: string,
 		unconditional?: boolean,
 	): void;
+	/** 迭代39 B10：记录 mutate 写位置（参数容器变异 → stateDeps 可见，--state 耦合图补齐）。 */
+	addStateWrite(pos: string): void;
 	effectFromModule(module: string, member: string | null): boolean;
 }
 
@@ -582,6 +618,7 @@ function resolveFromObjectImport(
 		fromFile: string,
 	) => string | null,
 	resolveSymbol: (file: string, name: string, depth: number) => string | null,
+	hctx: HierarchyCtx,
 	sink: Sink,
 ): boolean {
 	if (call.obj !== null && !caller.assigned.includes(call.obj)) {
@@ -602,22 +639,22 @@ function resolveFromObjectImport(
 					? tf.facts.moduleBindings[name]
 					: undefined;
 				if (boundCls) {
-					const clsKey = resolveSymbol(target, boundCls, 0);
-					if (clsKey !== null) {
-						const cf = clsKey.slice(0, clsKey.indexOf("::"));
-						const tf2 = files.get(cf);
-						const rc = tf2?.chunkByKey.get(clsKey);
-						if (rc && rc.kind === "class") {
-							const q2 = `${boundCls}.${call.attr}`;
-							if (!tf2!.ambiguous.has(q2)) {
-								const hit2 = tf2!.byQualified.get(q2);
-								if (hit2) {
-									sink.addEdge(hit2);
-									return true;
-								}
-							}
-						}
-					}
+					// 迭代39 B9：接继承——精确构造 polymorphic=false（祖先闭包并集，无后代守卫）
+					const r = resolveClassMember(
+						boundCls,
+						call.attr,
+						pack,
+						files,
+						hctx.globalClasses,
+						hctx.superMap,
+						hctx.hasSubclass,
+						hctx.langHasDynamicExtends,
+						hctx.virtualMembers,
+						sink,
+						false,
+					);
+					if (r === "edges") return true;
+					// 表外方法 → 落后续（ns 再导出链/效应表/?）
 				}
 				// 命名空间再导出链：ns 在 target 里是 export * as ns from → 继续解析 attr
 				const nsImp = tf.importMap.get(name);
@@ -655,6 +692,7 @@ function resolveImport(
 		module: string,
 		fromFile: string,
 	) => string | null,
+	hctx: HierarchyCtx,
 	sink: Sink,
 ): boolean {
 	const pack = fi.pack;
@@ -698,6 +736,7 @@ function resolveImport(
 			imp,
 			resolveMod,
 			resolveSymbol,
+			hctx,
 			sink,
 		);
 	}
@@ -724,12 +763,42 @@ function addUnionEdges(tf: FileIndex, q: string, sink: Sink): boolean {
 	return true;
 }
 
-/** 迭代38 A：类成员解析（继承/多态最小健全版）。
+/** 迭代39：模块说明符规范化——语言数据驱动的前缀别名（JS/TS "node:" ≡ 无前缀）。引擎零语言常量。 */
+function effectModuleName(rawModule: string, pack: LangPack): string {
+	let m = rawModule;
+	for (const p of pack.stripModulePrefixes ?? [])
+		if (m.startsWith(p)) m = m.slice(p.length);
+	return m;
+}
+
+/** 迭代39：祖先闭包（visited 截断环；多继承取并集）。resolveClassMember 与 ctor 分支共用。 */
+function ancestorClosureOf(
+	cls: string,
+	pack: LangPack,
+	superMap: ReadonlyMap<string, ReadonlySet<string>>,
+): Set<string> {
+	const reach = new Set<string>([cls]);
+	const stack = [cls];
+	while (stack.length > 0) {
+		const bases = superMap.get(`${pack.name}\u0000${stack.pop()!}`);
+		if (!bases) continue;
+		for (const b of bases) {
+			if (!reach.has(b)) {
+				reach.add(b);
+				stack.push(b);
+			}
+		}
+	}
+	return reach;
+}
+
+/** 迭代38 A + 迭代39 B7：类成员解析（继承/多态最小健全版）。
  *  polymorphic=true（self/隐式 this/参数接收者）：运行时对象可能是 cls 的子类——
- *  cls ∈ hasSubclass 或语言存在动态 extends → "unknown"（后代守卫降级——未建后代索引的健全替代，Jeff TRIM）；
+ *  后代守卫：Python/JS 一切方法多态（pack.polymorphicMethods）→ cls ∈ hasSubclass 即降 "unknown"；
+ *  C# 仅 virtual 族（L4：非 virtual 静态分派精确）——首声明层 virtual → 降；语言存在动态 extends → 降。
  *  polymorphic=false（构造器 class:/lb）：精确构造 → 无后代守卫。
  *  impls = {cls} ∪ ancestors(cls) 中**全部**直接声明 method 的类（规则1：全并集，禁最近层——
- *  Python 多继承 MRO 反例：最近层并集是欠近似）；同名类跨文件并集（规则2）；环由 visited 截断（并集语义天然健全）。
+ *  Python 多继承 MRO 反例：最近层并集是欠近似）；同名类跨文件并集（规则2）。
  *  返回 "edges"（已建边）/ "unknown"（守卫降级，调用方记 ?）/ "none"（闭包无声明，调用方继续或 ?）。 */
 function resolveClassMember(
 	cls: string,
@@ -743,26 +812,55 @@ function resolveClassMember(
 	superMap: ReadonlyMap<string, ReadonlySet<string>>,
 	hasSubclass: ReadonlySet<string>,
 	langHasDynamicExtends: ReadonlySet<string>,
+	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>,
 	sink: Sink,
 	polymorphic: boolean,
 ): "edges" | "unknown" | "none" {
-	if (
-		polymorphic &&
-		(langHasDynamicExtends.has(pack.name) ||
-			hasSubclass.has(`${pack.name}\u0000${cls}`))
-	)
-		return "unknown";
-	// 祖先闭包（visited 截断环；多继承取并集）
-	const reach = new Set<string>([cls]);
-	const stack = [cls];
-	while (stack.length > 0) {
-		const bases = superMap.get(`${pack.name}\u0000${stack.pop()!}`);
-		if (!bases) continue;
-		for (const b of bases) {
-			if (!reach.has(b)) {
-				reach.add(b);
-				stack.push(b);
+	if (polymorphic && langHasDynamicExtends.has(pack.name)) return "unknown";
+	const reach = ancestorClosureOf(cls, pack, superMap);
+	/** c（同名并集内任一同语言文件）是否直接声明 method（含重载多定义）。 */
+	const declares = (c: string): boolean => {
+		const entries = globalClasses.get(c);
+		if (!entries) return false;
+		for (const e of entries) {
+			if (e.lang !== pack.name) continue;
+			const tf = files.get(e.file);
+			if (!tf) continue;
+			const q = `${c}.${method}`;
+			if (tf.byQualified.has(q) || tf.ambiguous.has(q)) return true;
+		}
+		return false;
+	};
+	if (polymorphic && hasSubclass.has(`${pack.name}\u0000${cls}`)) {
+		if (pack.polymorphicMethods !== false) return "unknown"; // Python/JS：一切方法原型分派
+		// 迭代39 L4（B7）：C# virtual 族才降——非 virtual 静态分派精确。首声明层 = BFS 最近层；
+		// 层内任一声明为 virtual 族（virtual/override/abstract，无 sealed）→ 降 ?。
+		// 单接口基类隐含 virtual 的残余记 B13（base_list 无法区分接口与类）。
+		let frontier: string[] = [cls];
+		const seen = new Set<string>(frontier);
+		while (frontier.length > 0) {
+			let levelDeclared = false;
+			let levelVirtual = false;
+			const next: string[] = [];
+			for (const c of frontier) {
+				if (declares(c)) {
+					levelDeclared = true;
+					if (virtualMembers.get(`${pack.name}\u0000${c}`)?.has(method))
+						levelVirtual = true;
+				}
+				const bases = superMap.get(`${pack.name}\u0000${c}`);
+				if (bases)
+					for (const b of bases)
+						if (!seen.has(b)) {
+							seen.add(b);
+							next.push(b);
+						}
 			}
+			if (levelDeclared) {
+				if (levelVirtual) return "unknown";
+				break;
+			}
+			frontier = next;
 		}
 	}
 	let anyDeclaring = false;
@@ -805,9 +903,18 @@ function resolveCall(
 	superMap: ReadonlyMap<string, ReadonlySet<string>>,
 	hasSubclass: ReadonlySet<string>,
 	langHasDynamicExtends: ReadonlySet<string>,
+	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>,
 	sink: Sink,
-	): void {
+): void {
 	const pack = fi.pack;
+	// 迭代39 B9：import 通道的类层次参数束
+	const hctx: HierarchyCtx = {
+		globalClasses,
+		superMap,
+		hasSubclass,
+		langHasDynamicExtends,
+		virtualMembers,
+	};
 
 	// 0.5 构造调用（迭代33 C1：new X(...) 构造器建模——C# object_creation_expression 产 ctor 标记）。
 	// 规则：① impureGlobals 类型键 → 对应效应（FileStream:fs/Random:random/WaitForSeconds:clock 免费复用）；
@@ -848,16 +955,36 @@ function resolveCall(
 				superMap,
 				hasSubclass,
 				langHasDynamicExtends,
+				virtualMembers,
 				sink,
 				false,
 			);
-			if (r === "edges") {
+			// 迭代39 L5：构造器效应 = 闭包内显式 ctor（resolveClassMember 并集）∪ 字段初始化器——
+			// 闭包内**全部** class chunk 原始调用并集（含基类字段初始化器；C# 静态初始化器在实例化路径
+			// 上执行，并入是过近似，S2 方向安全）。**并集必须先于 r==="edges" return**（显式 ctor +
+			// 字段初始化器并存时不得漏字段初始化器效应——独立审计 FAIL 反例）。
+			const clsEntries = globalClasses.get(t);
+			let bodyEdges = 0;
+			for (const c of ancestorClosureOf(t, pack, superMap)) {
+				const entries = globalClasses.get(c);
+				if (!entries) continue;
+				for (const e of entries) {
+					if (e.lang !== pack.name) continue;
+					const tf = files.get(e.file);
+					const rc = tf?.chunkByKey.get(e.key);
+					// rc.calls 是原始调用（facts）——含字段初始化器调用；ctor-merge 边在 link 输出侧，不在此
+					if (rc && rc.calls.length > 0) {
+						sink.addEdge(e.key);
+						bodyEdges++;
+					}
+				}
+			}
+			if (r === "edges" || bodyEdges > 0) {
 				sink.hitTable(`ctor:${t}`);
 				return;
 			}
-			// 迭代38 A：项目类存在但闭包内无显式 ctor → 隐式默认构造（C# 隐式 ctor 只链 base()，
-			// 全部隐式 = 空执行 → 纯；基类有显式 ctor 时 r 必为 edges，不会到这）
-			const clsEntries = globalClasses.get(t);
+			// 隐式默认构造（C# 隐式 ctor 只链 base()）：充分条件 = 闭包无显式 ctor（r === "none"）
+			// ∧ 闭包全部 class chunk 零原始调用（无字段初始化器效应）——前提成立才判纯。
 			if (
 				r === "none" &&
 				clsEntries &&
@@ -906,6 +1033,7 @@ function resolveCall(
 				superMap,
 				hasSubclass,
 				langHasDynamicExtends,
+				virtualMembers,
 				sink,
 				false,
 			);
@@ -944,6 +1072,7 @@ function resolveCall(
 				superMap,
 				hasSubclass,
 				langHasDynamicExtends,
+				virtualMembers,
 				sink,
 				true,
 			);
@@ -989,6 +1118,7 @@ function resolveCall(
 				superMap,
 				hasSubclass,
 				langHasDynamicExtends,
+				virtualMembers,
 				sink,
 				true,
 			);
@@ -1097,6 +1227,7 @@ function resolveCall(
 			projectFiles,
 			resolveSymbol,
 			resolveMod,
+			hctx,
 			sink,
 		)
 	)
@@ -1150,6 +1281,7 @@ function resolveCall(
 					superMap,
 					hasSubclass,
 					langHasDynamicExtends,
+				virtualMembers,
 					sink,
 					true,
 				);
@@ -1180,6 +1312,7 @@ function resolveCall(
 					)
 						sink.addArgEdges(call.argFns, call.attr);
 					sink.addEffect("state");
+					sink.addStateWrite(call.obj ?? ""); // 迭代39 B10：容器位置（前缀匹配读者 d.x）
 					sink.hitTable(`mutate:${ptype}.${call.attr}`);
 					return;
 				}
@@ -1223,6 +1356,7 @@ function resolveCall(
 					superMap,
 					hasSubclass,
 					langHasDynamicExtends,
+				virtualMembers,
 					sink,
 					false,
 				);

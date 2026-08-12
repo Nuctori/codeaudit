@@ -760,6 +760,33 @@ export const csharpPack: LangPack = {
 	hofCallsArgs,
 	hofAlwaysArgs,
 	assignmentTargets,
+	// 迭代39 P2-1：AST 形状投影（π 数据侧——extractor 节点类型判定走此表）
+	astShapes: {
+		writeStmts: [],
+		writeAssigns: ["assignment_expression", "augmented_assignment_expression"],
+		writeUpdates: [],
+		writeUnary: ["postfix_unary_expression", "prefix_unary_expression"],
+		memberNodes: ["member_access_expression", "conditional_access_expression"],
+		memberWrapNodes: ["member_binding_expression"],
+		callShapes: ["invocation_expression"],
+		ctorCallNodes: ["object_creation_expression"],
+		paramNodes: ["parameter"],
+		throwNodes: ["throw_statement"],
+		catchNodes: ["catch_clause"], // 迭代39 审计必修 4：C# grammar 有 catch_clause，原代码对全语言返回 "*"——保持等价
+		heritageNodes: ["base_list"],
+		thisNodes: ["this_expression"],
+		methodNodes: ["method_declaration"],
+		unwrapNodes: [
+			"parenthesized_expression",
+			"as_expression",
+			"non_null_expression",
+		],
+		stmtWrapNodes: ["expression_statement"],
+		bindAssigns: ["assignment_expression"],
+		declNodes: ["variable_declarator"],
+		initializerParentNodes: ["initializer_expression"],
+		exportStmtNodes: [],
+	},
 	literalReceivers,
 	builtinTypeEffects,
 	builtinMethodReturns,
@@ -767,6 +794,7 @@ export const csharpPack: LangPack = {
 	assignmentScopesLocals: false,
 	bareNameMeansThisInMethod: true, // C# 方法内裸字段写 = this 字段（self.x，迭代37 P0-2）
 	trustedCtor: true, // C# new X() 必返回实例或抛（迭代38 规则7）
+	polymorphicMethods: false, // 迭代39 B7：C# 非 virtual 静态分派精确，仅 virtual 族降 ?
 	builtinMutators,
 	frameworkIo,
 	frameworkAttrPrefix, // 迭代37 P0-1：X.gameObject.* 前缀白名单（数据化）

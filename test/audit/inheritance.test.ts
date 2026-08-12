@@ -27,8 +27,7 @@ function by(report: {
 	verdicts: { chunk: { file: string; name: string } }[];
 }): Map<string, { purity: number; effects: Set<string> }> {
 	const m = new Map();
-	for (const v of report.verdicts)
-		m.set(`${v.chunk.file}::${v.chunk.name}`, v);
+	for (const v of report.verdicts) m.set(`${v.chunk.file}::${v.chunk.name}`, v);
 	return m;
 }
 
@@ -48,7 +47,7 @@ describe("迭代38 继承/多态（A）", () => {
 	it("C# 基类构造器并集：new D() 连 B 的 ctor（C# 基类 ctor 必执行，不连 = 假纯）", async () => {
 		const root = project("inh-ctor", {
 			"B.cs": [
-				"public class B { public B() { System.Console.WriteLine(\"io\"); } }",
+				'public class B { public B() { System.Console.WriteLine("io"); } }',
 				"public class D : B { }",
 				"public class User { public void Run() { var d = new D(); } }",
 			].join("\n"),
@@ -59,7 +58,7 @@ describe("迭代38 继承/多态（A）", () => {
 		expect(run.purity).toBe(Purity.IMPURE);
 	});
 
-	it("C# 多态守卫：基类方法被子类覆写带 io → 基类 self 调用降 ?（H4 假纯洞闭合）", async () => {
+	it("C# 多态守卫（B7）：非 virtual 静态分派精确——子类 new 隐藏不改 Base.Run 的分派 → PURE", async () => {
 		const root = project("inh-poly", {
 			"P.cs": [
 				"public class Base {",
@@ -67,12 +66,29 @@ describe("迭代38 继承/多态（A）", () => {
 				"    public void Step() { }",
 				"}",
 				"public class Derived : Base {",
-				"    public void Step() { System.Console.WriteLine(\"io\"); }",
+				'    public new void Step() { System.Console.WriteLine("io"); }',
 				"}",
 			].join("\n"),
 		});
 		const b = by(await scanProject(root));
-		// Base 有子类 Derived 且 Step 被覆写 → Base.Run 的 self.Step 不可证 → UNKNOWN（不 PURE）
+		// Step 非 virtual → C# 静态分派到 Base.Step（new 隐藏不参与）→ PURE（迭代39 B7 精度回收）
+		expect(b.get("P.cs::Base.Run")!.purity).toBe(Purity.PURE);
+	});
+
+	it("C# 多态守卫（B7）：virtual 族 + 子类覆写 io → 降 ?（H4 假纯洞闭合）", async () => {
+		const root = project("inh-vpoly", {
+			"P.cs": [
+				"public class Base {",
+				"    public void Run() { this.Step(); }",
+				"    public virtual void Step() { }",
+				"}",
+				"public class Derived : Base {",
+				'    public override void Step() { System.Console.WriteLine("io"); }',
+				"}",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		// Step virtual 且 Base 有子类 → 覆写不可证 → UNKNOWN（不 PURE）
 		expect(b.get("P.cs::Base.Run")!.purity).toBe(Purity.UNKNOWN);
 	});
 
@@ -181,13 +197,102 @@ describe("迭代38 mutate 语义统一（B）", () => {
 
 	it("字面量变异豁免：'x'.strip() 与 [].append 仍纯（字面量不可共享/子类化）", async () => {
 		const root = project("literal", {
-			"l.py": [
-				"def f():",
-				"    return [].append(1) or ' x '.strip()",
-			].join("\n"),
+			"l.py": ["def f():", "    return [].append(1) or ' x '.strip()"].join(
+				"\n",
+			),
 		});
 		const b = by(await scanProject(root));
 		expect(b.get("l.py::f")!.purity).toBe(Purity.PURE);
+	});
+});
+
+describe("迭代39 缺口闭合", () => {
+	it("P0-1/B11：字段初始化器 io → new B() IMPURE（隐式 ctor 纯的前提收紧）", async () => {
+		const root = project("field-init", {
+			"F.cs": [
+				"public class B { int x = System.Console.ReadLine().Length; }",
+				"public class User { public void Run() { var b = new B(); } }",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		const run = b.get("F.cs::User.Run")!;
+		expect(run.effects.has("io")).toBe(true);
+		expect(run.purity).toBe(Purity.IMPURE);
+	});
+
+	it("P0-1/B11 基类字段初始化器：new D() 连基类 class chunk（闭包覆盖）", async () => {
+		const root = project("field-init-base", {
+			"F.cs": [
+				"public class B { int x = System.Console.ReadLine().Length; }",
+				"public class D : B { }",
+				"public class User { public void Run() { var d = new D(); } }",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		const run = b.get("F.cs::User.Run")!;
+		expect(run.effects.has("io")).toBe(true);
+		expect(run.purity).toBe(Purity.IMPURE);
+	});
+
+	it("B9：moduleBindings 接继承——export const db = new D(); db.baseMethod() → 基类方法边", async () => {
+		const root = project("mb-inh", {
+			"m.py": [
+				"class Base:",
+				"    def query(self):",
+				"        print('io')",
+				"class D(Base):",
+				"    pass",
+				"db = D()",
+			].join("\n"),
+			"use.py": ["from m import db", "def f():", "    db.query()"].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		// 迭代39 前：D.query 未声明 → ?；迭代39 B9：祖先闭包并集 → Base.query io 传导
+		expect(b.get("use.py::f")!.purity).toBe(Purity.IMPURE);
+	});
+
+	it("B10：mutate 写位置进 stateDeps——读者通过 --state 耦合图可见参数容器变异", async () => {
+		const root = project("mutate-pos", {
+			"s.py": [
+				"def write(d: list):",
+				"    d.append(1)",
+				"def read(d: list):",
+				"    return d[0]",
+			].join("\n"),
+		});
+		const r = await scanProject(root);
+		const byKey = new Map(r.verdicts.map((v) => [v.chunk.name, v]));
+		const writeV = byKey.get("write") as unknown as {
+			chunk: { stateWrites: readonly string[] };
+		};
+		// mutate 位置 "d" 前缀匹配读者 "d.⊤"（下标读）→ 写入方 stateWrites 含 d
+		expect(writeV!.chunk.stateWrites.includes("d")).toBe(true);
+	});
+
+	it("独立审计必修 1：显式 ctor + 字段初始化器并存 → new B() IMPURE（并集非 XOR）", async () => {
+		const root = project("ctor-field-union", {
+			"F.cs": [
+				'public class B { static int x = System.Console.ReadLine().Length; public B() { } }',
+				"public class User { public void Run() { var b = new B(); } }",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		const run = b.get("F.cs::User.Run")!;
+		expect(run.effects.has("io")).toBe(true);
+		expect(run.purity).toBe(Purity.IMPURE);
+	});
+
+	it("独立审计必修 2：接口作静态类型接收者 → 降 ?（接口分派恒动态，不标 virtual = 假纯）", async () => {
+		const root = project("iface-receiver", {
+			"I.cs": [
+				"public interface IRepo { string Get(); }",
+				'public class DbRepo : IRepo { public string Get() { return System.Console.ReadLine()!; } }',
+				"public class User { public void Run(IRepo r) { r.Get(); } }",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		// IRepo 方法全部 virtual 族 → Run 的 r.Get 不可证 → UNKNOWN（不 PURE）
+		expect(b.get("I.cs::User.Run")!.purity).toBe(Purity.UNKNOWN);
 	});
 });
 
