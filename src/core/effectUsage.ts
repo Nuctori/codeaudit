@@ -71,6 +71,9 @@ export function classifyUsage(
 		for (const k of Object.keys(pack.impureBuiltins))
 			keySets.push(["impureBuiltins", k]);
 		for (const k of pack.pureBuiltins) keySets.push(["pureBuiltins", k]);
+		// frameworkPure 纯前缀表（迭代30）：纯侧命中槽位 pure:<obj>.<prefix>——纳入枚举使使用率报告可见命中
+		for (const [obj, prefixes] of Object.entries(pack.frameworkPure ?? {}))
+			for (const p of prefixes) keySets.push(["frameworkPure", `${obj}.${p}`]);
 
 		let hits = 0;
 		let corpusInactive = 0;
@@ -78,11 +81,13 @@ export function classifyUsage(
 		let provablyDead = 0;
 		for (const [table, key] of keySets) {
 			const slot =
-				table.startsWith("impureModules") || table.startsWith("pureModules")
-					? `module:${key.replace(/^node:/, "")}`
-					: table.includes("Globals") || table.includes("Builtins")
-						? `${table.includes("Globals") ? "global" : "builtin"}:${key}`
-						: `module:${key}`;
+				table === "frameworkPure"
+					? `pure:${key}` // 迭代30：纯前缀命中槽位 pure:<obj>.<prefix>
+					: table.startsWith("impureModules") || table.startsWith("pureModules")
+						? `module:${key.replace(/^node:/, "")}`
+						: table.includes("Globals") || table.includes("Builtins")
+							? `${table.includes("Globals") ? "global" : "builtin"}:${key}`
+							: `module:${key}`;
 			const h = hit.get(slot) ?? 0;
 			const m = miss.get(slot) ?? 0;
 			const consulted = h + m;
