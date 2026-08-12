@@ -227,6 +227,10 @@ const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
 		PadRight: "pure",
 		Remove: "pure",
 		Insert: "pure",
+		TrimStart: "pure",
+		TrimEnd: "pure",
+		ToLowerInvariant: "pure",
+		ToUpperInvariant: "pure",
 		ToString: "pure",
 		IsNullOrEmpty: "pure",
 		IsNullOrWhiteSpace: "pure",
@@ -248,7 +252,91 @@ const builtinMethodReturns: Record<string, Record<string, string>> = {
 		ToUpper: "string",
 		ToLower: "string",
 		Trim: "string",
+		TrimStart: "string",
+		TrimEnd: "string",
 		Substring: "string",
+		Replace: "string",
+		Split: "string",
+		PadLeft: "string",
+		PadRight: "string",
+		Remove: "string",
+		Insert: "string",
+		Concat: "string",
+		Join: "string",
+		Format: "string",
+		ToCharArray: "array",
+		ToLowerInvariant: "string",
+		ToUpperInvariant: "string",
+		ToString: "string",
+	},
+	array: {
+		ToList: "List",
+		ToArray: "array",
+		ToDictionary: "Dictionary",
+		Length: "number",
+	},
+	List: {
+		ToArray: "array",
+		ToList: "List",
+		ToDictionary: "Dictionary",
+		Count: "number",
+	},
+	Dictionary: {
+		ToList: "List",
+		ToArray: "array",
+		Count: "number",
+		Keys: "IEnumerable",
+		Values: "IEnumerable",
+	},
+	IEnumerable: {
+		Select: "IEnumerable",
+		SelectMany: "IEnumerable",
+		Where: "IEnumerable",
+		OrderBy: "IEnumerable",
+		OrderByDescending: "IEnumerable",
+		ThenBy: "IEnumerable",
+		ThenByDescending: "IEnumerable",
+		GroupBy: "IEnumerable",
+		Skip: "IEnumerable",
+		Take: "IEnumerable",
+		SkipWhile: "IEnumerable",
+		TakeWhile: "IEnumerable",
+		Distinct: "IEnumerable",
+		Reverse: "IEnumerable",
+		Concat: "IEnumerable",
+		Union: "IEnumerable",
+		Intersect: "IEnumerable",
+		Except: "IEnumerable",
+		Cast: "IEnumerable",
+		OfType: "IEnumerable",
+		DefaultIfEmpty: "IEnumerable",
+		Append: "IEnumerable",
+		Prepend: "IEnumerable",
+		Zip: "IEnumerable",
+		Join: "IEnumerable",
+		GroupJoin: "IEnumerable",
+		ToList: "List",
+		ToArray: "array",
+		ToDictionary: "Dictionary",
+		ToHashSet: "List",
+		Count: "number",
+		Sum: "number",
+		Min: "number",
+		Max: "number",
+		Average: "number",
+		First: "number",
+		FirstOrDefault: "number",
+		Last: "number",
+		LastOrDefault: "number",
+		Single: "number",
+		SingleOrDefault: "number",
+		Any: "boolean",
+		All: "boolean",
+		Contains: "boolean",
+		SequenceEqual: "boolean",
+		ElementAt: "number",
+		ElementAtOrDefault: "number",
+		Aggregate: "number",
 	},
 };
 
@@ -327,14 +415,33 @@ const assignmentTargets = [
 	"assignment_expression",
 	"variable_declarator",
 ];
-const hofCallsArgs = new Set<string>([
-	// LINQ 静态运算符（迭代30：frameworkPure 命中 Enumerable.* 时须保留回调边——ForEach(xs, Save)
-	// 的回调 Save 写 Console 若被吞 = 假纯；此前 C2 只记变量 receiver 链，静态 obj=Enumerable 可建模）
-	"ForEach", "Select", "Where", "Count", "Any", "All", "First", "FirstOrDefault",
-	"ToDictionary", "ToLookup", "Aggregate", "Sum", "Min", "Max", "Average", "OrderBy",
-	"OrderByDescending", "ThenBy", "SelectMany", "GroupBy", "Zip", "SkipWhile", "TakeWhile",
+/** LINQ 算子完整集（迭代31 S3 修复）：frameworkPure 的 Enumerable 前缀命中时回调保留用——
+ *  与全局 hofCallsArgs/hofAlwaysArgs 分离（后者须避免 Max/Min/Sum/Count/First/Any/All/Contains
+ *  等与 Math.Max/string.Contains/array.Count 纯静态方法撞名——全局表含它们会让 Math.Max(a, score)
+ *  的 score 被 argFns 误收 → 假 UNKNOWN）。LINQ 上下文（obj 命中 Linq 前缀）下这些名字恒是算子。 */
+const linqHof = new Set<string>([
+	"ForEach", "Select", "SelectMany", "Where", "OrderBy", "OrderByDescending",
+	"ThenBy", "ThenByDescending", "GroupBy", "Aggregate", "Zip", "Join", "GroupJoin",
+	"ToDictionary", "ToLookup", "SkipWhile", "TakeWhile",
+	"Count", "Any", "All", "First", "FirstOrDefault", "Last", "LastOrDefault",
+	"Single", "SingleOrDefault", "Sum", "Min", "Max", "Average", "Contains",
 ]);
-const hofAlwaysArgs = new Set<string>();
+
+/** 全局 HOF（不含 LINQ 撞名算子——Math.Max/string.Contains/String.Join 等纯静态方法不得被当 HOF）。
+ *  迭代30 起 LINQ 静态运算符的回调保留改由 frameworkPure + linqHof 负责（link.ts L578）。
+ *  迭代31 MEDIUM-2：Join/GroupJoin 移出——String.Join(",", parts) 走 pureGlobals.String 门误伤
+ *  （argFnsOf 收 parts → 未解析 → ?）；LINQ 上下文由 linqHof（含 Join）覆盖。 */
+const hofCallsArgs = new Set<string>([
+	"ForEach", "Select", "Where", "OrderBy", "OrderByDescending", "ThenBy", "SelectMany",
+	"GroupBy", "Zip", "SkipWhile", "TakeWhile", "ToDictionary", "ToLookup", "Aggregate",
+]);
+const hofAlwaysArgs = new Set<string>([
+	// 全局必然调用实参的 HOF（迭代31 S3 修复）：命名框架成员回调解析失败记 UNKNOWN 防假纯。
+	// 与 hofCallsArgs 同源（无条件调用子集）；不含 LINQ 撞名算子（见 linqHof 注释——LINQ 上下文
+	// 由 frameworkPure + linqHof 覆盖，Math.Max/string.Contains/String.Join 等纯静态不误伤）。
+	"ForEach", "Select", "Where", "OrderBy", "OrderByDescending", "ThenBy", "SelectMany",
+	"GroupBy", "Zip", "SkipWhile", "TakeWhile", "ToDictionary", "ToLookup", "Aggregate",
+]);
 const impureModules: Record<string, Effect | readonly string[]> = {};
 const pureModules = new Set<string>([
 	"System",
@@ -393,6 +500,9 @@ export const csharpPack: LangPack = {
 	pureGlobals,
 	hofCallsArgs,
 	hofAlwaysArgs,
+	/** LINQ 算子完整集（迭代31 S3）：frameworkPure 纯前缀命中时回调保留用——与全局 HOF 分离
+	 *  （全局表避免 Max/Min/Count/First 与 Math.Max/string.Contains 撞名误伤）。 */
+	linqHof,
 	assignmentTargets,
 	literalReceivers,
 	builtinTypeEffects,

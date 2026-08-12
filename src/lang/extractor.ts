@@ -597,7 +597,9 @@ export class Extractor {
       if (ctor && (ctor.type === "identifier" || ctor.type === "property_identifier")) return `class:${ctor.text}`;
       return null;
     }
-    if (obj.type === "call" || obj.type === "call_expression") {
+    if (obj.type === "call" || obj.type === "call_expression" || obj.type === "invocation_expression") {
+      // 迭代31 S1：C# 调用节点是 invocation_expression（此前缺失 → C# 链第二环起全断，
+      // 21,488 bare <unresolved> 站点大块来源）。fn 字段与 attribute/member 提取与 TS/Python 同构。
       const fn = obj.childForFieldName("function") ?? obj.children[0];
       if (fn && (fn.type === "attribute" || fn.type === "member_expression" || fn.type === "member_access_expression")) {
         const innerObj = fn.childForFieldName("object") ?? fn.children[0];

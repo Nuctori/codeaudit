@@ -266,7 +266,17 @@ export function link(
               // 无条件调用实参的 HOF（map/filter/forEach…）：实参未解析 → 记未知（防假纯，
               // 如 const f = writeFileSync; [1].map(f)）；条件调用（sorted key=/Array.from cb）
               // 的实参未解析 → 跳过（无法区分 max(xs) 与 map(ext_fn)，记未知会误伤噪音）
-              if (fi.pack.hofAlwaysArgs.has(hof)) calls.add(UNKNOWN_TARGET);
+              // 迭代31 HIGH-1：门同时认 linqHof——frameworkPure 分支传入的 LINQ 算子（Count/Any/First/
+              // Last/Sum/Min/Max…）在 Enumerable 上下文恒无条件调用回调，未解析必须记 UNKNOWN 防假纯
+              // （此前只查 hofAlwaysArgs，差集 15 个算子命名回调被吞 = 活假纯洞）。
+              // 迭代31 记账修复：走完整记账（unknownSites++ + unknownCalls）——与 markUnknown 一致，
+              // 恢复 scan.ts L272 不变量 calls.has("?") === (unknownSites > 0)（此前只 calls.add(?)，
+              // 标注工作流/语料/missingSiteRate 不可见这些站点）。
+              if (fi.pack.hofAlwaysArgs.has(hof) || (fi.pack.linqHof && fi.pack.linqHof.has(hof))) {
+                calls.add(UNKNOWN_TARGET);
+                unknownSites++;
+                unknownCalls.push({ attr: call.attr, obj: call.obj, root: rootOf(call) });
+              }
             }
           },
           effectFromModule,
@@ -570,10 +580,14 @@ function resolveCall(
       for (const p of purePrefixes) {
         if (call.attr === p || call.attr.startsWith(p + ".")) {
           // HOF 回调效应（迭代30 复审发现）：Linq.Enumerable.ForEach(xs, Save) 的纯前缀命中不得丢回调边——
-          // 否则回调的 io 效应被吞（假纯，公理 3 方向最重）。与分支 4 pureGlobals L631 同款 addArgEdges。
-          // call.attr 是完整点连（Linq.Enumerable.ForEach）——HOF 表存短名（ForEach），取末段匹配（迭代30 复审复验）。
+          // 否则回调的 io 效应被吞（假纯，公理 3 方向最重）。
+          // call.attr 是完整点连（Linq.Enumerable.ForEach）——取末段匹配。
+          // 迭代31 S3：查 linqHof（LINQ 限定表）而非全局 hofCallsArgs——全局表避免 Max/Min/Count/First
+          // 与 Math.Max/string.Contains 撞名误伤纯静态方法；linqHof 兜底回退全局表（无 linqHof 的 pack）。
           const last = call.attr.slice(call.attr.lastIndexOf(".") + 1);
-          if (pack.hofCallsArgs.has(last)) sink.addArgEdges(call.argFns, last);
+          if ((pack.linqHof && pack.linqHof.has(last)) || (!pack.linqHof && pack.hofCallsArgs.has(last))) {
+            sink.addArgEdges(call.argFns, last);
+          }
           sink.hitTable(`pure:${call.obj}.${p}`); // 迭代21 B 风格：纯侧独立槽位
           return;
         }

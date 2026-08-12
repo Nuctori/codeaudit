@@ -122,6 +122,9 @@ export interface LangPack {
   readonly frameworkIo: Readonly<Record<string, readonly string[]>>;
   /** 框架纯命名空间（frameworkIo 镜像：对象名 → 成员前缀列表，命中视为纯；严格白名单语义，漏条落 ? 非假纯）。迭代30。 */
   readonly frameworkPure?: Readonly<Record<string, readonly string[]>>;
+  /** LINQ/HOF 算子完整集（迭代31 S3）：frameworkPure 纯前缀命中时回调保留用——与全局 hofCallsArgs
+   *  分离（全局表避免 Max/Min/Count 与 Math.Max/string.Contains 撞名误伤纯静态方法）。 */
+  readonly linqHof?: ReadonlySet<string>;
   /** 隐式 this（C#：类内裸名方法调用 = this 方法；TS/Python 需显式 this/self）。迭代19。 */
   readonly implicitThis: boolean;
 

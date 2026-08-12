@@ -508,4 +508,91 @@ describe("C# 语言包（迭代19）", () => {
 		expect(run!.effects.has("io")).toBe(true);
 		expect(run!.purity).toBe(2); // IMPURE——回调 io 传染
 	});
+
+	it("迭代31 S3：静态 LINQ + 命名框架成员回调（Console.WriteLine）不假纯——UNKNOWN 非 PURE", async () => {
+		const root = project("linq-framework-cb", {
+			"C.cs": [
+				"public class C {",
+				"    public void Run() { System.Linq.Enumerable.Select(new int[] { 1 }, System.Console.WriteLine); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const run = by(r).get("C.cs::C.Run") as { purity: number; effects: Set<string> } | undefined;
+		expect(run).toBeDefined();
+		// 迭代31 S3（审计实证活洞）：修复前 hofAlwaysArgs 空表 → Console.WriteLine 回调 io 被吞 → PURE=0 假纯。
+		// 修复后：Select 进 hofAlwaysArgs → 回调未解析 → calls 含 ? → UNKNOWN=1（公理 3，绝不假纯）
+		expect(run!.purity).not.toBe(0); // 不容忍 PURE——回调可能 io
+		expect(run!.purity).toBe(1); // UNKNOWN——诚实未知
+	});
+
+	it("迭代31 S1：C# 链式调用第二环起恢复解析（receiverTypeOf 支持 invocation_expression）", async () => {
+		const root = project("chain-s1", {
+			"S.cs": [
+				"public class S {",
+				'    public string Chain() { return "  hello  ".Trim().ToUpper().TrimEnd(); }',
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const chain = by(r).get("S.cs::S.Chain") as { purity: number; effects: Set<string>; chunk: { unknownSites: number } } | undefined;
+		expect(chain).toBeDefined();
+		// 修复前：invocation_expression 不在 receiverTypeOf 类型检查 → 第二环起断 → unknownSites > 0；
+		// 修复后：Trim→string 查 builtinMethodReturns→ToUpper→string→TrimEnd→string 链不断，零未知站点
+		expect(chain!.chunk.unknownSites).toBe(0);
+		expect(chain!.purity).toBe(0); // PURE——纯字符串链
+	});
+
+	it("迭代31 HIGH-1：linqHof 差集算子命名回调不假纯（Enumerable.Last(xs, Console.WriteLine) → UNKNOWN）", async () => {
+		const root = project("linq-high1", {
+			"C.cs": [
+				"public class C {",
+				"    public void Run() { System.Linq.Enumerable.Last(new int[] { 1 }, System.Console.WriteLine); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const run = by(r).get("C.cs::C.Run") as { purity: number } | undefined;
+		expect(run).toBeDefined();
+		// HIGH-1（复审实证活洞）：Last ∈ linqHof \ hofAlwaysArgs 差集——修复前 frameworkPure 放行
+		// addArgEdges 但 UNKNOWN 门只查 hofAlwaysArgs → 命名回调被吞 → PURE=0 假纯。
+		// 修复后：addArgEdges 门同时认 linqHof → 未解析回调 → calls 含 ? → UNKNOWN=1（公理 3）
+		expect(run!.purity).not.toBe(0); // 不容忍 PURE
+		expect(run!.purity).toBe(1); // UNKNOWN
+	});
+
+	it("迭代31 MEDIUM-2：String.Join 值实参不误伤（纯静态非 HOF → PURE）", async () => {
+		const root = project("string-join", {
+			"C.cs": [
+				"public class C {",
+				'    public string Join(string[] parts) { return string.Join(",", parts); }',
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const join = by(r).get("C.cs::C.Join") as { purity: number; effects: Set<string> } | undefined;
+		expect(join).toBeDefined();
+		// MEDIUM-2（复审实证回归）：修复前 Join ∈ 全局 hofCallsArgs → pureGlobals.String 门 →
+		// argFnsOf 收 parts → 未解析 → ? → UNKNOWN 假 UNKNOWN（原 PURE）。修复后 Join 移出全局表 → PURE
+		expect(join!.effects.has("io")).toBe(false);
+		expect(join!.purity).toBe(0); // PURE——string.Join 纯静态
+	});
+
+	it("迭代31 撞名守卫：Math.Max(a, score) 纯静态不被当 HOF（PURE——读状态非副作用）", async () => {
+		const root = project("math-max-guard", {
+			"C.cs": [
+				"public class C {",
+				"    private int score = 0;",
+				"    public int Calc(int a) { return Math.Max(a, score); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const calc = by(r).get("C.cs::C.Calc") as { purity: number; effects: Set<string> } | undefined;
+		expect(calc).toBeDefined();
+		// 撞名守卫（复审建议）：Math.Max 的 score 是状态读非回调——若 Max 在全局 HOF 表会被 argFnsOf
+		// 误收 → 假 UNKNOWN。修复后 Max 移入 linqHof、全局表不含 → PURE
+		expect(calc!.effects.has("io")).toBe(false);
+		expect(calc!.purity).toBe(0); // PURE——Math.Max 纯 + 读状态
+	});
 });
