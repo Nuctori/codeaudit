@@ -191,6 +191,7 @@
 
 ## 6. 当前执行状态（从哪里开始）
 
-1. **立即**：r3-iter34fix（7 项代码修复，不依赖环境）——先清正确性红线
-2. **并行**：env-unity + env-basebase（阶段 0 环境地基）
-3. 阶段 0 完成后 → 阶段 1 测试债治理 → 阶段 2 主流程恢复
+1. **已完成**：r3-iter34fix（7 项）、r2-complexity（resolveImport 拆分）、env-basebase（19+ 能力域绿）、env-unity（许可证 IPC 解决 + 编译通过）、t2-unittest（单元层 48 断言）、发散专家节点（§2.5）
+2. **当前**：阶段 2 主流程恢复启动点——环境已通（Unity 许可证 ✓ 编译 ✓ 运行时 ✓），Basebase 就绪
+3. **待处理**：Unity 运行时 TcpProtobuf 连 Basebase 超时（弱联网降级——确认 localhost 连接或离线短路）→ 跑 quest 6 用户路径 E2E
+
