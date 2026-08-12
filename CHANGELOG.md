@@ -4,9 +4,9 @@
 
 ### 新增
 
-- CLI `--effect-table <json>`（F16 CLI 补全，迭代29）：读文件 + 传 scanProject effectOverrides——JSON 形状与库 API 同构（`{ 语言: { 表名: 值 } }`）；读文件/JSON 解析失败 exit 2（与 --annotations 同款）；形状校验（未知语言/提取侧表/非法效应类）由 scan.ts 兜底 throw → exit 2
+- `frameworkPure` 纯命名空间回退（迭代30）：C# 全限定 `System.*` 调用（obj=System）在 frameworkIo.System 9 条 io 前缀外，按首段查严格纯白名单（Uri/Linq/Convert/Enum/Text/Array/Math/TimeSpan/Guid/Collections）——94.1% 纯类从 UNKNOWN 判纯（InitDeity `global:System` miss 1869→0）；Reflection/Runtime/Activator/DateTimeOffset 明确排除防假纯；可选字段 TS/Python 零影响
 
-- 效应表注入（F16，迭代28）：`scanProject` opts 增 `effectOverrides`——按语言名索引的链接侧表 override（impureBuiltins/pureBuiltins/impureModules/pureModules/impureGlobals/pureGlobals/frameworkIo/builtinTypeEffects/hofCallsArgs/hofAlwaysArgs 10 表）；键只增不删、标量覆盖、数组并集、builtinTypeEffects 两层深合并；提取侧表（literalReceivers 等参与缓存）白名单拒绝；无 override 短路零行为变化；`applyEffectOverrides`/`validateEffectOverride`/`loadEffectOverrides` 导出
+- CLI `--effect-table <json>`（F16 CLI 补全，迭代29）：读文件 + 传 scanProject effectOverrides——JSON 形状与库 API 同构（`{ 语言: { 表名: 值 } }`）；读文件/JSON 解析失败 exit 2（与 --annotations 同款）；形状校验（未知语言/提取侧表/非法效应类）由 scan.ts 兜底 throw → exit 2
 
 - `--gate` 合入门禁（F5，Debtmap 借鉴）：与 `--changed` 联用，`grade ≥ HIGH`（风险≥35）时退出码 1——CI 阻止高危改动合入；`LOW/MEDIUM` → 0；`invalid` → 1（不静默放行）；无 `--changed` 时报错 exit 2（不静默失效）
 - `fitBaseRate(corpora)` 分层贝叶斯基率（pipeline.md 四落地）：跨项目语料 → `BaseRateModel{mu, kappa, projects}`——μ 替代硬编码 `GLOBAL_THETA0`；矩估计闭合解（加权均值 + 方差反解 κ），`projects < 2` 冷启动回退现状
@@ -17,7 +17,7 @@
 ### 修复
 
 - `--topology` 解析分支回归（`--gate` 分支曾顶掉兄弟分支——迭代 22 复审发现，已恢复 + 补 CLI 回归测试）
-- README 示例重复行清理
+- frameworkPure HOF 回调效应丢失（迭代30 复审发现，假纯方向）：`Enumerable.ForEach(xs, Save)` 判 PURE 假纯——纯前缀命中直接 return 吞回调边；三层修复（link.ts hofCallsArgs 末段匹配 + addArgEdges、csharp.ts hofCallsArgs 补 23 个 LINQ 静态运算符、extractor.ts argFnsOf 补 C# argument_list + argument 包装节点解包）
 - frameworkIo.System 前缀表收紧（迭代 22 盲区处置）：删 Reflection/Text/Globalization/Runtime/RuntimeTypeHandle 5 条目——纯反射元数据读不再假 io（InitDeity ConvertToString ×47 direct-io 47→0，全库 IMPURE −100 / UNKNOWN +99 守恒零误伤）；移除后落 UNKNOWN 非 PURE（MethodInfo.Invoke 不假纯）
 - `--state` 解析分支回归（`--state` 曾顶掉 `--table-usage`——迭代 22 `--gate` 顶 `--topology` 同款 bug 二次再现）：恢复 + 根因护栏「全部布尔旗标可解析」CLI 回归测试（5 旗标逐一冒烟）防三次复发
 stateReadPos 节点同一性 `===`→`.id`（web-tree-sitter 每次属性访问返回新节点对象，`===` 恒假——「调用目标排除」「赋值左值跳过」自迭代 8 起死代码，跨语言修复）：`user.save()` 不再计入 stateReads、`user.status = x` 不再同时写+读

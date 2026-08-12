@@ -613,13 +613,16 @@ export class Extractor {
 
   /** 命名函数实参（HOF 回调边原料）：arguments 子节点中直接是标识符或可拍平成员表达式（this.log）的，及 Python 关键字实参（key=fn）的值。 */
   private argFnsOf(node: SyntaxNode): string[] {
-    const args = node.childForFieldName("arguments");
+    // C# invocation_expression 的参数是 argument_list 直接子节点（无 arguments 命名字段）——
+    // 迭代30 T3 暴露：Enumerable.ForEach(xs, Save) 的 Save 实参此前全漏（回调边丢失 = 假纯源）。
+    let args = node.childForFieldName("arguments");
+    if (!args) args = node.children.find((c) => c.type === "argument_list") ?? null;
     if (!args) return [];
     const out: string[] = [];
     const pushArg = (n: SyntaxNode): void => {
       if (n.type === "identifier" || n.type === "property_identifier") {
         out.push(n.text);
-      } else if (n.type === "attribute" || n.type === "member_expression") {
+      } else if (n.type === "attribute" || n.type === "member_expression" || n.type === "member_access_expression") {
         const flat = flattenCallTarget(n);
         if (flat !== null) out.push(flat);
       }
@@ -628,8 +631,9 @@ export class Extractor {
       if (c.type === "keyword_argument") {
         const v = c.childForFieldName("value");
         if (v) pushArg(v);
-      } else {
-        pushArg(c);
+      } else if (c.isNamed) {
+        // C# 参数是 argument 包装节点（argument → identifier）——解包一层（迭代30 T3 实证）。
+        pushArg(c.type === "argument" ? (c.children.find((x) => x.isNamed) ?? c) : c);
       }
     }
     return out;

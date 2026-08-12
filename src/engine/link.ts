@@ -71,7 +71,6 @@ export function link(
 
   // ---- 第一遍：建立每个文件的符号索引 ----
   const files = new Map<string, FileIndex>();
-  let dynamicCalls = 0;
 
   for (const facts of allFacts) {
     const pack = packs.get(facts.lang)!;
@@ -559,6 +558,23 @@ function resolveCall(
         if (call.attr === p || call.attr.startsWith(p + ".")) {
           sink.addEffect("io");
           sink.hitTable(`frame:${call.obj}`); // 迭代21 B：frameworkIo 命中计数
+          return;
+        }
+      }
+    }
+    // 迭代30：frameworkPure 纯前缀镜像（白名单——漏条落 ? 非假纯，与 frameworkIo 的 io 判定对称）。
+    // 顺序：io 先行（既有 loop），纯回退在后——两表交叠时 io 胜（保守），9 条 io 前缀行为零变化。
+    const purePrefixes = pack.frameworkPure && Object.hasOwn(pack.frameworkPure, call.obj)
+      ? pack.frameworkPure[call.obj] : undefined;
+    if (purePrefixes) {
+      for (const p of purePrefixes) {
+        if (call.attr === p || call.attr.startsWith(p + ".")) {
+          // HOF 回调效应（迭代30 复审发现）：Linq.Enumerable.ForEach(xs, Save) 的纯前缀命中不得丢回调边——
+          // 否则回调的 io 效应被吞（假纯，公理 3 方向最重）。与分支 4 pureGlobals L631 同款 addArgEdges。
+          // call.attr 是完整点连（Linq.Enumerable.ForEach）——HOF 表存短名（ForEach），取末段匹配（迭代30 复审复验）。
+          const last = call.attr.slice(call.attr.lastIndexOf(".") + 1);
+          if (pack.hofCallsArgs.has(last)) sink.addArgEdges(call.argFns, last);
+          sink.hitTable(`pure:${call.obj}.${p}`); // 迭代21 B 风格：纯侧独立槽位
           return;
         }
       }

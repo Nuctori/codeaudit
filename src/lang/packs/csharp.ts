@@ -282,6 +282,16 @@ const frameworkIo: Record<string, readonly string[]> = {
   ],
 };
 
+/** System 纯子命名空间白名单（迭代30，全限定 System.* obj="System" 回退）。
+ *  严格白名单：语料（iter30 1869 站点逐段聚合）+ .NET 领域双重确证才可入列；漏条落 ? 非假纯。
+ *  不列入：Reflection（IntrospectionExtensions/CustomAttributeExtensions 纯读取但
+ *  Assembly.LoadFrom=fs、MethodInfo.Invoke=动态——iter23 裁定 UNKNOWN 诚实，不整体放纯）、
+ *  Runtime（FormatterServices 序列化底层）、Activator（反射 new≈new 本身判 ?）、
+ *  DateTimeOffset（UtcNow=clock）。与 frameworkIo.System 9 条不相交（Text 已在 iter23 移出 io 侧）。 */
+const frameworkPure: Record<string, readonly string[]> = {
+  System: ["Uri", "Linq", "Convert", "Enum", "Text", "Array", "Math", "TimeSpan", "Guid", "Collections"],
+};
+
 /** C# chunk 节点：类/方法/构造/局部函数。属性访问器第一版不建（自动属性无逻辑）。 */
 const chunkNodes = [
 	"class_declaration",
@@ -317,7 +327,13 @@ const assignmentTargets = [
 	"assignment_expression",
 	"variable_declarator",
 ];
-const hofCallsArgs = new Set<string>();
+const hofCallsArgs = new Set<string>([
+	// LINQ 静态运算符（迭代30：frameworkPure 命中 Enumerable.* 时须保留回调边——ForEach(xs, Save)
+	// 的回调 Save 写 Console 若被吞 = 假纯；此前 C2 只记变量 receiver 链，静态 obj=Enumerable 可建模）
+	"ForEach", "Select", "Where", "Count", "Any", "All", "First", "FirstOrDefault",
+	"ToDictionary", "ToLookup", "Aggregate", "Sum", "Min", "Max", "Average", "OrderBy",
+	"OrderByDescending", "ThenBy", "SelectMany", "GroupBy", "Zip", "SkipWhile", "TakeWhile",
+]);
 const hofAlwaysArgs = new Set<string>();
 const impureModules: Record<string, Effect | readonly string[]> = {};
 const pureModules = new Set<string>([
@@ -383,6 +399,7 @@ export const csharpPack: LangPack = {
 	builtinMethodReturns,
 	implicitThis: true, // C# 类内裸名方法调用 = this 方法（迭代19）
 	frameworkIo,
+	frameworkPure,
 
 	extractImports: extractCSharpImports,
 	resolveModule(): string | null {

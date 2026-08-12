@@ -452,4 +452,60 @@ describe("C# 语言包（迭代19）", () => {
 		expect(f).toBeDefined();
 		expect(f!.chunk.stateReads).not.toContain("e"); // catch 变量（修复前裸读）
 	});
+
+	it("迭代30 T1：全限定 System.* 纯命名空间判纯（global:System miss 回退——frameworkPure 白名单）", async () => {
+		const root = project("system-pure", {
+			"U.cs": [
+				"public class U {",
+				'    public string Encode(string s) { return System.Uri.EscapeDataString(s); }',
+				"    public int Add() {",
+				"        var l = new System.Collections.Generic.List<int>();",
+				"        System.Collections.Generic.List<int>.Add(l, 1);",
+				"        return l.Count;",
+				"    }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const enc = by(r).get("U.cs::U.Encode") as { purity: number; effects: Set<string> } | undefined;
+		expect(enc).toBeDefined();
+		// 修复前：global:System miss → ? → UNKNOWN=1；修复后：Uri 命中 frameworkPure → 纯
+		expect(enc!.effects.has("io")).toBe(false);
+		expect(enc!.purity).toBe(0); // PURE——EscapeDataString 纯计算
+	});
+
+	it("迭代30 T2：frameworkIo.System 9 表边界仍 io（Net 前缀不被 frameworkPure 放纯）", async () => {
+		const root = project("system-io", {
+			"N.cs": [
+				"public class N {",
+				"    public void Send() { System.Net.Http.HttpClient.SendAsync(null); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const n = by(r).get("N.cs::N.Send") as { purity: number; effects: Set<string> } | undefined;
+		expect(n).toBeDefined();
+		// attr="Net.Http.HttpClient.SendAsync" 首段 Net ∈ frameworkIo.System 9 条 → 仍 io
+		expect(n!.effects.has("io")).toBe(true);
+		expect(n!.purity).toBe(2); // IMPURE——网络调用
+	});
+
+	it("迭代30 T3：frameworkPure 命中不吞 HOF 回调效应（Linq.Enumerable.ForEach(xs, Save) 非假纯）", async () => {
+		const root = project("system-hof", {
+			"H.cs": [
+				"public class H {",
+				"    static void Save(int x) { System.Console.WriteLine(x); }",
+				"    public void Run() { System.Linq.Enumerable.ForEach(new int[] { 1 }, Save); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const run = by(r).get("H.cs::H.Run") as { purity: number; effects: Set<string>; chain: number } | undefined;
+		expect(run).toBeDefined();
+		// 迭代30 复审：纯前缀命中不得丢回调边——Save 写 Console（io）经回调传染 Run。
+		// 修复前：frameworkPure 命中直接 return → Run 判 PURE=0（假纯，公理 3 方向最重）；
+		// 修复后：hofCallsArgs.ForEach → addArgEdges → Save 的 io 边 → IMPURE=2
+		expect(run!.effects.has("io")).toBe(true);
+		expect(run!.purity).toBe(2); // IMPURE——回调 io 传染
+	});
 });
