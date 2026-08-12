@@ -37,8 +37,8 @@
 | C3 | **标注工作流 E2E**（unknowns→标注→回读→语料全链路无测试） | 1h | 保留 |
 | C4 | **README 测试数漂移** | — | **已根治**：CI 门禁 check-readme-tests.cjs（D-119，81c40b1） |
 | C5 | **效应表测试稀疏**：70+ 类只测 10 个——其余无断言 | 1h | 保留 |
-| C6 | **局部变量类型推断缺失**（API.g.cs 生成代码 30.5% 未知站点——构造器初始化子集 ~2-3k） | 2h + 度量 | **新识别**（iter33 pain-a TP3）：P1-2 独立轮次，前置 InitDeity 语料度量；守卫 = 单赋值 ∧ declared ∧ ¬param ∧ kind=class（数学 G4） |
-| C7 | **重载歧义断链**（ApiClientHelper.PrepareRequest 732 站） | 0.5-1d + 文档 | **新识别**（iter33 pain-a TP2）：P1-3 并集边（数学 G5：全候选建边，禁止任选/arity 定选），产品裁决前置 |
+| C6 | **局部变量类型推断缺失**（API.g.cs 生成代码 30.5% 未知站点——构造器初始化子集 ~2-3k） | 2h + 度量 | **已闭环**（迭代37 P1-2，c09d335）：localBindingsOf 单赋值构造绑定 + link 消费（G4 守卫：单赋值 ∧ ¬param ∧ 构造形态；`var xs = new List<int>()` → xs.Add 纯信箱）；残余 = 方法结果/下标 receiver 绑定（需跨 chunk 数据流，仍延后） |
+| C7 | **重载歧义断链**（ApiClientHelper.PrepareRequest 732 站） | 0.5-1d + 文档 | **已闭环**（迭代37 P1-3，c09d335）：byQualifiedAll + addUnionEdges 并集边（数学 S1/S2/S3 可证安全，全候选建边禁止任选）；同名重定义从 ? 升级确定判定 |
 
 ## D. 外部债（非本仓库可修）
 
