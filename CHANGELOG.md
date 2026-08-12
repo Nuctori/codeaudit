@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.1] — 2026-08-12（迭代 30：frameworkPure System 回退 + HOF 假纯修复）
+
+### 修复
+
+- `frameworkPure` 纯命名空间回退（C# 全限定 System.* 纯类判纯——InitDeity global:System miss 1869→0）
+- HOF 回调假纯三层修复：`Linq.Enumerable.ForEach(xs, Save)` 回调 io 传染（此前判 PURE 假纯）——C# argument_list/argument 提取、LINQ 静态运算符 hofCallsArgs、纯前缀命中回调边保留
+- pack.ts JSDoc 重复 + link.ts 死变量清理
+
 ## [0.3.0] — 2026-08-12（真实校准 + 门禁 + 状态耦合图 + 效应表注入轮）
 
 ### 新增
