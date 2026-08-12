@@ -307,11 +307,10 @@ export class Extractor {
   /** chunk 自身参数名（不进入嵌套函数——只取本 chunk 的 parameters 字段直接子节点）。 */
   private paramNames(root: SyntaxNode): string[] {
     const out: string[] = [];
-    // 迭代35 A1：C# parameter_list 无 "parameters" 命名字段（审计确认参数收集对 C# 失效——
-    // d.TryGetValue 的 d 不在 params → 变量 receiver 动态 → 970 站集合方法全 UNKNOWN）。
-    // 补 C# 形态：parameter_list → parameter 子节点 → 取 name 字段。
-    const params = root.childForFieldName("parameters")
-      ?? root.children.find((c) => c.type === "parameter_list");
+    // 迭代36 独立审计：删除迭代35 的错误 fallback（实证 tree-sitter-c_sharp 所有带参数形态——method/
+    // ctor/local function/lambda/anonymous/operator/indexer/record——均有 `parameters` 命名字段，
+    // 原 fallback 不可达；"参数收集对 C# 失效"前提错误）。保留 parameter 节点 name 提取（显式参数名）。
+    const params = root.childForFieldName("parameters");
     if (!params) return out;
     const push = (n: SyntaxNode): void => {
       if (n.type === "parameter" || n.type === "parameter_declaration" || n.type === "typed_parameter") {
@@ -333,12 +332,11 @@ export class Extractor {
   }
 
   /** 迭代35 A1：参数显式类型提取（方法参数 Dictionary<string,int> d → d: "Dictionary"）。
-   *  C# parameter_list → parameter → type 字段剥壳；仅收集集合/数组类型（Dictionary/List/array 等
-   *  可查 builtinTypeEffects 的）；非集合类型返回 null（link 走既有动态路径）。 */
+   *  迭代36 独立审计修正：收集**全部显式参数类型**（剥壳后）——string/int 等表条目全纯方向安全；
+   *  项目类撞表键由 link A1 分支守卫排除（不在此过滤）。删不可达 fallback（C# 全有 parameters 字段）。 */
   private paramTypesOf(root: SyntaxNode): Record<string, string> {
     const out: Record<string, string> = {};
-    const params = root.childForFieldName("parameters")
-      ?? root.children.find((c) => c.type === "parameter_list");
+    const params = root.childForFieldName("parameters");
     if (!params) return out;
     for (const c of params.children) {
       if (c.type !== "parameter" && c.type !== "parameter_declaration" && c.type !== "typed_parameter") continue;
@@ -861,7 +859,8 @@ function ctorTypeName(node: SyntaxNode): string | null {
   }
   if (node.type === "qualified_name") {
     // 迭代34 独立审计 Low-Med：末段节点递归剥壳——System.Collections.Generic.Dictionary<K,V> 的末子
-    // 是 generic_name（非 identifier），此前 filter 只留 identifier → 空 → null（连 miss 记账都无）。
+    // 是 generic_name（非 identifier），此前 filter 只留 identifier → 返回末段 identifier（如 "Generic"）
+    // 且 ctor:Generic 进 miss 记账（迭代36 独立审计：旧行为描述修正——非"空 → null"）。
     // "取末段"必须是节点级递归（generic_name/qualified_name/identifier/predefined_type 均可）。
     const last = node.children[node.children.length - 1];
     if (last) return ctorTypeName(last);

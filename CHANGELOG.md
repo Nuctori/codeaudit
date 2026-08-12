@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased] — 迭代 35-36（A1 参数绑定 + 独立审计修复 + 生产就绪规划）
+
+### 新增
+
+- A1 参数显式类型绑定（迭代35）：C# 参数 `Dictionary<string,int> d` → `d.TryGetValue/Add` 查 builtinTypeEffects 判纯——InitDeity 970 站集合方法痛点，unknown 4635→4563
+- 工作流规划（迭代36）：restore-plan/workflow-plan/anti-laziness 三文档——InitDeity 重构 × codeaudit 生产就绪化 DAG + 验收硬门槛 + 防偷懒协议
+
+### 修复
+
+- A1 项目类守卫（迭代36 独立审计 High 假纯红线）：参数类型为项目自建 List/Dictionary 类 → 按类型名解析到项目类实例方法（io 传导），不走表绑定
+- paramNames/paramTypesOf 删除不可达 fallback + 修正"参数收集对 C# 失效"错误前提注释（实证 C# 全有 parameters 字段）
+- ctor 优先级注释修正（impureGlobals vs 项目类顺序差异记录不修——行为有界）
+- ctorTypeName 旧行为描述修正（返回末段 identifier 非空 → null）
+- README 305 测试
+
 ## [Unreleased] — 迭代 33-34（InitDeity 痛点修复 + 构造器建模 + 独立审计修复）
 
 ### 新增

@@ -828,4 +828,24 @@ describe("C# 语言包（迭代19）", () => {
 		expect(sum!.purity).toBe(0); // List 参数集合操作 → PURE
 		expect(other!.purity).toBe(0); // string 参数 Trim → PURE（string 表有 Trim）
 	});
+
+	it("迭代36 A1 修复：项目类撞表键作参数类型 → 不走表绑定（假纯红线闭合）", async () => {
+		const root = project("a1-project-guard", {
+			"C.cs": [
+				"public class C {",
+				// 项目自建 List 类（撞 builtinTypeEffects List 键）且 Add 有 io——参数 xs 类型为项目 List
+				"    public void Use(List xs) { xs.Add(1); }",
+				"}",
+				// 项目 List 类：Add 写 Console（io）——若 A1 走表绑定 List.Add → pure 则假纯
+				"public class List { public void Add(int x) { System.Console.WriteLine(x); } }",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const use = by(r).get("C.cs::C.Use") as { purity: number; effects: Set<string> } | undefined;
+		expect(use).toBeDefined();
+		// 迭代36 独立审计 High：修复前 ptype="List" 撞 builtinTypeEffects List 键 → Add 判 PURE 假纯
+		// （项目 List.Add 写 Console）。修复后项目类守卫跳过表绑定 → 走全局类解析 → 项目 List.Add io 传导
+		expect(use!.effects.has("io")).toBe(true);
+		expect(use!.purity).toBe(2); // IMPURE——项目 List.Add io 传导（假纯闭合）
+	});
 });

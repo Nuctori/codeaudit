@@ -489,7 +489,10 @@ function resolveCall(
   // ② 项目类（globalClasses 单命中且 !ambiguous）→ 边到 **ctor chunk**（constructor_declaration，
   //    byQualified "Type.Type"——禁止走 bySimple 裸名分支（错边到 class chunk 丢构造体效应 = 假纯））；
   //    **项目类优先于 pureCtor 名单**（迭代34 独立审计 Med：项目自建类撞 List/Color/Uri 等名单名且构造体
-  //    有 io → 先查 pureCtor 会假纯，红线方向——与常规路径"项目类优先于效应表"一致）；
+  //    有 io → 先查 pureCtor 会假纯，红线方向）。
+  //    注（迭代36 独立审计 Low）：ctor 分支 impureGlobals 在项目类**之前**，与常规 obj 分支
+  //    （globalClasses 在 impureGlobals 前）顺序不同——项目类撞 impureGlobals 键（Debug/FileStream 等）
+  //    时构造形态走效应表、成员调用形态走项目类边；行为有界（效应表键有限且构造即效应语义可辩），记录不修；
   // ③ 纯构造清单（pureCtor）→ 纯；④ 其余框架类型 → ? 诚实（未列类型默认不纯，绝不给"未知皆纯"）。
   if (call.ctor !== undefined) {
     const t = call.ctor;
@@ -682,13 +685,30 @@ function resolveCall(
   } else {
     // 迭代35 A1：参数显式类型绑定——obj 是参数且类型已知（Dictionary<string,int> d → d.TryGetValue）
     // → 查 builtinTypeEffects（List/Dictionary/array 的 Add/Remove/TryGetValue 等纯读写信箱）。
-    // 放 globalClasses 之后（项目类优先）但效应表之前；仅当参数未遮蔽（assigned 无同名重绑）。
+    // 迭代36 独立审计 High 修复：项目类名撞表键（项目自建 List/Dictionary 类作参数类型）→ 跳过表绑定
+    // ——与 ctor 分支（L504-512）同守卫。否则 `xs.Add`（xs 参数类型为项目 List 类）误判 PURE（假纯红线）。
+    // 仅当参数未遮蔽（assigned 无同名重绑）。
     const ptype = caller.paramTypes?.[call.obj ?? ""];
     if (ptype !== undefined && !caller.assigned.includes(call.obj ?? "")) {
-      const rule = pack.builtinTypeEffects[ptype]?.[call.attr];
-      if (rule === "hof") { sink.addArgEdges(call.argFns, call.attr); sink.hitTable(`type:${ptype}.${call.attr}`); return; }
-      if (rule === "pure") { sink.hitTable(`type:${ptype}.${call.attr}`); return; }
-      // 表外方法 → 落 ?（诚实，与 receiver 分支同语义）
+      const pcls = globalClasses.get(ptype);
+      const isProject = pcls && pcls.length === 1 && pcls[0]!.lang === pack.name;
+      if (isProject) {
+        // 迭代36 High 修复续：参数类型是项目类 → 按**类型名**解析到项目类实例方法（全局类解析查的是
+        // 变量名 obj，此处须用类型名 ptype）——`xs.Add`（xs 参数类型 List）→ 项目 List.Add 的 io 传导
+        const tf = files.get(pcls[0]!.file);
+        if (tf && !caller.assigned.includes(ptype) && !fi.moduleAssigned.has(ptype)) {
+          const q = `${ptype}.${call.attr}`;
+          if (!tf.ambiguous.has(q)) {
+            const hit = tf.byQualified.get(q);
+            if (hit) { sink.addEdge(hit); sink.hitTable(`type:${ptype}.${call.attr}`); return; }
+          }
+        }
+      } else {
+        const rule = pack.builtinTypeEffects[ptype]?.[call.attr];
+        if (rule === "hof") { sink.addArgEdges(call.argFns, call.attr); sink.hitTable(`type:${ptype}.${call.attr}`); return; }
+        if (rule === "pure") { sink.hitTable(`type:${ptype}.${call.attr}`); return; }
+      }
+      // 表外方法 / 项目类歧义 → 落 ? 或继续走全局类解析（诚实）
     }
     // 全局类名解析（迭代19 C# 跨文件类调用）——**优先于效应表（迭代21 正确化）**：
     // 项目内类 NetCall 撞效应表条目 NetCall: "net"——项目类优先（真实实现），表条目是通用库名。
