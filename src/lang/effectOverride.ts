@@ -219,7 +219,18 @@ export function applyEffectOverrides(
  * 抛错信息含路径（调用方负责捕获 → exit 2）。
  */
 export function loadEffectOverrides(path: string): Readonly<Record<string, unknown>> {
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as unknown;
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (e) {
+    throw new Error(`无法读取 effect table override 文件 ${path}: ${(e as Error).message}`);
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e) {
+    throw new Error(`effect table override JSON 解析失败（${path}）: ${(e as Error).message}`);
+  }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("effect table override 必须是对象（{ 语言名: { 表名: 值 } }）");
   }
