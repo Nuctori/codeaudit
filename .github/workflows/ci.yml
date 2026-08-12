@@ -6,6 +6,10 @@ on:
     branches: [main]
   pull_request:
 
+# 最小权限（zizmor 加固：CI 只需读仓库，无写/凭据操作）
+permissions:
+  contents: read
+
 jobs:
   build-test:
     runs-on: ubuntu-latest
