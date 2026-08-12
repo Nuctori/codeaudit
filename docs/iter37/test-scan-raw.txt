@@ -1,0 +1,130 @@
+
+效应源（chain=0 IMPURE，直接调 io/net/random/state 的源头；1033 个）：
+   12 调用  BootFlowTests.BootPipeline_MarkStep_should_update_progress_and_trace Editor/BootFlowTests.cs:48
+   12 调用  MainFlowFastSuiteTests.BootPipeline_MarkStep_should_update_progress_and_trace Editor/MainFlowFastSuiteTests.cs:41
+   11 调用  LoginSceneFlowTests.LoginSceneFlow_Run_should_restore_ui_and_rethrow_when_login_fails Editor/LoginSceneFlowTests.cs:273
+   10 调用  CapabilityValidationTests.ReportWriter_PersistsStructuredUiAndQuestEvidence Editor/CapabilityValidation/CapabilityValidationTests.cs:263
+    9 调用  LoginSceneFlowTests.LoginSceneFlow_Run_should_wait_for_slow_transport_without_direct_scene_fallback Editor/LoginSceneFlowTests.cs:330
+    8 调用  LoginSceneFlowTests.LoginSceneFlow_Run_should_restore_ui_when_transport_times_out_without_direct_scene_fallback Editor/LoginSceneFlowTests.cs:364
+    7 调用  BootProgressBinderTests.BootProgressBinder_should_create_subprogress_and_complete Editor/BootProgressBinderTests.cs:30
+    7 调用  BootProgressBinderTests.BootProgressBinder_should_forward_stage_and_percent_updates Editor/BootProgressBinderTests.cs:10
+    7 调用  CapabilityValidationTests.QuestMinimalEvidence_ContainsStructuredBuckets Editor/CapabilityValidation/CapabilityValidationTests.cs:179
+    7 调用  CapabilityValidationTests.UiInitSubstageSummary_ContainsKnownBuckets Editor/CapabilityValidation/CapabilityValidationTests.cs:123
+    7 调用  CapabilityValidationTests.WriteReport Editor/CapabilityValidation/CapabilityValidationTests.cs:14
+    7 调用  FullFlowCoreRunner.Run               PlayMode/FullFlowCore/FullFlowCoreRunner.cs:41
+    7 调用  TaskSegmentPlayModeRunner.Run        PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:188
+    6 调用  LoginManagerStepRecorderTests.LoginManagerStepRecorder_should_rethrow_and_record_failure Editor/LoginManagerStepRecorderTests.cs:31
+    6 调用  MainlineTraceTests.LoginManager_MarkValidationStage_should_notify_trace Editor/MainlineTraceTests.cs:84
+    6 调用  MainlineTraceTests.CompositeMainlineTrace_should_call_all_traces Editor/MainlineTraceTests.cs:24
+    6 调用  TaskSegmentCheckpointTests.Report_rejects_partial_or_duplicate_segment_coverage Editor/TaskSegmentCheckpointTests.cs:288
+    6 调用  FullFlowCoreReportAggregationTests.CapabilityReport_ExposesEditorFastLayerSummaryForQuestAndTeardown PlayMode/FullFlowCore/FullFlowCoreReportAggregationTests.cs:42
+    6 调用  FullFlowCoreTests.RunSelectedCapabilities PlayMode/FullFlowCore/FullFlowCoreTests.cs:41
+    5 调用  CapabilityValidationTests.TeardownNoiseScan_Passes Editor/CapabilityValidation/CapabilityValidationTests.cs:71
+    5 调用  CapabilityValidationTests.UiInitSmoke_Passes Editor/CapabilityValidation/CapabilityValidationTests.cs:26
+    5 调用  CapabilityValidationTests.ConfigTableSmoke_Passes Editor/CapabilityValidation/CapabilityValidationTests.cs:35
+    5 调用  CapabilityValidationTests.QuestMinimalSmoke_Passes Editor/CapabilityValidation/CapabilityValidationTests.cs:53
+    5 调用  CapabilityValidationTests.AllCapabilities_Passes Editor/CapabilityValidation/CapabilityValidationTests.cs:328
+    5 调用  CapabilityValidationTests.SdkFacadeSmoke_Passes Editor/CapabilityValidation/CapabilityValidationTests.cs:62
+    5 调用  CapabilityValidationTests.BootScriptSmoke_Passes Editor/CapabilityValidation/CapabilityValidationTests.cs:44
+    5 调用  TaskSegmentCheckpointTests.ProbeReport_can_pass_segments_but_cannot_close_strict_live Editor/TaskSegmentCheckpointTests.cs:250
+    5 调用  TaskSegmentCheckpointTests.Report_exposes_the_first_blocking_failure_kind Editor/TaskSegmentCheckpointTests.cs:275
+    5 调用  TaskSegmentCheckpointTests.NonStrictEvidenceReport_never_closes_strict_live Editor/TaskSegmentCheckpointTests.cs:261
+    5 调用  FullFlowCoreRunner.IngestFastLayerReport PlayMode/FullFlowCore/FullFlowCoreRunner.cs:90
+  … 共 1033 个（--top N 查看更多）
+
+状态耦合（写方按读者数降序；top 30）：
+   84 读者  EditorFastLayerAggregation.CopyIfPresent target                       PlayMode/FullFlowCore/EditorFastLayerAggregation.cs:80  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 84 个）
+   84 读者  FullFlowCoreRunner.CopyIfPresent     target                       PlayMode/FullFlowCore/FullFlowCoreRunner.cs:432  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 84 个）
+   84 读者  TaskSegmentPlayModeContext.Copy      target                       PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:161  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 84 个）
+   81 读者  TaskSegmentPlayModeRunnerTests.MarkDirectMutation context.⊤                    PlayMode/TaskSegments/TaskSegmentPlayModeRunnerTests.cs:94  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 81 个）
+   77 读者  PlayerStatisticsManagerTests.AddMobKillCount_ShouldUpdateCurrentSnapshotAndNotifyListeners snapshot.⊤,manager.⊤         Editor/PlayerStatisticsManagerTests.cs:15  ← 示例读者 Editor/BagManagerSnapshotTests.cs:44（等 77 个）
+   71 读者  StarterMainlineFlowTests.TeleportPlayerToPosition player.⊤                     PlayMode/StarterMainlineFlowTests.cs:3766  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 71 个）
+   70 读者  FullFlowCoreRunner.IngestFastLayerReport report.FastLayer,report.UnityFastLayer PlayMode/FullFlowCore/FullFlowCoreRunner.cs:90  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 70 个）
+   69 读者  FullFlowCoreRunner.ComputeAggregation report.FirstBlockingLayer,report.StuckLayerDiagnosis,report.ProfileOutput,report.AbilityOutput,report.ServiceAuditSummary,report.SqliteAssertionSummary PlayMode/FullFlowCore/FullFlowCoreRunner.cs:160  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 69 个）
+   67 读者  UiInitCapability.RedPointManagerSmoke entry.Evidence               Editor/CapabilityValidation/UiInitCapability.cs:88  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 67 个）
+   67 读者  UiInitCapability.BottomBtnUiTeardownSmoke entry.Evidence               Editor/CapabilityValidation/UiInitCapability.cs:178  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 67 个）
+   67 读者  UiInitCapability.BagManagerSmoke     entry.Evidence               Editor/CapabilityValidation/UiInitCapability.cs:114  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 67 个）
+   67 读者  UiInitCapability.PlayerStateManagerSmoke entry.Evidence               Editor/CapabilityValidation/UiInitCapability.cs:201  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 67 个）
+   67 读者  RuntimeMainlineAutopilotRuntimeTests.RuntimeMainlineAutopilot_TeleportDecision_Moves_Player_To_Target playerGo.⊤                   Editor/RuntimeMainlineAutopilotRuntimeTests.cs:2179  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 67 个）
+   67 读者  RuntimeMainlineAutopilotRuntimeTests.RuntimeMainlineAutopilot_Quest15_SeekTransportAtTarget_Prefers_TransportInteractiveUi_At_Fallback_Position playerGo.⊤,wrongInteractiveGo.⊤,otherTransportInteractiveGo.⊤,transportInteractiveGo.⊤ Editor/RuntimeMainlineAutopilotRuntimeTests.cs:1193  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 67 个）
+   67 读者  RuntimeMainlineAutopilotRuntimeTests.RuntimeMainlineAutopilot_RealChunkPrefab_Resolves_Quest15_Fallback_To_LingWorldTransport playerGo.⊤                   Editor/RuntimeMainlineAutopilotRuntimeTests.cs:3724  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 67 个）
+   67 读者  RuntimeMainlineAutopilotRuntimeTests.RuntimeMainlineAutopilot_Quest15_SeekTransportAtTarget_DoesNotAccept_CurrentTransportPath_When_Anchor_Name_Mismatches playerGo.⊤,currentTransportInteractiveGo.⊤,fallbackTransportInteractiveGo.⊤ Editor/RuntimeMainlineAutopilotRuntimeTests.cs:1324  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 67 个）
+   67 读者  RuntimeMainlineAutopilotRuntimeTests.RuntimeMainlineAutopilot_TeleportDecision_Uses_TargetPositionOverride_When_Present playerGo.⊤                   Editor/RuntimeMainlineAutopilotRuntimeTests.cs:2222  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 67 个）
+   65 读者  TaskSegmentPlayModeContext.Fail      checkpoint.FailureKind,checkpoint.FailureMessage PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:150  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 65 个）
+   65 读者  TaskSegmentPlayModeContext.SetConditionStates checkpoint.ConditionStatesCapturedInTransition PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:86  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 65 个）
+   65 读者  TaskSegmentPlayModeContext.SetBeforeServerSnapshot checkpoint.BeforeServerSnapshotCapturedInPrepare PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:62  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 65 个）
+   65 读者  TaskSegmentPlayModeContext.SetAfterReloadClientSnapshot checkpoint.ReloadClientSnapshotCapturedInRehydration PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:78  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 65 个）
+   65 读者  TaskSegmentPlayModeContext.SetAfterServerSnapshot checkpoint.AfterServerSnapshotCapturedInPersist PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:70  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 65 个）
+   65 读者  TaskSegmentPlayModeContext.SetProgression checkpoint.NextQuestId,checkpoint.ProgressionCapturedInNextActive PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:93  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 65 个）
+   65 读者  TaskSegmentPlayModeContext.Trace     checkpoint.ActionTraceCapturedInAction PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:50  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 65 个）
+   65 读者  TaskSegmentPlayModeContext.CaptureIdentity checkpoint.PlayerId,checkpoint.RunId,checkpoint.WorldId,checkpoint.ServerVersion PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:117  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 65 个）
+   65 读者  TaskSegmentPlayModeContext.SetReloadMethod checkpoint.ReloadMethod      PlayMode/TaskSegments/TaskSegmentPlayModeRunner.cs:112  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 65 个）
+   64 读者  MainlineTraceTests.LoginManager_MarkValidationStage_should_notify_trace LoginManager.MainlineTrace   Editor/MainlineTraceTests.cs:84  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 64 个）
+   64 读者  TaskSegmentCheckpointValidator.Fail  result.FailureKind,result.FailureMessage,result.Passed,result.CanCloseStrictMainline TaskSegments/TaskSegmentCheckpoint.cs:274  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 64 个）
+   63 读者  BagManagerSnapshotTests.SetUp        self.hadOfflineModeKey,self.previousOfflineModeValue,self.hadCloudTableKey,self.previousCloudTableValue Editor/BagManagerSnapshotTests.cs:23  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 63 个）
+   63 读者  FakeAssetLocationClient.FakeAssetLocationClient self.url                     Editor/BootFlowTests.cs:124  ← 示例读者 Editor/BagManagerSyncBagNullTests.cs:12（等 63 个）
+  … 共 182 个写方（--top N 查看更多）
+  （注：46 个写方含 ⊤ 降级匹配——近似耦合，见 README 已知限制）
+codeaudit 0.3.1 — 2044 chunks, 190 files, unknown-rate 31.8%, cycles 1, parse-errors 1
+  图完整度：8.6% 调用点已解析（21876 未知站点）
+
+IMPURE
+  chain=   1  {io,state} NetCallTests.CaptureUiManagerSingletonScope Editor/NetCallTests.cs:74
+      传染: Editor/NetCallTests.cs::2c19718bf7e56607 → Editor/NetCallTests.cs::e1ec5245ed68ecdc
+  chain=   1  {io,state} PlayerStatisticsManagerTests.CaptureSingletonScope Editor/PlayerStatisticsManagerTests.cs:59
+      传染: Editor/NetCallTests.cs::2c19718bf7e56607 → Editor/PlayerStatisticsManagerTests.cs::a3f655a74afa16bc
+  chain=   1  {clock}    Quest15DrawDoorTaskSegmentDefinition.AwaitTask PlayMode/TaskSegments/Quest15DrawDoorTaskSegmentDefinition.cs:355
+      传染: PlayMode/TaskSegments/TaskSegmentQuestServerSupport.cs::de7dbbcd64e9a88f → PlayMode/TaskSegments/Quest15DrawDoorTaskSegmentDefinition.cs::5c05dae757f14255
+  chain=   1  {clock}    Quest15DrawDoorTaskSegmentDefinition.AwaitOperation PlayMode/TaskSegments/Quest15DrawDoorTaskSegmentDefinition.cs:362
+      传染: PlayMode/TaskSegments/TaskSegmentQuestServerSupport.cs::66941b38284606bf → PlayMode/TaskSegments/Quest15DrawDoorTaskSegmentDefinition.cs::d5d0f14b57039cda
+  chain=   1  {clock}    Quest9014TeamLoadTaskSegmentDefinition.AwaitTask PlayMode/TaskSegments/Quest9014TeamLoadTaskSegmentDefinition.cs:393
+      传染: PlayMode/TaskSegments/TaskSegmentQuestServerSupport.cs::de7dbbcd64e9a88f → PlayMode/TaskSegments/Quest9014TeamLoadTaskSegmentDefinition.cs::5c05dae757f14255
+  chain=   1  {clock}    Quest9014TeamLoadTaskSegmentDefinition.AwaitOperation PlayMode/TaskSegments/Quest9014TeamLoadTaskSegmentDefinition.cs:400
+      传染: PlayMode/TaskSegments/TaskSegmentQuestServerSupport.cs::66941b38284606bf → PlayMode/TaskSegments/Quest9014TeamLoadTaskSegmentDefinition.cs::d5d0f14b57039cda
+  chain=   0  {io}       QuestMinimalCapability.RunAsync Editor/CapabilityValidation/QuestMinimalCapability.cs:18
+  chain=   0  {io,state} UiInitCapability.BagManagerSmoke Editor/CapabilityValidation/UiInitCapability.cs:114
+  chain=   0  {net}      ServerContractScanCapability.Run PlayMode/FullFlowCore/Capabilities/ServerContractScanCapability.cs:24
+  chain=   0  {clock,io,state} StarterCultivationFlowTests.Local_online_GetElixirUI_should_not_erase_exp_gained_from_starter_exp_ball PlayMode/StarterCultivationFlowTests.cs:179
+  chain=   0  {io,state} StarterInteractionCapability.InspectCountNumSignalBridge Editor/CapabilityValidation/StarterInteractionCapability.cs:166
+  chain=   0  {fs,io}    NullSafetyAuditTests.FreezeManagerInstanceAccessAudit Editor/NullSafetyAuditTests.cs:344
+  chain=   0  {fs,io}    NullSafetyAuditTests.SingletonInstanceGuardCensus Editor/NullSafetyAuditTests.cs:550
+  chain=   0  {fs,io}    NullSafetyAuditTests.GlobalGetComponentNullGuardCensus Editor/NullSafetyAuditTests.cs:209
+  chain=   0  {fs,io}    QuestAutoCompleteE2EVerifier.Run Editor/QuestAutoCompleteE2EVerifier.cs:19
+  chain=   0  {fs,io}    QuestCompleteUIE2EVerifier.Run Editor/QuestCompleteUIE2EVerifier.cs:15
+  chain=   0  {io,state} RuntimeMainlineAutopilotRuntimeTests.RuntimeMainlineAutopilot_BuildInteractiveSearchDiagnostics_Reports_Semantics_And_Reasons Editor/RuntimeMainlineAutopilotRuntimeTests.cs:4307
+  chain=   0  {io,state} RuntimeMainlineAutopilotRuntimeTests.DescribeRuntimeState_Does_Not_Reuse_Stale_Disk_Snapshot_Before_Current_Session_Records Editor/RuntimeMainlineAutopilotRuntimeTests.cs:78
+  chain=   0  {io}       SignalTriggerTests.Signal_OnEnable_ReplaysCompletedStateThroughStepEvent Editor/SignalTriggerTests.cs:33
+  chain=   0  {io,state} StarterCaveQuestBindingsTests.Quest13_C1_RepairDoor_ShouldReportMissingCompletionBinding Editor/StarterCaveQuestBindingsTests.cs:542
+  chain=   0  {fs,io,state} StarterCaveQuestBindingsTests.Quest12_C1_ShouldKeepTheContentBindingGapExplicit_UntilPortalOwnershipIsMigrated Editor/StarterCaveQuestBindingsTests.cs:443
+  chain=   0  {fs,io,state} StarterCaveQuestBindingsTests.CollectFinishQuestBindings Editor/StarterCaveQuestBindingsTests.cs:1318
+  chain=   0  {clock}    MainlineCaveExitCapability.Run PlayMode/FullFlowCore/Capabilities/MainlineCaveExitCapability.cs:23
+  chain=   0  {clock,io} StarterInteractionCapability.Run PlayMode/FullFlowCore/Capabilities/StarterInteractionCapability.cs:25
+  chain=   0  {clock}    FullFlowCoreRunner.WaitWithTimeout PlayMode/FullFlowCore/FullFlowCoreRunner.cs:459
+  chain=   0  {clock,io,state} StarterCultivationFlowTests.Local_online_GetElixirUI_upgrade_should_level_up_after_starter_exp_gain PlayMode/StarterCultivationFlowTests.cs:281
+  chain=   0  {clock,io,state} StarterCultivationFlowTests.Local_online_GetElixirUI_showing_state_should_track_elixir_progress_not_only_main_character_exp PlayMode/StarterCultivationFlowTests.cs:507
+  chain=   0  {clock,io,state} StarterCultivationFlowTests.Local_online_starter_exp_ball_updates_character_exp_and_cultivation_ui PlayMode/StarterCultivationFlowTests.cs:58
+  chain=   0  {clock,io,state} StarterCultivationFlowTests.Local_online_GetElixirUI_should_display_current_level_upgrade_threshold PlayMode/StarterCultivationFlowTests.cs:407
+  chain=   0  {clock,io,state} StarterMainlineFlowTests.RuntimeBridge_spawn_status_should_report_lingworld_spawns PlayMode/StarterMainlineFlowTests.cs:363
+
+STATS: pure 355, impure 1058, unknown 631
+效应表[python]: 91 条目 / 命中 0 / corpus-inactive 91
+效应表[typescript]: 100 条目 / 命中 0 / corpus-inactive 100
+效应表[tsx]: 100 条目 / 命中 0 / corpus-inactive 100
+效应表[javascript]: 100 条目 / 命中 0 / corpus-inactive 100
+效应表[csharp]: 163 条目 / 命中 44 / corpus-inactive 119 / 咨询未中 15267 站点（补表候选）
+  补表候选 top 15（module 未中 1:1 对应未知站点）:
+    miss   480 global:BindingFlags
+    miss   369 builtin:Framework
+    miss   311 global:System
+    miss   281 builtin:System
+    miss   258 builtin:InitDeity
+    miss   208 global:entry
+    miss   193 global:TaskSegmentFailureKind
+    miss   160 global:Is
+    miss   159 global:decision
+    miss   155 global:plan
+    miss   153 global:StringComparison
+    miss   138 builtin:NUnit
+    miss   138 builtin:text
+    miss   137 builtin:autopilot
+    miss   134 global:definition
