@@ -233,13 +233,16 @@ export function link(
       };
 
       for (const call of rc.calls) {
+        // 迭代33 TP4：效应表记账按语言分桶（pack 前缀键）——classifyUsage 按 pack 过滤，
+        // 消除"5 个 pack 行输出同一数据"的误导（纯 C# 语料下 python 行显示 37292 咨询未中）。
+        const pk = fi.pack.name;
         resolveCall(call, rc, fi, files, projectFiles, resolveSymbol, resolveMod, globalClasses, {
           addEdge: (k) => calls.add(k),
           addEffect: (e) => direct.add(e),
           markUnknown: () => { unknownSites++; calls.add(UNKNOWN_TARGET); },
           markDynamic: () => { unknownSites++; calls.add(UNKNOWN_TARGET); },
-          hitTable: (k) => bump(tableHit, k),
-          missTable: (k) => bump(tableMiss, k),
+          hitTable: (k) => bump(tableHit, `${pk}\u0000${k}`),
+          missTable: (k) => bump(tableMiss, `${pk}\u0000${k}`),
           addUnknownCall: (call) => unknownCalls.push({ attr: call.attr, obj: call.obj, root: rootOf(call) }),
           addArgEdges: (names, hof, unconditional = false) => {
             for (const n of names) {
@@ -558,6 +561,19 @@ function resolveCall(
   // 2.5 框架命名空间（egg ctx.model.* / ctx.service.* → io 边界；遮蔽/参数同名则跳过判定）。
   // selfNames 豁免（迭代18）：self 是参数会进 assigned——self.client.post 是实例属性访问非本地遮蔽
   if (call.obj !== null && (!caller.assigned.includes(call.obj) || pack.selfNames.includes(call.obj))) {
+    // 迭代33 C2（InitDeity 痛点）：X.gameObject.* 前缀白名单 → io（Unity 组件属性，变量 receiver）。
+    // 必须在 assigned 守卫**之前**的独立分支：item.gameObject.SetActive 的 item 是局部变量（assigned 命中
+    // 会被守卫跳过）——本形态主体恰是局部变量。白名单复用 frameworkIo.gameObject 既有清单；
+    // 项目扩展方法（root.gameObject.RefreshSelf）不在白名单 → 落回 ? 诚实。
+    if (call.attr.startsWith("gameObject.")) {
+      const rest = call.attr.slice("gameObject.".length);
+      const member = rest.indexOf(".") === -1 ? rest : rest.slice(0, rest.indexOf("."));
+      if (pack.frameworkIo.gameObject?.includes(member)) {
+        sink.addEffect("io");
+        sink.hitTable("frame:gameObject"); // 复用既有槽位（与 obj="gameObject" 精确命中统计合并）
+        return;
+      }
+    }
     // Object.hasOwn 守卫：frameworkIo 是普通对象字面量，裸下标/`in` 会命中继承的
     // Object.prototype 键（hasOwnProperty/toString/constructor…）→ truthy → for...of 函数崩溃（DoS）
     const prefixes = Object.hasOwn(pack.frameworkIo, call.obj) ? pack.frameworkIo[call.obj] : undefined;

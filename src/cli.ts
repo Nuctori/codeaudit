@@ -302,9 +302,11 @@ async function main(): Promise<void> {
         }
       : payload;
     // --state：json 顶层加状态耦合链（迭代23 D-127；与 sources/topology 同款 additive——
-    // 全量不过滤，消费端自己 slice；空图给 [] 不省略字段（schema 稳定优于省字节））
+    // 迭代33 崩溃修复：全量计算（避免 --top 预滤 verdicts 导致耦合失真）但输出截断——
+    // InitDeity 6591 写方 × readerKeys 跨积超 V8 字符串上限（Invalid string length 实证）。
+    // 默认 top 50（覆盖热点），消费端既有 slice 契约不变。
     const payload3 = args.state
-      ? { ...payload2, stateCoupling: stateCouplingOf(report.verdicts) }
+      ? { ...payload2, stateCoupling: stateCouplingOf(report.verdicts).slice(0, args.top ?? 50) }
       : payload2;
     console.log(JSON.stringify(payload3, (k, v) =>
       v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v, 2));

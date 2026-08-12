@@ -187,6 +187,10 @@ const pureGlobals = new Set<string>([
 	"Array",
 	"List",
 	"Dictionary",
+	// NUnit 断言类（迭代33 TP5：InitDeity 675 站 StringAssert/Does 未入表 → 假 UNKNOWN）——
+	// 抛异常≠副作用；不动 "Assert"（撞 UnityEngine.Assertions——impureGlobals.Assert 优先）
+	"StringAssert",
+	"Does",
 ]);
 
 /** .NET 基础类型字面量接收者（链式方法：list.Add / "s".ToUpper）。 */

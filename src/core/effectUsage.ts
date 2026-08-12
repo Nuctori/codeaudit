@@ -89,8 +89,8 @@ export function classifyUsage(
 						: table.includes("Globals") || table.includes("Builtins")
 							? `${table.includes("Globals") ? "global" : "builtin"}:${key}`
 							: `module:${key}`;
-			const h = hit.get(slot) ?? 0;
-			const m = miss.get(slot) ?? 0;
+			const h = hit.get(`${packName}\u0000${slot}`) ?? 0; // 迭代33 TP4：分语言记账（link.ts pack 前缀键）
+			const m = miss.get(`${packName}\u0000${slot}`) ?? 0;
 			const consulted = h + m;
 			// provably-dead 判定
 			let evidence: string | undefined;
@@ -159,17 +159,21 @@ export function classifyUsage(
 			}
 		}
 		// missSlots（咨询未中槽位——绝大多数非表条目 = 补表候选）
+		// 迭代33 TP4：miss 键带 pack 前缀（link.ts `${pk}\u0000${slot}`）——必须按当前 pack 过滤，
+		// 否则每个 pack 行都显示全部语言的 miss（纯 C# 语料下 python 行也显示 36041 误导）。
+		const prefix = `${packName}\u0000`;
 		const missSlots = [...miss.entries()]
+			.filter(([slot]) => slot.startsWith(prefix))
+			.map(([slot, n]) => ({ slot: slot.slice(prefix.length), miss: n }))
 			.filter(
-				([, n]) =>
-					n > 0 &&
+				(item) =>
+					item.miss > 0 &&
 					!keySets.some(([, k]) =>
 						k.startsWith("./")
 							? false
 							: `module:${k.replace(/^node:/, "")}` === "",
 					),
 			)
-			.map(([slot, n]) => ({ slot, miss: n }))
 			.sort((a, b) => b.miss - a.miss);
 		const missSites = missSlots.reduce((s, x) => s + x.miss, 0);
 		out.push({

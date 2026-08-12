@@ -674,4 +674,53 @@ describe("C# 语言包（迭代19）", () => {
 		expect(enc!.effects.has("io")).toBe(false);
 		expect(enc!.purity).toBe(0); // PURE——UTF8 编码纯计算
 	});
+
+	it("迭代33 C2：X.gameObject.* 前缀白名单 → io（Unity 组件属性，局部变量 receiver）", async () => {
+		const root = project("go-prefix", {
+			"C.cs": [
+				"public class C {",
+				"    public void Hide(GameObject item) { item.gameObject.SetActive(false); }",
+				"    public void Ext(GameObject root) { root.gameObject.RefreshSelf(true); }",
+				"    public void Direct() { this.gameObject.SetActive(true); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const hide = by(r).get("C.cs::C.Hide") as { purity: number; effects: Set<string> } | undefined;
+		const ext = by(r).get("C.cs::C.Ext") as { purity: number; effects: Set<string> } | undefined;
+		const direct = by(r).get("C.cs::C.Direct") as { purity: number; effects: Set<string> } | undefined;
+		expect(hide).toBeDefined();
+		expect(ext).toBeDefined();
+		expect(direct).toBeDefined();
+		// 迭代33 C2（InitDeity 98 chunks/115 站痛点）：item.gameObject.SetActive（局部变量 receiver）→ io
+		// （修复前 obj=item 变量全漏 → ?）；root.gameObject.RefreshSelf（项目扩展不在白名单）→ 仍 UNKNOWN 诚实；
+		// this.gameObject.SetActive 既有路径不变
+		expect(hide!.effects.has("io")).toBe(true);
+		expect(hide!.purity).toBe(2); // IMPURE——SetActive io
+		expect(ext!.purity).toBe(1); // UNKNOWN——RefreshSelf 不在白名单（诚实）
+		expect(direct!.effects.has("io")).toBe(true);
+		expect(direct!.purity).toBe(2); // IMPURE——既有判定不变
+	});
+
+	it("迭代33 TP5：NUnit StringAssert/Does 判纯（675 站痛点恢复）", async () => {
+		const root = project("nunit-pure", {
+			"C.cs": [
+				"public class C {",
+				"    public void T1(string s) { StringAssert.Contains(\"a\", s); }",
+				"    public void T2(string s) { Does.Contain(s); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const t1 = by(r).get("C.cs::C.T1") as { purity: number; effects: Set<string> } | undefined;
+		const t2 = by(r).get("C.cs::C.T2") as { purity: number; effects: Set<string> } | undefined;
+		expect(t1).toBeDefined();
+		expect(t2).toBeDefined();
+		// 迭代33 TP5：StringAssert/Does 入 pureGlobals（抛异常≠副作用）——修复前 675 站假 UNKNOWN。
+		// 注意 Does.Contain(s).Ignore() 链式（Ignore 返回类型表外断链）不属于本修复——裸调判定纯
+		expect(t1!.effects.has("io")).toBe(false);
+		expect(t1!.purity).toBe(0); // PURE——StringAssert 纯断言
+		expect(t2!.effects.has("io")).toBe(false);
+		expect(t2!.purity).toBe(0); // PURE——Does 纯断言
+	});
 });
