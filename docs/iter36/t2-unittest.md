@@ -4,7 +4,7 @@
 > 背景：54 PlayMode 文件 14248 行每次 E2E 起 Unity；RuntimeMainlineAutopilotRuntimeTests 4864 行/216 方法；无单元测试层。
 > 验收硬门槛：单元层断言 ≥30 且不依赖 Unity 运行时（纯逻辑）。
 
-## 1. 下沉清单（10 个纯判定函数 → 48 个断言）
+## 1. 下沉清单（11 个纯判定函数 → 48 个断言）
 
 | 函数 | 来源（生产代码） | 参数 | 断言数 | 语义 |
 |---|---|---|---|---|
@@ -19,7 +19,7 @@
 | `IsQuest11OutsideArrivalTriggerPath` | Planner L7773 | string | 4 | quest 11 到达山洞外（精确前缀） |
 | `ShouldUseQuest11OutsideArrivalAsTarget` | L7789 | uint?/bool/string/string | 5 | quest 11 外部到达目标 |
 | `GetQuest11InteractivePriority` | L7807 | uint?/string/int/string | 6 | quest 11 交互优先级 |
-| **合计** | | | **48 断言** | 覆盖 quest 11/15/16/9014 |
+| **合计** | | | **48 断言（11 函数）** | 覆盖 quest 11/15/16/9014 |
 
 ## 2. 新文件（全部在 158 脏文件隔离外）
 

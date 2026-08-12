@@ -7,7 +7,7 @@
 | 项 | 值 |
 | --- | --- |
 | 服务 | Basebase.dll（预构建，7/27）监听 `0.0.0.0:8080`（PID 43352） |
-| healthz | `{"ok":true,"uptime_sec":...,"projects":6}` |
+| healthz | HTTP 200（当前实例 body 为纯文本 `Healthy`——ASP.NET UseHealthChecks 默认输出；收敛审计 2026-08-12 实测确认，非 JSON） |
 | 数据库 | `App_Data/initdeity-offline.db`（SQLite，表自动创建） |
 | 后端验证 | RunBackend1Validation `pass: true`（46 请求全 ok，见 backend-matrix.md） |
 
