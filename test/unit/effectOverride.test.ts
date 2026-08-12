@@ -54,6 +54,52 @@ describe("F16 效应表注入（迭代28）", () => {
     expect(applyEffectOverrides(csharpPack, {})).toBe(csharpPack);
   });
 
+  it("迭代37 P1-1：frameworkPure 三层深合并（ns → type → 成员表并集不丢内置）", () => {
+    const merged = applyEffectOverrides(csharpPack, {
+      frameworkPure: {
+        System: {
+          Text: { StringBuilder: "pure", Encoding: "pure", MyExtra: "pure" },
+          Linq: "hof",
+        },
+      },
+    });
+    // 内置 System.Text 三子键全保留 + 注入的 MyExtra 追加
+    const text = merged.frameworkPure?.System?.Text as Record<string, string> | undefined;
+    expect(text).toBeDefined();
+    expect(text!.StringBuilder).toBe("pure");
+    expect(text!.Encoding).toBe("pure");
+    expect(text!.RegularExpressions).toBe("pure");
+    expect(text!.MyExtra).toBe("pure");
+    // 整类型键注入（Linq）覆盖式生效
+    expect(merged.frameworkPure?.System?.Linq).toBe("hof");
+    // 未列 ns 的既有键不动
+    expect(merged.frameworkPure?.System?.Uri).toBe("pure");
+  });
+
+  it("迭代37 P1-1：pureCtor Set 并集 + 校验（合法注入/非法形状/非法 tag）", () => {
+    const merged = applyEffectOverrides(csharpPack, {
+      pureCtor: new Set(["MyWidget", "MyBuffer"]),
+    });
+    expect(merged.pureCtor).toBeDefined();
+    expect(merged.pureCtor!.has("MyWidget")).toBe(true);
+    expect(merged.pureCtor!.has("MyBuffer")).toBe(true);
+    expect(merged.pureCtor!.has("List")).toBe(true); // 内置全保留
+    // 校验：ns-nested-pure-hof 合法形状
+    expect(validateEffectOverride(
+      { csharp: { frameworkPure: { System: { MyLib: { A: "pure", B: "hof" } } } } }, PACKS,
+    ).length).toBe(0);
+    // 非法 tag 拒绝
+    expect(validateEffectOverride(
+      { csharp: { frameworkPure: { System: { MyLib: { A: "evil" } } } } }, PACKS,
+    ).length).toBe(1);
+    // 非法形状拒绝（type 值既非字符串也非对象）
+    expect(validateEffectOverride(
+      { csharp: { frameworkPure: { System: { MyLib: [42] } } } }, PACKS,
+    ).length).toBe(1);
+    // pureCtor set 形状校验
+    expect(validateEffectOverride({ csharp: { pureCtor: ["A", "B"] } }, PACKS).length).toBe(0);
+  });
+
   it("校验：未知语言 / 提取侧表 / 非法效应类拒绝", () => {
     expect(validateEffectOverride({ unknownLang: { impureGlobals: { X: "io" } } }, PACKS).length).toBe(1);
     expect(validateEffectOverride({ csharp: { literalReceivers: { x: "y" } } }, PACKS).length).toBe(1);
