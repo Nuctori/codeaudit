@@ -88,6 +88,12 @@ export interface LangPack {
   readonly wasm: string;
 
   // ---- 数据侧 ----
+  // 效应表族（impureBuiltins/Globals/Modules/frameworkIo/frameworkPure/builtinTypeEffects/
+  // pureCtor/hofCallsArgs/hofAlwaysArgs）的**通道分派语义是语义非风格**（迭代37 数学 G3' 护栏）：
+  // 每张表对应引擎 F 的一个查表通道（裸名/对象/模块/ns 前缀/类型成员/构造/回调），匹配模式不同
+  // （精确/段前缀/最长点分回退）且优先级不可重排（receiver 先于裸名防字面量劫持；impure 先于 pure；
+  // hof 与 hofAlways 是不同语义原子——坍缩即假纯通道）。统一为单表属过度抽象（迭代37 裁决不做），
+  // 勿因"表多"合并。语言差异 = 各表数据（通用机制 + 语言数据），引擎零语言常量（P0 达成）。
   /** 作为 chunk 的节点类型。 */
   readonly chunkNodes: readonly string[];
   /** 类节点类型（用于方法归属）。 */
