@@ -1,0 +1,19 @@
+{
+  "csharp": {
+    "impureGlobals": {
+      "NetCall": "net",
+      "BuglyAgent": "io",
+      "SDKUtil": "net"
+    },
+    "pureGlobals": [
+      "MathUtility",
+      "StringUtil"
+    ],
+    "frameworkIo": {
+      "this": [
+        "AddComponent",
+        "GetComponent"
+      ]
+    }
+  }
+}
