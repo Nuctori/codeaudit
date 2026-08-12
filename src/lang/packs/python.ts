@@ -177,6 +177,8 @@ export const pythonPack: LangPack = {
   builtinTypeEffects,
   builtinMethodReturns,
   implicitThis: false,
+  assignmentScopesLocals: true, // Python：函数内赋值即局部定义（迭代37 P0-2）
+  bareNameMeansThisInMethod: false,
   frameworkIo: {
     // Locust 压测客户端（迭代18 旧宇宙驱动）：self.client.get/post/... → net（段级前缀——
     // call.obj 是首段 "self"、attr 是剩余链 "client.post"；2.5 分支 startsWith 匹配）。

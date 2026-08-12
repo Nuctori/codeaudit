@@ -422,14 +422,14 @@ export class Extractor {
       // 参数重绑（function f(x){ x = 5 }）纯局部（JS 语义）→ 非外部（迭代15 F2 修复）。
       // 终裁 Step1 {closure} 折叠进 state；S1 假纯洞修复（迭代12 Jeff P0）
       if (chunk.kind === "module") return null;
-      if (this.pack.name === "python") return null;
+      if (this.pack.assignmentScopesLocals) return null; // Python：赋值即局部定义（迭代37 P0-2 数据化）
       if (chunk.declared.includes(left.text)) return null; // 局部声明（let y = 0; y = 5）
       if (chunk.params.includes(left.text)) return null; // 参数重绑（F2）
       // 迭代25：C# 类成员方法内裸字段写（score = v）→ self.score（类内状态，非全局裸名）。
       // 边界：最近函数状祖先是 method/constructor_declaration 才成立——C# 无全局变量，
       // 方法内可裸写的名字只有 局部(declared)/参数(params)/字段属性/静态字段，后两者即 self 语义；
       // local_function_statement 排除：捕获外层局部时语义等同 TS 闭包（裸外部写，与 TS 一致）。
-      if (this.pack.name === "csharp" && this.inClassMemberBody(left)) return `self.${left.text}`;
+      if (this.pack.bareNameMeansThisInMethod && this.inClassMemberBody(left)) return `self.${left.text}`;
       return left.text; // TS/JS 裸标识符写 = 外部
     }
     const readTarget = (obj: SyntaxNode | null | undefined, attr: string | null | undefined): string | null => {
@@ -484,7 +484,7 @@ export class Extractor {
         if (chunk.params.includes(obj.text)) return obj.text; // 参数容器变异（arr[0]=1）影响调用方 → 外部
         // C# 类成员方法内裸字段容器（items[0]=v）→ self.items（类内状态，与裸字段写 self.attr 对偶）；
         // 方法内局部数组（declared 含）→ 非外部
-        if (this.pack.name === "csharp" && this.inClassMemberBody(obj)) {
+        if (this.pack.bareNameMeansThisInMethod && this.inClassMemberBody(obj)) {
           return chunk.declared.includes(obj.text) ? null : `self.${obj.text}`;
         }
         // 与 readTarget 同判：局部容器（assigned 含且非参数，如 for 变量 item["x"]=v）→ 非外部

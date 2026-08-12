@@ -996,4 +996,32 @@ describe("定义性事实族（用户覆写会议否决后实施）", () => {
     const b = by(await scanProject(root));
     expect(b.get("use.js::run")!.purity).toBe(Purity.IMPURE);
   });
+
+  it("E 迭代37 P0-1 通用机制：frameworkAttrPrefix 缺失时前缀链不误判 io（Python 无此字段 → 方向安全）", async () => {
+    // Python pack 无 frameworkAttrPrefix（仅 C# 定义）——obj.attr 链不得被前缀表误判 io。
+    // 验证可选字段缺失 = 零行为影响（link 查表 undefined → 落回 ? 诚实）。
+    const root = project("fap-none", {
+      "a.py": "def f(item):\n    item.gameObject.SetActive(False)\n    return 1\n",
+    });
+    const b = by(await scanProject(root));
+    const v = b.get("a.py::f")!;
+    // Python 下 item.gameObject.SetActive 是动态分派（obj=item 变量，无类型）→ UNKNOWN 诚实，非 io
+    expect(v.purity).toBe(Purity.UNKNOWN);
+  });
+
+  it("F 迭代37 P0-1 C# 语义保持：frameworkAttrPrefix 命中 → io（与 frameworkIo 同槽位）", async () => {
+    // C# frameworkAttrPrefix = { gameObject: [SetActive, ...] }——X.gameObject.SetActive → io
+    // （等价迁移验证：原 L646-654 硬编码分支行为逐字保持）
+    const root = project("fap-csharp", {
+      "C.cs": [
+        "public class C {",
+        "    public void Hide(GameObject item) { item.gameObject.SetActive(false); }",
+        "}",
+      ].join("\n"),
+    });
+    const b = by(await scanProject(root));
+    const v = b.get("C.cs::C.Hide")!;
+    expect(v.purity).toBe(Purity.IMPURE);
+    expect([...v.effects]).toContain("io");
+  });
 });

@@ -133,6 +133,11 @@ export interface LangPack {
   /** 纯构造类型（迭代33 C1：new X() 构造器建模——X ∈ 清单 → 纯分配无副作用；未列框架类型 → ? 诚实）。
    *  与 impureGlobals 互补：impureGlobals 类型键优先（构造即效应，FileStream:fs 等）。 */
   readonly pureCtor?: ReadonlySet<string>;
+  /** 属性链前缀白名单（迭代37 P0-1，原 C# gameObject 硬编码数据化）：任意变量的 `.head.member` 链
+   *  （item.gameObject.SetActive 的 attr="gameObject.SetActive"），head = attr 首段 ∈ 键且
+   *  member ∈ 清单 → io 边界。语义要求：引擎在 assigned 守卫**之前**查此表（主体是变量 receiver）。
+   *  白名单 miss → 落回后续分支 → UNKNOWN 保持（方向安全）。 */
+  readonly frameworkAttrPrefix?: Readonly<Record<string, readonly string[]>>;
   /** 隐式 this（C#：类内裸名方法调用 = this 方法；TS/Python 需显式 this/self）。迭代19。 */
   readonly implicitThis: boolean;
 

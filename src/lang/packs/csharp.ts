@@ -416,6 +416,13 @@ const frameworkIo: Record<string, readonly string[]> = {
   ],
 };
 
+/** 对象属性前缀白名单（迭代37 P0-1：引擎 gameObject 前缀硬编码数据化——消除引擎唯一语言常量）。
+ *  obj="gameObject" 前缀语义 = 原 frameworkIo.gameObject 清单（X.gameObject.SetActive/GetComponent/... → io）；
+ *  link.ts 在 assigned 守卫之前查此表（局部变量 receiver 形态）；白名单 miss → ? 诚实。 */
+const frameworkAttrPrefix: Record<string, readonly string[]> = {
+  gameObject: ["SetActive", "GetComponent", "transform", "layer", "tag", "name", "AddComponent"],
+};
+
 /** System 纯子命名空间成员级白名单（迭代32，compromise-audit C1 结构性收紧）。
  *  结构 Record<ns, Record<type, "pure"|"hof" | Record<member, "pure"|"hof">>>：
  *  type 键 = attr 去掉 obj 段后的第一段（类型/子命名空间名），段前缀匹配（rest===key || rest.startsWith(key+".")）。
@@ -574,7 +581,10 @@ export const csharpPack: LangPack = {
 	builtinTypeEffects,
 	builtinMethodReturns,
 	implicitThis: true, // C# 类内裸名方法调用 = this 方法（迭代19）
+	assignmentScopesLocals: false,
+	bareNameMeansThisInMethod: true, // C# 方法内裸字段写 = this 字段（self.x，迭代37 P0-2）
 	frameworkIo,
+	frameworkAttrPrefix, // 迭代37 P0-1：X.gameObject.* 前缀白名单（数据化）
 	frameworkPure,
 	pureCtor, // 迭代33 C1：new X() 构造器建模——纯构造类型清单
 

@@ -21,10 +21,16 @@ export interface EffectTables {
   readonly builtinTypeEffects: Readonly<Record<string, Readonly<Record<string, "pure" | "hof">>>>;
   readonly hofCallsArgs: ReadonlySet<string>;
   readonly hofAlwaysArgs: ReadonlySet<string>;
+  /** frameworkPure 成员级白名单（ns → type → "pure"|"hof" | 异质成员表）。迭代37 P1-1 注入支持。 */
+  readonly frameworkPure?: Readonly<
+    Record<string, Readonly<Record<string, "pure" | "hof" | Readonly<Record<string, "pure" | "hof">>>>>
+  >;
+  /** 纯构造类型清单（new X() 纯分配）。迭代37 P1-1 注入支持。 */
+  readonly pureCtor?: ReadonlySet<string>;
 }
 
 /** 注入白名单表名 → 值形状（校验用）。 */
-const EFFECT_TABLE_SHAPES: Readonly<Record<keyof EffectTables, "record-effect" | "record-array" | "record-prefix" | "nested-pure-hof" | "set">> = {
+const EFFECT_TABLE_SHAPES: Readonly<Record<keyof EffectTables, "record-effect" | "record-array" | "record-prefix" | "nested-pure-hof" | "ns-nested-pure-hof" | "set">> = {
   impureBuiltins: "record-effect",
   pureBuiltins: "set",
   impureModules: "record-array",
@@ -35,6 +41,8 @@ const EFFECT_TABLE_SHAPES: Readonly<Record<keyof EffectTables, "record-effect" |
   builtinTypeEffects: "nested-pure-hof",
   hofCallsArgs: "set",
   hofAlwaysArgs: "set",
+  frameworkPure: "ns-nested-pure-hof",
+  pureCtor: "set",
 };
 
 const EFFECTS: readonly string[] = ["io", "net", "fs", "db", "random", "clock", "state"];
@@ -105,6 +113,31 @@ export function validateEffectOverride(
           for (const [m, cls] of Object.entries(methods as Record<string, unknown>)) {
             if (typeof cls !== "string" || !PURE_HOF.has(cls)) {
               errors.push(`表 "${lang}.${table}.${typeName}.${m}" 必须是 "pure" 或 "hof"（得 "${String(cls)}"）`);
+            }
+          }
+        }
+        continue;
+      }
+      if (shape === "ns-nested-pure-hof") {
+        // frameworkPure（迭代37 P1-1）：ns → type → "pure"|"hof" | 异质成员表 Record<member, tag>
+        for (const [ns, types] of Object.entries(value as Record<string, unknown>)) {
+          if (types === null || typeof types !== "object" || Array.isArray(types)) {
+            errors.push(`表 "${lang}.${table}.${ns}" 必须是对象`);
+            continue;
+          }
+          for (const [typeName, tagOrMethods] of Object.entries(types as Record<string, unknown>)) {
+            if (typeof tagOrMethods === "string") {
+              if (!PURE_HOF.has(tagOrMethods)) {
+                errors.push(`表 "${lang}.${table}.${ns}.${typeName}" 必须是 "pure" 或 "hof"（得 "${tagOrMethods}"）`);
+              }
+            } else if (tagOrMethods !== null && typeof tagOrMethods === "object" && !Array.isArray(tagOrMethods)) {
+              for (const [m, cls] of Object.entries(tagOrMethods as Record<string, unknown>)) {
+                if (typeof cls !== "string" || !PURE_HOF.has(cls)) {
+                  errors.push(`表 "${lang}.${table}.${ns}.${typeName}.${m}" 必须是 "pure" 或 "hof"（得 "${String(cls)}"）`);
+                }
+              }
+            } else {
+              errors.push(`表 "${lang}.${table}.${ns}.${typeName}" 必须是 "pure"/"hof" 字符串或成员表对象`);
             }
           }
         }
@@ -189,8 +222,39 @@ function mergeSet(
   return new Set([...base, ...items]);
 }
 
+/** frameworkPure 三层深合并（迭代37 P1-1）：ns → type → tag | 异质成员表；type 级成员表并集，整类型键覆盖。 */
+function mergeFrameworkPure(
+  base: EffectTables["frameworkPure"],
+  override: EffectTables["frameworkPure"],
+): EffectTables["frameworkPure"] {
+  if (!override) return base;
+  type TypeVal = "pure" | "hof" | Readonly<Record<string, "pure" | "hof">>;
+  const out: Record<string, Record<string, TypeVal>> = {};
+  for (const [ns, types] of Object.entries(base ?? {})) {
+    out[ns] = { ...(types as Record<string, TypeVal>) };
+  }
+  for (const [ns, types] of Object.entries(override)) {
+    const existing = (out[ns] ?? {}) as Record<string, unknown>;
+    const merged: Record<string, TypeVal> = {};
+    for (const [t, v] of Object.entries(existing)) merged[t] = v as TypeVal;
+    for (const [t, v] of Object.entries(types)) {
+      const ev = existing[t];
+      if (ev !== null && typeof ev === "object" && !Array.isArray(ev) &&
+          v !== null && typeof v === "object" && !Array.isArray(v)) {
+        // 异质成员表（Array 型）：member 级并集不丢内置
+        merged[t] = { ...(ev as Record<string, "pure" | "hof">), ...(v as Record<string, "pure" | "hof">) };
+      } else {
+        merged[t] = v as TypeVal; // 整类型键（pure/hof）覆盖
+      }
+    }
+    out[ns] = merged;
+  }
+  return out;
+}
+
 /**
- * 合并 override 到 pack（键只增不删；标量覆盖；数组并集；builtinTypeEffects 两层深合并）。
+ * 合并 override 到 pack（键只增不删；标量覆盖；数组并集；builtinTypeEffects 两层深合并；
+ * frameworkPure 三层深合并；pureCtor Set 并集——迭代37 P1-1）。
  * 返回合并后的克隆 pack；override 为空对象 → 返回原 pack 引用（短路，零行为变化）。
  * 调用方负责先 validateEffectOverride（本函数不做校验——信任边界在入口）。
  */
@@ -211,6 +275,8 @@ export function applyEffectOverrides(
     builtinTypeEffects: mergeNested(pack.builtinTypeEffects, override.builtinTypeEffects as never),
     hofCallsArgs: mergeSet(pack.hofCallsArgs, override.hofCallsArgs as ReadonlySet<string> | undefined),
     hofAlwaysArgs: mergeSet(pack.hofAlwaysArgs, override.hofAlwaysArgs as ReadonlySet<string> | undefined),
+    frameworkPure: mergeFrameworkPure(pack.frameworkPure, override.frameworkPure),
+    pureCtor: mergeSet(pack.pureCtor ?? new Set<string>(), override.pureCtor as ReadonlySet<string> | undefined),
   };
 }
 

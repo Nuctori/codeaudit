@@ -639,17 +639,26 @@ function resolveCall(
     // 仅方法候选：裸名调用不指向方法 → 落到后续分支（import/效应表/未知）
   }
 
-  // 迭代33 C2（InitDeity 痛点）：X.gameObject.* 前缀白名单 → io（Unity 组件属性，变量 receiver）。
+  // 属性链前缀白名单（迭代33 C2，迭代37 P0-1 数据化）：任意变量的 `.head.member` 链
+  // （item.gameObject.SetActive 的 obj=item、attr="gameObject.SetActive"）查 frameworkAttrPrefix。
   // **必须在 assigned 守卫之前**（本形态主体是局部变量 receiver——item.gameObject.SetActive 的 item
-  // 在 assigned 命中会被下方守卫跳过）。白名单复用 frameworkIo.gameObject 既有清单；项目扩展方法
-  // （root.gameObject.RefreshSelf）不在白名单 → 落回 ? 诚实。
-  if (call.obj !== null && call.attr.startsWith("gameObject.")) {
-    const rest = call.attr.slice("gameObject.".length);
-    const member = rest.indexOf(".") === -1 ? rest : rest.slice(0, rest.indexOf("."));
-    if (pack.frameworkIo.gameObject?.includes(member)) {
-      sink.addEffect("io");
-      sink.hitTable("frame:gameObject"); // 复用既有槽位（与 obj="gameObject" 精确命中统计合并）
-      return;
+  // 在 assigned 命中会被下方守卫跳过）。白名单 miss → 落回后续分支 → UNKNOWN 诚实（方向安全）。
+  if (call.obj !== null) {
+    const dot = call.attr.indexOf(".");
+    if (dot !== -1) {
+      const head = call.attr.slice(0, dot);
+      const prefixes = pack.frameworkAttrPrefix && Object.hasOwn(pack.frameworkAttrPrefix, head)
+        ? pack.frameworkAttrPrefix[head]
+        : undefined;
+      if (prefixes) {
+        const rest = call.attr.slice(dot + 1);
+        const member = rest.indexOf(".") === -1 ? rest : rest.slice(0, rest.indexOf("."));
+        if (prefixes.includes(member)) {
+          sink.addEffect("io");
+          sink.hitTable(`frame:${head}`); // 迭代21 B：框架前缀命中计数
+          return;
+        }
+      }
     }
   }
 
