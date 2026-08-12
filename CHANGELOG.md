@@ -1,5 +1,57 @@
 # Changelog
 
+## [Unreleased] — 迭代 39（数学模型细化 M=(IR,Σ,Λ,π,H,F) + 缺口全收）
+
+### 新增
+
+- 数学模型规格 docs/iter39/00-model.md：M=(IR,Σ,Λ,π,H,F) + 引理 L1-L7——投影公理/并集闭包/祖先全并集/virtual 精确分派/构造器效应完备/mutate≡下标写/trustedCtor
+- C# virtual 精确分派（B7）：polymorphicMethods=false + virtualMembers 提取（virtual/override/abstract，sealed 排除）+ BFS 首声明层守卫——非 virtual 静态分派精确（C# `new` 隐藏不改分派）；接口接收者无条件 virtual（接口分派恒动态）
+- P2-1 投影数据化：astShapes 19 集投影表（py/ts/js/cs 全声明）——extractor 全部节点类型判定走 pack 表，新语言接入 = 纯数据
+- P2-2 AST 形状契约网（ast-shape.test.ts 6 契约）：wasm 升级防静默失效
+
+### 修复
+
+- 字段初始化器假纯洞（P0-1/B11）：ctor 分支闭包 class chunk 原始调用并集（含基类字段初始化器）+ 隐式纯条件收紧；显式 ctor 并存 = 并集非 XOR（独立审计必修 1）
+- 接口接收者假纯回归（独立审计必修 2）：interface_declaration 方法无条件标 virtual
+- bindAssigns 投影集（独立审计必修 3）：`x += C()` 不再假绑定；TS/C# 模块级裸赋值绑定恢复
+- C# catch_clause 恢复（独立审计必修 4）：异常捕获减法不再静默失效
+- moduleBindings 接继承（B9）：模块级值绑定走 resolveClassMember（祖先闭包并集）
+- mutate 写位置（B10）：参数容器变异 → stateDeps 可见（--state 耦合图补齐）
+- node: 硬编码数据化：stripModulePrefixes（link + effectUsage 零语言常量完整态）
+- TS extends_clause 包层剥壳（探针实证：静态基类提取此前全漏 + 误标 dynamic）
+- README 337 测试
+
+## [Unreleased] — 迭代 38（继承/多态最小健全版 + mutate 语义统一 + JS 构造器不可信门）
+
+### 新增
+
+- 继承/多态最小健全版：classExtends 提取 + resolveClassMember（祖先闭包全并集，规则1 禁最近层——Python MRO 反例；同名类跨文件并集规则2）+ 后代守卫降 ?（H4 假纯洞闭合）+ 基类 ctor 并集/隐式 ctor 纯 + 动态 extends 语言级降 ?（规则3）
+- A1 mutate 语义统一（builtinMutators）：参数共享容器变异（d.Add）≡ 下标写（d[0]=1）→ state 效应；sort 回调义务保留（规则5）
+- JS/TS 构造器不可信门（规则7）：trustedCtor=false → 不产 trusted 绑定（P1-2 已落地假纯洞闭合）
+- H6 内建子类守卫：项目内 extends 内建类型并覆写 → ?（字面量豁免）
+- --state 序列化工程上界（capStateCoupling：compact 前缀和 + 二分，64M ≈8× 余量）
+
+### 修复
+
+- csharp gameObject 双份清单漂移 → gameObjectMembers 单一数据源
+- 探针实证：Python typed_parameter 无 name 字段（paramTypes/paramNames 对 Python 一直是死路径）、C# base_list 是子节点非字段、逗号匿名子节点误标 dynamic
+- README 324 测试
+
+## [Unreleased] — 迭代 37（P1-2 局部绑定 + P1-3 并集边 + 无特例语言无关最小化）
+
+### 新增
+
+- P1-2 局部单赋值构造绑定（localBindings）：`var xs = new List<int>()` → xs.Add 纯信箱——最小语言类型层第一个传递函数（G4 守卫：单赋值 ∧ ¬param ∧ 构造形态）
+- P1-3 重载并集边（addUnionEdges + byQualifiedAll）：同限定名多定义 → 全候选并集边（数学 S1/S2/S3 可证安全，禁止任选）——ApiClientHelper.PrepareRequest 732 站重载歧义断链闭合
+- P0-1 `X.gameObject.*` 前缀白名单数据化（frameworkAttrPrefix）+ P0-2 extractor 2-bit 数据化（assignmentScopesLocals/bareNameMeansThisInMethod）
+- P1-1 effectOverride 注入白名单补全（frameworkPure + pureCtor）
+
+### 修复
+
+- Iter-37 audit blocker：LangPack 接口补 P0-2 2-bit 字段声明（提交信息失实 + 构建红线）
+- 技术债 C6/C7 标记闭环
+- README 305 测试
+
 ## [Unreleased] — 迭代 35-36（A1 参数绑定 + 独立审计修复 + 生产就绪规划）
 
 ### 新增

@@ -884,6 +884,304 @@ function resolveClassMember(
 	return anyDeclaring ? "edges" : "none";
 }
 
+/** 迭代40 C1：构造调用分派（0.5 分支，自 resolveCall 拆分——行为零变化）。
+ *  规则：① impureGlobals 类型键 → 对应效应（FileStream:fs/Random:random/WaitForSeconds:clock 免费复用）；
+ *  ② 项目类（globalClasses 单命中且 !ambiguous）→ 边到 **ctor chunk**（constructor_declaration，
+ *    byQualified "Type.Type"——禁止走 bySimple 裸名分支（错边到 class chunk 丢构造体效应 = 假纯））；
+ *    **项目类优先于 pureCtor 名单**（迭代34 独立审计 Med：项目自建类撞 List/Color/Uri 等名单名且构造体
+ *    有 io → 先查 pureCtor 会假纯，红线方向）。
+ *    注（迭代36 独立审计 Low）：ctor 分支 impureGlobals 在项目类**之前**，与常规 obj 分支
+ *    （globalClasses 在 impureGlobals 前）顺序不同——项目类撞 impureGlobals 键（Debug/FileStream 等）
+ *    时构造形态走效应表、成员调用形态走项目类边；行为有界（效应表键有限且构造即效应语义可辩），记录不修；
+ *  ③ 纯构造清单（pureCtor）→ 纯；④ 其余框架类型 → ? 诚实（未列类型默认不纯，绝不给"未知皆纯"）。
+ *  恒消费（true）。 */
+function resolveCtorCall(
+	call: RawCall,
+	t: string,
+	caller: RawChunk,
+	fi: FileIndex,
+	files: ReadonlyMap<string, FileIndex>,
+	pack: LangPack,
+	globalClasses: ReadonlyMap<
+		string,
+		{ file: string; key: string; lang: string }[]
+	>,
+	superMap: ReadonlyMap<string, ReadonlySet<string>>,
+	hasSubclass: ReadonlySet<string>,
+	langHasDynamicExtends: ReadonlySet<string>,
+	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>,
+	sink: Sink,
+): boolean {
+	const rule = Object.hasOwn(pack.impureGlobals, t)
+		? pack.impureGlobals[t]
+		: undefined;
+	if (typeof rule === "string") {
+		sink.addEffect(rule);
+		sink.hitTable(`ctor:${t}`);
+		return true;
+	}
+	if (Array.isArray(rule)) {
+		// 迭代34 独立审计 Low：当前 csharp impureGlobals 全为 string 值（数组形态仅 python impureModules）——
+		// 本分支对 ctor（仅 C# 产生）不可达，是防御代码。构造即整体效应 → 保守 io。
+		sink.addEffect("io");
+		sink.hitTable(`ctor:${t}`);
+		return true;
+	}
+	// 项目类构造（优先于 pureCtor——防假纯）：边到 ctor chunk（含基类构造器并集——C# 基类 ctor 必执行；
+	// Python 不自动调基类 __init__ 但并集是过近似方向安全，迭代38 A）。
+	if (!caller.assigned.includes(t) && !fi.moduleAssigned.has(t)) {
+		const r = resolveClassMember(
+			t,
+			t,
+			pack,
+			files,
+			globalClasses,
+			superMap,
+			hasSubclass,
+			langHasDynamicExtends,
+			virtualMembers,
+			sink,
+			false,
+		);
+		// 迭代39 L5：构造器效应 = 闭包内显式 ctor（resolveClassMember 并集）∪ 字段初始化器——
+		// 闭包内**全部** class chunk 原始调用并集（含基类字段初始化器；C# 静态初始化器在实例化路径
+		// 上执行，并入是过近似，S2 方向安全）。**并集必须先于 r==="edges" return**（显式 ctor +
+		// 字段初始化器并存时不得漏字段初始化器效应——独立审计 FAIL 反例）。
+		const clsEntries = globalClasses.get(t);
+		let bodyEdges = 0;
+		for (const c of ancestorClosureOf(t, pack, superMap)) {
+			const entries = globalClasses.get(c);
+			if (!entries) continue;
+			for (const e of entries) {
+				if (e.lang !== pack.name) continue;
+				const tf = files.get(e.file);
+				const rc = tf?.chunkByKey.get(e.key);
+				// rc.calls 是原始调用（facts）——含字段初始化器调用；ctor-merge 边在 link 输出侧，不在此
+				if (rc && rc.calls.length > 0) {
+					sink.addEdge(e.key);
+					bodyEdges++;
+				}
+			}
+		}
+		if (r === "edges" || bodyEdges > 0) {
+			sink.hitTable(`ctor:${t}`);
+			return true;
+		}
+		// 隐式默认构造（C# 隐式 ctor 只链 base()）：充分条件 = 闭包无显式 ctor（r === "none"）
+		// ∧ 闭包全部 class chunk 零原始调用（无字段初始化器效应）——前提成立才判纯。
+		if (
+			r === "none" &&
+			clsEntries &&
+			clsEntries.some((c) => c.lang === pack.name)
+		) {
+			sink.hitTable(`ctor:${t}:p`);
+			return true;
+		}
+	}
+	if (pack.pureCtor && pack.pureCtor.has(t)) {
+		sink.hitTable(`ctor:${t}:p`);
+		return true;
+	}
+	sink.missTable(`ctor:${t}`); // 未列框架类型/歧义 → 补表候选 + 诚实 ?
+	sink.addUnknownCall(call);
+	sink.markUnknown();
+	return true;
+}
+
+/** 迭代40 C1：对象方法分派（4. 效应表 else 分支，自 resolveCall 拆分——行为零变化）。
+ *  通道序：A1 参数类型（项目类/内建表+H6+mutate）→ lb 局部绑定 → 全局类 → impureGlobals/pureGlobals。
+ *  返回是否已消费（true = 调用方 return）。 */
+function resolveObjDispatch(
+	call: RawCall,
+	caller: RawChunk,
+	fi: FileIndex,
+	files: ReadonlyMap<string, FileIndex>,
+	pack: LangPack,
+	globalClasses: ReadonlyMap<
+		string,
+		{ file: string; key: string; lang: string }[]
+	>,
+	superMap: ReadonlyMap<string, ReadonlySet<string>>,
+	hasSubclass: ReadonlySet<string>,
+	langHasDynamicExtends: ReadonlySet<string>,
+	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>,
+	sink: Sink,
+): boolean {
+	// 调用方已保证 call.obj !== null（裸名走 impureBuiltins 分支）——此处收窄类型
+	if (call.obj === null) return false;
+	// 迭代35 A1：参数显式类型绑定——obj 是参数且类型已知（Dictionary<string,int> d → d.TryGetValue）
+	// → 查 builtinTypeEffects（List/Dictionary/array 的 Add/Remove/TryGetValue 等纯读写信箱）。
+	// 迭代36 独立审计 High 修复：项目类名撞表键（项目自建 List/Dictionary 类作参数类型）→ 跳过表绑定
+	// ——与 ctor 分支同守卫。否则 `xs.Add`（xs 参数类型为项目 List 类）误判 PURE（假纯红线）。
+	// 仅当参数未遮蔽（assigned 无同名重绑）。
+	const ptype = caller.paramTypes?.[call.obj ?? ""];
+	if (ptype !== undefined && !caller.assigned.includes(call.obj ?? "")) {
+		const pcls = globalClasses.get(ptype);
+		const isProject =
+			pcls && pcls.length > 0 && pcls.some((c) => c.lang === pack.name);
+		if (
+			isProject &&
+			!caller.assigned.includes(ptype) &&
+			!fi.moduleAssigned.has(ptype)
+		) {
+			// 迭代38 A：参数类型为项目类 → 继承+多态解析（祖先并集 + 子类覆写守卫降 ?）
+			const r = resolveClassMember(
+				ptype,
+				call.attr,
+				pack,
+				files,
+				globalClasses,
+				superMap,
+				hasSubclass,
+				langHasDynamicExtends,
+				virtualMembers,
+				sink,
+				true,
+			);
+			if (r === "edges") {
+				sink.hitTable(`type:${ptype}.${call.attr}`);
+				return true;
+			}
+			if (r === "unknown") {
+				sink.addUnknownCall(call);
+				sink.markUnknown();
+				return true;
+			}
+		} else {
+			// 迭代38 H6：内建子类守卫——项目内存在 extends ptype 的类（可能覆写 m）→ 表判定不健全 → ?
+			if (hasSubclass.has(`${pack.name}\u0000${ptype}`)) {
+				sink.addUnknownCall(call);
+				sink.markUnknown();
+				return true;
+			}
+			// 迭代38 B：参数共享容器方法变异 → state（与 d[0]=1 → stateWrites 同语义统一，iter36 §b-7）；
+			// 必须在 pure/hof 之前（List.Add 在 builtinTypeEffects 标 pure，此处抢先）；
+			// 回调义务：builtinTypeEffects 标 hof 或 hof 表含 attr → addArgEdges（sort 的 key=，规则5）。
+			if (pack.builtinMutators?.[ptype]?.has(call.attr)) {
+				if (
+					pack.builtinTypeEffects[ptype]?.[call.attr] === "hof" ||
+					pack.hofAlwaysArgs.has(call.attr) ||
+					pack.hofCallsArgs.has(call.attr)
+				)
+					sink.addArgEdges(call.argFns, call.attr);
+				sink.addEffect("state");
+				sink.addStateWrite(call.obj ?? ""); // 迭代39 B10：容器位置（前缀匹配读者 d.x）
+				sink.hitTable(`mutate:${ptype}.${call.attr}`);
+				return true;
+			}
+			const rule = pack.builtinTypeEffects[ptype]?.[call.attr];
+			if (rule === "hof") {
+				sink.addArgEdges(call.argFns, call.attr);
+				sink.hitTable(`type:${ptype}.${call.attr}`);
+				return true;
+			}
+			if (rule === "pure") {
+				sink.hitTable(`type:${ptype}.${call.attr}`);
+				return true;
+			}
+		}
+		// 表外方法 / 项目类歧义 → 落 ? 或继续走全局类解析（诚实）
+	}
+	// 迭代37 P1-2：局部单赋值构造绑定（var xs = new List<int>() → xs.Add）——最小语言类型层
+	// 第一传递函数。G4 守卫：提取侧已保证单赋值构造；此处防重绑遮蔽（assigned）与参数注入（params 走 A1）。
+	// 消费：项目类（globalClasses 只含 kind=class → 函数名 RHS 不命中 → ? 诚实）→ 类成员并集边；
+	// 内建类型（List/Dictionary/string…）→ builtinTypeEffects 查表（纯信箱）。miss 仍落 ?。
+	const lb = caller.localBindings?.[call.obj ?? ""];
+	// 守卫：提取侧已保证单赋值构造（多赋值/重绑不绑）+ 参数排除（params）；此处防参数注入
+	// （paramTypes 双保险）。不用 assigned/moduleAssigned——局部声明（var xs = ...）本身就在
+	// assigned 且 moduleAssigned 含整树赋值（assignedNames(root) 遍历函数体），会误杀全部局部变量；
+	// 局部声明遮蔽模块级同名（C# var / Python 赋值即局部 / TS 声明），绑定可靠。
+	if (lb !== undefined && !Object.hasOwn(caller.paramTypes ?? {}, call.obj ?? "")) {
+		const lbCls = globalClasses.get(lb);
+		if (lbCls && lbCls.some((c) => c.lang === pack.name)) {
+			// 迭代38 A：局部精确构造（polymorphic=false——祖先闭包并集，无后代守卫；
+			// JS/TS 不产 trusted 绑定已在提取侧门控，规则7）
+			const r = resolveClassMember(
+				lb,
+				call.attr,
+				pack,
+				files,
+				globalClasses,
+				superMap,
+				hasSubclass,
+				langHasDynamicExtends,
+				virtualMembers,
+				sink,
+				false,
+			);
+			if (r === "edges") {
+				sink.hitTable(`lb:${lb}.${call.attr}`);
+				return true;
+			}
+		}
+		const rule = pack.builtinTypeEffects[lb]?.[call.attr];
+		if (rule === "hof") {
+			sink.addArgEdges(call.argFns, call.attr);
+			sink.hitTable(`lb:${lb}.${call.attr}`);
+			return true;
+		}
+		if (rule === "pure") {
+			sink.hitTable(`lb:${lb}.${call.attr}`);
+			return true;
+		}
+	}
+	// 全局类名解析（迭代19 C# 跨文件类调用）——**优先于效应表（迭代21 正确化）**：
+	// 项目内类 NetCall 撞效应表条目 NetCall: "net"——项目类优先（真实实现），表条目是通用库名。
+	// 遮蔽守卫：调用方局部赋值或模块级重绑（conn = make_evil() 遮蔽 import）→ 不解析
+	// 语言隔离（迭代19 复审 F1）：只解析同语言类——跨语言同名类不串味
+	const cls = globalClasses.get(call.obj);
+	if (
+		cls &&
+		!caller.assigned.includes(call.obj) &&
+		!fi.moduleAssigned.has(call.obj)
+	) {
+		// 迭代37 P1-3：跨文件同名类 + 成员重载 → 全候选并集边（G5：含跨文件多命中）
+		const same = cls.filter((c) => c.lang === pack.name);
+		const q = `${call.obj}.${call.attr}`;
+		let any = false;
+		for (const c of same) {
+			const tf = files.get(c.file);
+			if (tf && addUnionEdges(tf, q, sink)) any = true;
+		}
+		if (any) return true;
+	}
+	// hasOwn 守卫：impureGlobals 普通对象字面量，继承键（constructor 等）→ undefined（纪律与 B1 同源）
+	const rule = Object.hasOwn(pack.impureGlobals, call.obj)
+		? pack.impureGlobals[call.obj]
+		: undefined;
+	if (typeof rule === "string") {
+		sink.addEffect(rule); // 模块/全局整体效应类（console: "io"）
+		sink.hitTable(`global:${call.obj}`); // 迭代21 B
+		return true;
+	}
+	if (Array.isArray(rule)) {
+		if (rule.includes(call.attr)) {
+			sink.addEffect("io");
+			sink.hitTable(`global:${call.obj}`); // 迭代21 B
+			return true;
+		}
+		const tagged = rule.find((r) => r.startsWith(call.attr + ":"));
+		if (tagged) {
+			const cls = tagged.slice(call.attr.length + 1);
+			if (cls === "p") {
+				sink.hitTable(`global:${call.obj}`); // 迭代21 B
+				return true; // 纯标记（与 effectFromModule 同语义，A7 原子性守卫，迭代7 发现B）
+			}
+			sink.addEffect(cls); // "now:clock" / "random:random"
+			sink.hitTable(`global:${call.obj}`); // 迭代21 B
+			return true;
+		}
+	}
+	if (pack.pureGlobals.has(call.obj)) {
+		if (pack.hofCallsArgs.has(call.attr))
+			sink.addArgEdges(call.argFns, call.attr); // Array.from(xs, cb)
+		sink.hitTable(`global:${call.obj}`); // 迭代21 B
+		return true;
+	}
+	if (call.obj !== UNRESOLVED_TARGET) sink.missTable(`global:${call.obj}`); // 迭代21 B：对象双未中 → 补表候选
+	return false;
+}
+
 function resolveCall(
 	call: RawCall,
 	caller: RawChunk,
@@ -917,90 +1215,22 @@ function resolveCall(
 	};
 
 	// 0.5 构造调用（迭代33 C1：new X(...) 构造器建模——C# object_creation_expression 产 ctor 标记）。
-	// 规则：① impureGlobals 类型键 → 对应效应（FileStream:fs/Random:random/WaitForSeconds:clock 免费复用）；
-	// ② 项目类（globalClasses 单命中且 !ambiguous）→ 边到 **ctor chunk**（constructor_declaration，
-	//    byQualified "Type.Type"——禁止走 bySimple 裸名分支（错边到 class chunk 丢构造体效应 = 假纯））；
-	//    **项目类优先于 pureCtor 名单**（迭代34 独立审计 Med：项目自建类撞 List/Color/Uri 等名单名且构造体
-	//    有 io → 先查 pureCtor 会假纯，红线方向）。
-	//    注（迭代36 独立审计 Low）：ctor 分支 impureGlobals 在项目类**之前**，与常规 obj 分支
-	//    （globalClasses 在 impureGlobals 前）顺序不同——项目类撞 impureGlobals 键（Debug/FileStream 等）
-	//    时构造形态走效应表、成员调用形态走项目类边；行为有界（效应表键有限且构造即效应语义可辩），记录不修；
-	// ③ 纯构造清单（pureCtor）→ 纯；④ 其余框架类型 → ? 诚实（未列类型默认不纯，绝不给"未知皆纯"）。
+	// 规则/优先级细节见 resolveCtorCall（迭代40 C1 拆分）。
 	if (call.ctor !== undefined) {
-		const t = call.ctor;
-		const rule = Object.hasOwn(pack.impureGlobals, t)
-			? pack.impureGlobals[t]
-			: undefined;
-		if (typeof rule === "string") {
-			sink.addEffect(rule);
-			sink.hitTable(`ctor:${t}`);
-			return;
-		}
-		if (Array.isArray(rule)) {
-			// 迭代34 独立审计 Low：当前 csharp impureGlobals 全为 string 值（数组形态仅 python impureModules）——
-			// 本分支对 ctor（仅 C# 产生）不可达，是防御代码。构造即整体效应 → 保守 io。
-			sink.addEffect("io");
-			sink.hitTable(`ctor:${t}`);
-			return;
-		}
-		// 项目类构造（优先于 pureCtor——防假纯）：边到 ctor chunk（含基类构造器并集——C# 基类 ctor 必执行；
-		// Python 不自动调基类 __init__ 但并集是过近似方向安全，迭代38 A）。
-		if (!caller.assigned.includes(t) && !fi.moduleAssigned.has(t)) {
-			const r = resolveClassMember(
-				t,
-				t,
-				pack,
-				files,
-				globalClasses,
-				superMap,
-				hasSubclass,
-				langHasDynamicExtends,
-				virtualMembers,
-				sink,
-				false,
-			);
-			// 迭代39 L5：构造器效应 = 闭包内显式 ctor（resolveClassMember 并集）∪ 字段初始化器——
-			// 闭包内**全部** class chunk 原始调用并集（含基类字段初始化器；C# 静态初始化器在实例化路径
-			// 上执行，并入是过近似，S2 方向安全）。**并集必须先于 r==="edges" return**（显式 ctor +
-			// 字段初始化器并存时不得漏字段初始化器效应——独立审计 FAIL 反例）。
-			const clsEntries = globalClasses.get(t);
-			let bodyEdges = 0;
-			for (const c of ancestorClosureOf(t, pack, superMap)) {
-				const entries = globalClasses.get(c);
-				if (!entries) continue;
-				for (const e of entries) {
-					if (e.lang !== pack.name) continue;
-					const tf = files.get(e.file);
-					const rc = tf?.chunkByKey.get(e.key);
-					// rc.calls 是原始调用（facts）——含字段初始化器调用；ctor-merge 边在 link 输出侧，不在此
-					if (rc && rc.calls.length > 0) {
-						sink.addEdge(e.key);
-						bodyEdges++;
-					}
-				}
-			}
-			if (r === "edges" || bodyEdges > 0) {
-				sink.hitTable(`ctor:${t}`);
-				return;
-			}
-			// 隐式默认构造（C# 隐式 ctor 只链 base()）：充分条件 = 闭包无显式 ctor（r === "none"）
-			// ∧ 闭包全部 class chunk 零原始调用（无字段初始化器效应）——前提成立才判纯。
-			if (
-				r === "none" &&
-				clsEntries &&
-				clsEntries.some((c) => c.lang === pack.name)
-			) {
-				sink.hitTable(`ctor:${t}:p`);
-				return;
-			}
-		}
-		if (pack.pureCtor && pack.pureCtor.has(t)) {
-			sink.hitTable(`ctor:${t}:p`);
-			return;
-		}
-		sink.missTable(`ctor:${t}`); // 未列框架类型/歧义 → 补表候选 + 诚实 ?
-		sink.addUnknownCall(call);
-		sink.markUnknown();
+		resolveCtorCall(
+			call,
+			call.ctor,
+			caller,
+			fi,
+			files,
+			pack,
+			globalClasses,
+			superMap,
+			hasSubclass,
+			langHasDynamicExtends,
+			virtualMembers,
+			sink,
+		);
 		return;
 	}
 
@@ -1256,180 +1486,23 @@ function resolveCall(
 		}
 		if (call.attr !== UNRESOLVED_TARGET) sink.missTable(`builtin:${call.attr}`); // 迭代21 B：裸名双未中 → 补表候选
 	} else {
-		// 迭代35 A1：参数显式类型绑定——obj 是参数且类型已知（Dictionary<string,int> d → d.TryGetValue）
-		// → 查 builtinTypeEffects（List/Dictionary/array 的 Add/Remove/TryGetValue 等纯读写信箱）。
-		// 迭代36 独立审计 High 修复：项目类名撞表键（项目自建 List/Dictionary 类作参数类型）→ 跳过表绑定
-		// ——与 ctor 分支（L504-512）同守卫。否则 `xs.Add`（xs 参数类型为项目 List 类）误判 PURE（假纯红线）。
-		// 仅当参数未遮蔽（assigned 无同名重绑）。
-		const ptype = caller.paramTypes?.[call.obj ?? ""];
-		if (ptype !== undefined && !caller.assigned.includes(call.obj ?? "")) {
-			const pcls = globalClasses.get(ptype);
-			const isProject =
-				pcls && pcls.length > 0 && pcls.some((c) => c.lang === pack.name);
-			if (
-				isProject &&
-				!caller.assigned.includes(ptype) &&
-				!fi.moduleAssigned.has(ptype)
-			) {
-				// 迭代38 A：参数类型为项目类 → 继承+多态解析（祖先并集 + 子类覆写守卫降 ?）
-				const r = resolveClassMember(
-					ptype,
-					call.attr,
-					pack,
-					files,
-					globalClasses,
-					superMap,
-					hasSubclass,
-					langHasDynamicExtends,
-				virtualMembers,
-					sink,
-					true,
-				);
-				if (r === "edges") {
-					sink.hitTable(`type:${ptype}.${call.attr}`);
-					return;
-				}
-				if (r === "unknown") {
-					sink.addUnknownCall(call);
-					sink.markUnknown();
-					return;
-				}
-			} else {
-				// 迭代38 H6：内建子类守卫——项目内存在 extends ptype 的类（可能覆写 m）→ 表判定不健全 → ?
-				if (hasSubclass.has(`${pack.name}\u0000${ptype}`)) {
-					sink.addUnknownCall(call);
-					sink.markUnknown();
-					return;
-				}
-				// 迭代38 B：参数共享容器方法变异 → state（与 d[0]=1 → stateWrites 同语义统一，iter36 §b-7）；
-				// 必须在 pure/hof 之前（List.Add 在 builtinTypeEffects 标 pure，此处抢先）；
-				// 回调义务：builtinTypeEffects 标 hof 或 hof 表含 attr → addArgEdges（sort 的 key=，规则5）。
-				if (pack.builtinMutators?.[ptype]?.has(call.attr)) {
-					if (
-						pack.builtinTypeEffects[ptype]?.[call.attr] === "hof" ||
-						pack.hofAlwaysArgs.has(call.attr) ||
-						pack.hofCallsArgs.has(call.attr)
-					)
-						sink.addArgEdges(call.argFns, call.attr);
-					sink.addEffect("state");
-					sink.addStateWrite(call.obj ?? ""); // 迭代39 B10：容器位置（前缀匹配读者 d.x）
-					sink.hitTable(`mutate:${ptype}.${call.attr}`);
-					return;
-				}
-				const rule = pack.builtinTypeEffects[ptype]?.[call.attr];
-				if (rule === "hof") {
-					sink.addArgEdges(call.argFns, call.attr);
-					sink.hitTable(`type:${ptype}.${call.attr}`);
-					return;
-				}
-				if (rule === "pure") {
-					sink.hitTable(`type:${ptype}.${call.attr}`);
-					return;
-				}
-			}
-			// 表外方法 / 项目类歧义 → 落 ? 或继续走全局类解析（诚实）
-			// 表外方法 / 项目类歧义 → 落 ? 或继续走全局类解析（诚实）
-		}
-		// 迭代37 P1-2：局部单赋值构造绑定（var xs = new List<int>() → xs.Add）——最小语言类型层
-		// 第一传递函数。G4 守卫：提取侧已保证单赋值构造；此处防重绑遮蔽（assigned）与参数注入（params 走 A1）。
-		// 消费：项目类（globalClasses 只含 kind=class → 函数名 RHS 不命中 → ? 诚实）→ 类成员并集边；
-		// 内建类型（List/Dictionary/string…）→ builtinTypeEffects 查表（纯信箱）。miss 仍落 ?。
-		const lb = caller.localBindings?.[call.obj ?? ""];
-		// 守卫：提取侧已保证单赋值构造（多赋值/重绑不绑）+ 参数排除（params）；此处防参数注入
-		// （paramTypes 双保险）。不用 assigned/moduleAssigned——局部声明（var xs = ...）本身就在
-		// assigned 且 moduleAssigned 含整树赋值（assignedNames(root) 遍历函数体），会误杀全部局部变量；
-		// 局部声明遮蔽模块级同名（C# var / Python 赋值即局部 / TS 声明），绑定可靠。
+		// 对象方法分派：A1 参数类型 / lb 局部绑定 / 全局类 / 效应表——细节见 resolveObjDispatch（迭代40 C1 拆分）
 		if (
-			lb !== undefined &&
-			!Object.hasOwn(caller.paramTypes ?? {}, call.obj ?? "")
-		) {
-			const lbCls = globalClasses.get(lb);
-			if (lbCls && lbCls.some((c) => c.lang === pack.name)) {
-				// 迭代38 A：局部精确构造（polymorphic=false——祖先闭包并集，无后代守卫；
-				// JS/TS 不产 trusted 绑定已在提取侧门控，规则7）
-				const r = resolveClassMember(
-					lb,
-					call.attr,
-					pack,
-					files,
-					globalClasses,
-					superMap,
-					hasSubclass,
-					langHasDynamicExtends,
+			resolveObjDispatch(
+				call,
+				caller,
+				fi,
+				files,
+				pack,
+				globalClasses,
+				superMap,
+				hasSubclass,
+				langHasDynamicExtends,
 				virtualMembers,
-					sink,
-					false,
-				);
-				if (r === "edges") {
-					sink.hitTable(`lb:${lb}.${call.attr}`);
-					return;
-				}
-			}
-			const rule = pack.builtinTypeEffects[lb]?.[call.attr];
-			if (rule === "hof") {
-				sink.addArgEdges(call.argFns, call.attr);
-				sink.hitTable(`lb:${lb}.${call.attr}`);
-				return;
-			}
-			if (rule === "pure") {
-				sink.hitTable(`lb:${lb}.${call.attr}`);
-				return;
-			}
-		}
-		// 全局类名解析（迭代19 C# 跨文件类调用）——**优先于效应表（迭代21 正确化）**：
-		// 项目内类 NetCall 撞效应表条目 NetCall: "net"——项目类优先（真实实现），表条目是通用库名。
-		// 遮蔽守卫：调用方局部赋值或模块级重绑（conn = make_evil() 遮蔽 import）→ 不解析
-		// 语言隔离（迭代19 复审 F1）：只解析同语言类——跨语言同名类不串味
-		const cls = globalClasses.get(call.obj);
-		if (
-			cls &&
-			!caller.assigned.includes(call.obj) &&
-			!fi.moduleAssigned.has(call.obj)
-		) {
-			// 迭代37 P1-3：跨文件同名类 + 成员重载 → 全候选并集边（G5：含跨文件多命中）
-			const same = cls.filter((c) => c.lang === pack.name);
-			const q = `${call.obj}.${call.attr}`;
-			let any = false;
-			for (const c of same) {
-				const tf = files.get(c.file);
-				if (tf && addUnionEdges(tf, q, sink)) any = true;
-			}
-			if (any) return;
-		}
-		// hasOwn 守卫：impureGlobals 普通对象字面量，继承键（constructor 等）→ undefined（纪律与 B1 同源）
-		const rule = Object.hasOwn(pack.impureGlobals, call.obj)
-			? pack.impureGlobals[call.obj]
-			: undefined;
-		if (typeof rule === "string") {
-			sink.addEffect(rule); // 模块/全局整体效应类（console: "io"）
-			sink.hitTable(`global:${call.obj}`); // 迭代21 B
+				sink,
+			)
+		)
 			return;
-		}
-		if (Array.isArray(rule)) {
-			if (rule.includes(call.attr)) {
-				sink.addEffect("io");
-				sink.hitTable(`global:${call.obj}`); // 迭代21 B
-				return;
-			}
-			const tagged = rule.find((r) => r.startsWith(call.attr + ":"));
-			if (tagged) {
-				const cls = tagged.slice(call.attr.length + 1);
-				if (cls === "p") {
-					sink.hitTable(`global:${call.obj}`); // 迭代21 B
-					return; // 纯标记（与 effectFromModule 同语义，A7 原子性守卫，迭代7 发现B）
-				}
-				sink.addEffect(cls); // "now:clock" / "random:random"
-				sink.hitTable(`global:${call.obj}`); // 迭代21 B
-				return;
-			}
-		}
-		if (pack.pureGlobals.has(call.obj)) {
-			if (pack.hofCallsArgs.has(call.attr))
-				sink.addArgEdges(call.argFns, call.attr); // Array.from(xs, cb)
-			sink.hitTable(`global:${call.obj}`); // 迭代21 B
-			return;
-		}
-		if (call.obj !== UNRESOLVED_TARGET) sink.missTable(`global:${call.obj}`); // 迭代21 B：对象双未中 → 补表候选
 	}
 
 	// 5. 星号导入回退；其余裸名记未知，对象方法记动态分派
