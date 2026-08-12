@@ -202,7 +202,8 @@ const literalReceivers: Record<string, string> = {
 	true: "boolean",
 	false: "boolean",
 	null_literal: "null",
-	object_creation_expression: "object",
+	// 迭代33 C1：object_creation_expression 移除（曾短路为 "object" 导致 new C().m() 链断）——
+	// receiverTypeOf 对 C# 构造器改走 class:TypeName 分支（与 TS new_expression 对称）
 	array_creation_expression: "array",
 };
 
@@ -365,6 +366,25 @@ const builtinMethodReturns: Record<string, Record<string, string>> = {
 		Aggregate: "number",
 	},
 };
+
+/** 纯构造类型（迭代33 C1：new X() 构造器建模——X ∈ 清单 → 纯分配无副作用）。
+ *  语料确证（InitDeity <unresolved> 构造器 top 20：List 128/Dictionary 78/Vector2 51/
+ *  JsonSerializerSettings 47/Color 44/Vector3 41/GUIContent 39/异常族 ~75/HashSet 16/Rect 16/
+ *  UnityEvent 10/WaitForSeconds 9）+ .NET 领域双重确证。未列框架类型 → ? 诚实（红线：绝不给"未知皆纯"）。
+ *  注意：Random:random/WaitForSeconds:clock/FileStream:fs 走 impureGlobals（构造即效应），不入此表。 */
+const pureCtor = new Set<string>([
+	"List", "Dictionary", "HashSet", "Queue", "Stack", "LinkedList", "SortedDictionary",
+	"Vector2", "Vector3", "Vector4", "Quaternion", "Color", "Color32", "Rect", "RectInt",
+	"GUIContent", "GUIStyle", "GUILayout", "RectOffset", "Texture2D", "Sprite",
+	"JsonSerializerSettings", "JsonSerializer", "JsonConvert",
+	"Exception", "ArgumentException", "ArgumentNullException", "ArgumentOutOfRangeException",
+	"InvalidOperationException", "NotImplementedException", "NotSupportedException", "KeyNotFoundException",
+	"UnityEvent",
+	"StringBuilder", "StringReader", "StringWriter",
+	"byte", "byte[]", "string", "String", "object", "char", "int", "long", "float", "double", "bool",
+	"TimeSpan", "Guid", "Uri", "Mathf", "SystemInfo",
+	// Random/WaitForSeconds/FileStream 等不在表——构造即效应走 impureGlobals（random/clock/fs）
+]);
 
 /** 框架命名空间（迭代19 C#/Unity）：this.gameObject/this.transform 等 MonoBehaviour 组件属性链
  *  （obj=this、attr="gameObject.SetActive" 含 . → 分支 1 放行 → 2.5 前缀命中 → io/state 保守）。 */
@@ -556,6 +576,7 @@ export const csharpPack: LangPack = {
 	implicitThis: true, // C# 类内裸名方法调用 = this 方法（迭代19）
 	frameworkIo,
 	frameworkPure,
+	pureCtor, // 迭代33 C1：new X() 构造器建模——纯构造类型清单
 
 	extractImports: extractCSharpImports,
 	resolveModule(): string | null {

@@ -26,6 +26,8 @@ export interface RawCall {
   readonly receiver: string | null;
   /** 语法函数实参（命名函数/import 绑定的标识符），供 HOF 回调边使用。 */
   readonly argFns: readonly string[];
+  /** 构造调用类型名（new X(...)；非构造为 undefined）。迭代33 C1：构造器建模。 */
+  readonly ctor?: string;
 }
 
 /** 原始 import 记录。 */
@@ -126,6 +128,9 @@ export interface LangPack {
   readonly frameworkPure?: Readonly<
     Record<string, Readonly<Record<string, "pure" | "hof" | Readonly<Record<string, "pure" | "hof">>>>>
   >;
+  /** 纯构造类型（迭代33 C1：new X() 构造器建模——X ∈ 清单 → 纯分配无副作用；未列框架类型 → ? 诚实）。
+   *  与 impureGlobals 互补：impureGlobals 类型键优先（构造即效应，FileStream:fs 等）。 */
+  readonly pureCtor?: ReadonlySet<string>;
   /** 隐式 this（C#：类内裸名方法调用 = this 方法；TS/Python 需显式 this/self）。迭代19。 */
   readonly implicitThis: boolean;
 

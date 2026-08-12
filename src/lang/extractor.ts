@@ -562,6 +562,19 @@ export class Extractor {
   /** 调用点提取：点连文本 + 首段对象 + 末段名。不可拍平（super().m()、factory()()、d[k]()）产哨兵走未知；字面量接收者（"x".strip、[].push）产 receiver 事实。 */
   private callOf(node: SyntaxNode): RawCall {
     const argFns = this.argFnsOf(node);
+    // 迭代33 C1 构造器建模：C# object_creation_expression（new X(...)）——取 type 字段剥壳为类型名，
+    // 产 ctor 标记走专用分支（link.ts 构造分支）。tree-sitter-c_sharp 无 constructor/function 字段
+    // （wasm 实证：field type 是 identifier/generic_name；implicit new() 无 type → UNRESOLVED 诚实）。
+    if (node.type === "object_creation_expression") {
+      const typeNode = node.childForFieldName("type") ?? null;
+      if (typeNode) {
+        const name = ctorTypeName(typeNode);
+        if (name !== null) {
+          return { target: `new ${name}`, obj: null, attr: UNRESOLVED_TARGET, receiver: null, argFns, ctor: name };
+        }
+      }
+      return { target: UNRESOLVED_TARGET, obj: null, attr: UNRESOLVED_TARGET, receiver: null, argFns };
+    }
     const fn = node.type === "new_expression"
       ? (node.childForFieldName("constructor") ?? node.children[0])
       : (node.childForFieldName("function") ?? node.children[0]);
@@ -592,9 +605,14 @@ export class Extractor {
   private receiverTypeOf(obj: SyntaxNode): string | null {
     const lit = literalReceiverType(obj, this.pack);
     if (lit !== null) return lit;
-    if (obj.type === "new_expression") {
-      const ctor = obj.childForFieldName("constructor") ?? obj.children[1];
-      if (ctor && (ctor.type === "identifier" || ctor.type === "property_identifier")) return `class:${ctor.text}`;
+    if (obj.type === "new_expression" || obj.type === "object_creation_expression") {
+      // 迭代33 C1：object_creation_expression（C# new X()）与 new_expression 对称——取类型名走 class: 分支
+      // （此前 C# 构造器被 literalReceivers 短路为 "object" → new List<int>().Add(x) 链断）
+      const ctor = obj.type === "object_creation_expression"
+        ? (obj.childForFieldName("type") ?? obj.children[1])
+        : (obj.childForFieldName("constructor") ?? obj.children[1]);
+      const name = ctor ? ctorTypeName(ctor) : null;
+      if (name !== null) return `class:${name}`;
       return null;
     }
     if (obj.type === "call" || obj.type === "call_expression" || obj.type === "invocation_expression") {
@@ -794,6 +812,23 @@ function flattenCallTarget(node: SyntaxNode): string | null {
     const id = binding.children.find((c) => c.type === "identifier" || c.type === "property_identifier");
     if (id) return objText + "." + id.text;
     return null;
+  }
+  return null;
+}
+
+/** 构造类型名提取（迭代33 C1）：identifier → 文本；generic_name → 剥 type_argument_list 取名；
+ *  qualified_name → 取末段（new System.Collections.Generic.List<T>() → List）；其余 → null（诚实）。 */
+function ctorTypeName(node: SyntaxNode): string | null {
+  if (node.type === "identifier" || node.type === "type_identifier") return node.text;
+  if (node.type === "generic_name") {
+    // generic_name: [identifier|name, type_argument_list]——取 name 子节点或首子节点
+    const name = node.childForFieldName("name") ?? node.children[0];
+    if (name && (name.type === "identifier" || name.type === "type_identifier")) return name.text;
+    return null;
+  }
+  if (node.type === "qualified_name") {
+    const parts = node.children.filter((c) => c.type === "identifier" || c.type === "type_identifier");
+    return parts.length > 0 ? parts[parts.length - 1]!.text : null;
   }
   return null;
 }

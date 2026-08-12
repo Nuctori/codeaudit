@@ -723,4 +723,38 @@ describe("C# 语言包（迭代19）", () => {
 		expect(t2!.effects.has("io")).toBe(false);
 		expect(t2!.purity).toBe(0); // PURE——Does 纯断言
 	});
+
+	it("迭代33 C1：构造器建模四边界（纯构造/构造即 io/未列诚实/项目类构造边传导）", async () => {
+		const root = project("ctor-model", {
+			"C.cs": [
+				"using System.Collections.Generic;",
+				"using System.IO;",
+				"public class C {",
+				"    public List<int> Pure() { return new List<int>(); }",
+				'    public FileStream Io() { return new FileStream("x", FileMode.Open); }',
+				"    public void Unlisted() { var x = new UnknownThing(); }",
+				"}",
+				'public class Proj { public Proj() { File.WriteAllText("a", "b"); } }',
+				"public class User { public void M() { var p = new Proj(); } }",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const pure = by(r).get("C.cs::C.Pure") as { purity: number } | undefined;
+		const io = by(r).get("C.cs::C.Io") as { purity: number; effects: Set<string> } | undefined;
+		const unlisted = by(r).get("C.cs::C.Unlisted") as { purity: number } | undefined;
+		const userM = by(r).get("C.cs::User.M") as { purity: number; effects: Set<string> } | undefined;
+		expect(pure).toBeDefined();
+		expect(io).toBeDefined();
+		expect(unlisted).toBeDefined();
+		expect(userM).toBeDefined();
+		// 迭代33 C1（InitDeity unknown 5102→4644 最大单项）：纯构造 → PURE；
+		// 构造即 io（impureGlobals FileStream:fs）→ IMPURE；未列类型 → UNKNOWN 诚实；
+		// 项目类构造边 → ctor chunk（构造体 fs 传导到 User.M——陷阱 2 防假纯验证）
+		expect(pure!.purity).toBe(0); // new List → PURE
+		expect(io!.effects.has("fs")).toBe(true);
+		expect(io!.purity).toBe(2); // new FileStream → IMPURE fs
+		expect(unlisted!.purity).toBe(1); // new UnknownThing → UNKNOWN（未列诚实）
+		expect(userM!.effects.has("fs")).toBe(true);
+		expect(userM!.purity).toBe(2); // new Proj → 构造体 fs 传导
+	});
 });

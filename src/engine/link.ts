@@ -480,6 +480,38 @@ function resolveCall(
 ): void {
   const pack = fi.pack;
 
+  // 0.5 构造调用（迭代33 C1：new X(...) 构造器建模——C# object_creation_expression 产 ctor 标记）。
+  // 规则：① impureGlobals 类型键 → 对应效应（FileStream:fs/Random:random/WaitForSeconds:clock 免费复用）；
+  // ② 纯构造清单（pureCtor——List/Dictionary/Vector*/异常族等）→ 纯；③ 项目类（globalClasses 单命中
+  // 且 !ambiguous）→ 边到 **ctor chunk**（constructor_declaration，chunkNodes 已含；byQualified "Type.Type"——
+  // 禁止走 bySimple 裸名分支——那会错边到 class chunk 丢构造体效应 = 假纯）；④ 其余框架类型 → ? 诚实
+  // （未列类型默认不纯，红线：绝不给"未知皆纯"）。
+  if (call.ctor !== undefined) {
+    const t = call.ctor;
+    const rule = Object.hasOwn(pack.impureGlobals, t) ? pack.impureGlobals[t] : undefined;
+    if (typeof rule === "string") { sink.addEffect(rule); sink.hitTable(`ctor:${t}`); return; }
+    if (Array.isArray(rule)) {
+      // 成员数组形态（异常类型等）：构造即整体效应——取数组首效应（保守 io）
+      sink.addEffect("io"); sink.hitTable(`ctor:${t}`); return;
+    }
+    if (pack.pureCtor && pack.pureCtor.has(t)) { sink.hitTable(`ctor:${t}:p`); return; }
+    // 项目类构造：边到 ctor chunk（防假纯——构造体效应必须传导）
+    if (!caller.assigned.includes(t)) {
+      const cls = globalClasses.get(t);
+      if (cls && cls.length === 1 && cls[0]!.lang === pack.name) {
+        const tf = files.get(cls[0]!.file);
+        if (tf && !tf.ambiguous.has(`${t}.${t}`)) {
+          const hit = tf.byQualified.get(`${t}.${t}`);
+          if (hit) { sink.addEdge(hit); sink.hitTable(`ctor:${t}`); return; }
+        }
+      }
+    }
+    sink.missTable(`ctor:${t}`); // 未列框架类型/歧义 → 补表候选 + 诚实 ?
+    sink.addUnknownCall(call);
+    sink.markUnknown();
+    return;
+  }
+
   // 0. 字面量接收者：类型已证明（"x".strip / [].push / (5).toFixed）→ 内建方法表。
   //    必须置于一切分支之前（obj=null 会被裸名分支劫持成对本地同名函数的错边）；
   //    表外方法 → ?（F9），永不静默丢。
