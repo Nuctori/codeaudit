@@ -438,6 +438,52 @@ export const typescriptPack: LangPack = {
 		"class_declaration",
 	],
 	selfNames: ["this"],
+	ctorChunkNames: ["constructor"], // 迭代40 P0-3 H01：TS/JS 构造器 chunk 名（link 合并构造体效应）
+	cjsExportObjNames: ["exports", "module.exports"], // 迭代40 P0-3 B02：CJS 导出对象名（仅 JS 族）
+	requireFnNames: ["require"], // 迭代40 P0-3 H12：require 导入声明排除（不是遮蔽/不产构造绑定）
+	ctorTypeFields: { new_expression: "constructor" }, // 迭代40 P0-3 H02：new X() 类型名字段
+	// 迭代40 P0-3 批3：形状数据化
+	fnLiteralNodes: [
+		"arrow_function",
+		"function_expression",
+		"function_declaration",
+		"generator_function",
+		"generator_function_declaration",
+	], // H16：函数字面量（chunkName 判定）
+	exportStmtTokens: ["default", "export"], // H17：ESM 导出 token
+	throwArgFields: { throw_statement: "argument" }, // H09：throw 实参字段
+	paramListNodeTypes: ["formal_parameters"], // H18：参数列表节点类型（assignedNames walk）
+	paramListField: "parameters", // H18：参数列表字段名（paramNames/paramTypesOf）
+	selfPropReadIsPure: true, // 迭代40 M6：this.attr 非 getter 读取无副作用（JS 语义；getter 已建 chunk）
+	objectLiteralTypeNodes: ["object_type"], // 迭代40 M6：`{name?: string}` 参数类型 → 属性读取恒纯
+	paramNameSlots: {
+		// 迭代40 M6：TS required_parameter 无 name 命名字段（探针实证）——首个 identifier 子节点
+		required_parameter: ["__firstIdentifier"],
+		optional_parameter: ["__firstIdentifier"],
+	},
+	typeWrapNodes: ["type_annotation"], // 迭代40 M6：注解包装解包（type 字段值是 type_annotation 节点）
+	heritageWrapNodes: ["extends_clause"], // P0-3 漏网：class_heritage 内包 extends 表达式
+	patternNameNodes: ["array_pattern"], // H15：解构 pattern 声明名抑制（tuple_pattern 是 C# 形态）
+	// 迭代40 M6：TS/JS 属性读取——obj.prop 建 prop 边（getter 已建 chunk）；无 getter 的字段
+	// 读取判纯（memberNames 字段清单，JS 语义：读不存在属性 = undefined 无副作用）。
+	// propMissIsPure 不设（动态语言——成员 miss 落 ? 诚实，除非 memberNames 命中）
+	propertyReadNodes: ["member_expression"],
+	propertyReadSkipMorphs: [
+		"call_expression", // 调用目标（obj.m() 的 obj.m——callOf 处理）
+		"new_expression",
+		"member_expression", // 链中段（a.b.c 的 a.b——末段处理）
+		"assignment_expression", // 赋值左值（stateWritePos 处理）
+		"augmented_assignment_expression",
+		"update_expression",
+	],
+	memberNameNodes: ["public_field_definition"], // 类字段声明（name 提取）
+	nestedFnBoundaryNodes: [
+		"function_declaration",
+		"generator_function_declaration",
+		"method_definition",
+		"arrow_function",
+		"class_declaration",
+	], // H19
 	impureBuiltins,
 	pureBuiltins,
 	impureModules,
@@ -478,7 +524,7 @@ export const typescriptPack: LangPack = {
 		memberWrapNodes: [],
 		callShapes: ["call_expression", "new_expression"],
 		ctorCallNodes: ["new_expression"],
-		paramNodes: [],
+		paramNodes: ["required_parameter", "optional_parameter"], // 迭代40 M6：A1 参数类型绑定对 TS 的预存盲区（此前空表 → paramTypes 永不提取）
 		throwNodes: ["throw_statement"],
 		catchNodes: ["catch_clause"],
 		heritageNodes: ["class_heritage"],

@@ -70,6 +70,20 @@ export class Extractor {
 			if (this.pack.callNodes.includes(node.type)) {
 				stack[stack.length - 1]!.calls.push(this.callOf(node));
 			}
+			// 迭代40 B5：属性读取形态（obj.Prop 读值，非调用/非写）→ prop 调用点。
+			// 静态语言（C#）成员 miss 语义见 RawCall.prop——字段/自动属性/不存在成员读取无用户代码。
+			// 参数名裸读（var x = a; 的 a）→ 读取参数引用无副作用 → 直接跳过（assigned 含参数，
+			// 裸名分支会被遮蔽守卫误挡成 ?——参数读取纯是静态事实，不需要解析）。
+			if (
+				this.pack.propertyReadNodes?.includes(node.type) &&
+				this.isPropertyRead(node) &&
+				!(
+					node.type === "identifier" &&
+					stack[stack.length - 1]!.params.includes(node.text)
+				)
+			) {
+				stack[stack.length - 1]!.calls.push(this.propertyReadOf(node));
+			}
 			// 状态写检测（用户需求 2026-08-11）：self.x = / this.x = / global、nonlocal 声明 /
 			// 任意外部对象属性写（user.status = "banned"，obj 非局部新建）→ state 效应。
 			// 位置化（迭代8 视角2）：返回位置列表（"self.x" / "user.status" / "counter"）供读方传播匹配。
@@ -110,6 +124,7 @@ export class Extractor {
 
 		chunks.unshift(moduleChunk as RawChunk);
 		const ce = this.classExtendsOf(root); // 迭代38 A：继承边（单次遍历，避免双走）
+		const mn = this.memberNamesOf(root); // 迭代40 M6：类字段名（TS/JS 无 getter 字段判纯）
 		return {
 			file,
 			lang: this.pack.name,
@@ -123,6 +138,7 @@ export class Extractor {
 			classExtends: ce.map,
 			hasDynamicExtends: ce.dynamic || undefined,
 			virtualMembers: this.virtualMembersOf(root) || undefined,
+			memberNames: mn || undefined,
 			parseError: root.hasError,
 		};
 	}
@@ -138,17 +154,14 @@ export class Extractor {
 		const callShapes = shapesOf(this.pack, "callShapes");
 		for (const stmt0 of root.children) {
 			// 解包包装节点：TS export const x = ...（export_statement→variable_declarator）、
-			// Python 表达式语句（expression_statement→assignment）
+			// Python 表达式语句（expression_statement→assignment）。
+			// 迭代40 P0-3：export 容器/声明节点判定走 pack 表（exportStmtNodes/declNodes）
 			let stmt: SyntaxNode = stmt0;
-			if (stmtWraps.includes(stmt.type) && stmt.type === "export_statement") {
-				const decl = stmt.children.find(
-					(c) =>
-						c.type === "variable_declaration" ||
-						c.type === "lexical_declaration",
-				);
+			if (stmtWraps.includes(stmt.type) && shapesOf(this.pack, "exportStmtNodes").includes(stmt.type)) {
+				const decl = stmt.children.find((c) => decls.includes(c.type));
 				if (decl)
 					stmt =
-						decl.children.find((c) => c.type === "variable_declarator") ?? stmt;
+						decl.children.find((c) => decls.includes(c.type)) ?? stmt;
 			} else if (stmtWraps.includes(stmt.type)) {
 				const inner = stmt.children[0];
 				if (inner && assigns.includes(inner.type)) stmt = inner;
@@ -170,7 +183,8 @@ export class Extractor {
 						if (
 							fn &&
 							(fn.type === "identifier" || fn.type === "property_identifier") &&
-							fn.text !== "require"
+							// 迭代40 P0-3 H12：require 名走 pack 数据（仅 JS 族）
+							!(this.pack.requireFnNames ?? EMPTY_SHAPES).includes(fn.text)
 						)
 							cls = fn.text;
 					} else if (
@@ -178,14 +192,13 @@ export class Extractor {
 						this.pack.trustedCtor !== false
 					) {
 						// 迭代38 规则7：JS/TS 构造器可 return 任意对象 → new X() 不产 trusted 绑定（假纯洞 B2）
+						// 迭代40 P0-3 H02：类型名字段走 pack 数据
+						const typeField = this.pack.ctorTypeFields?.[value.type];
 						const ctor =
-							value.childForFieldName("constructor") ?? value.children[1];
-						if (
-							ctor &&
-							(ctor.type === "identifier" ||
-								ctor.type === "property_identifier")
-						)
-							cls = ctor.text;
+							typeField !== undefined
+								? value.childForFieldName(typeField)
+								: (value.childForFieldName("constructor") ?? value.children[1]);
+						if (ctor) cls = ctorTypeName(ctor, this.pack);
 					}
 					if (cls !== null) bindings[left.text] = cls;
 					else delete bindings[left.text]; // 非类赋值/重绑 → 清除（不可证）
@@ -209,17 +222,10 @@ export class Extractor {
 		params: readonly string[],
 	): Record<string, string> | undefined {
 		const counts: Record<string, { count: number; cls: string }> = {};
-		// 嵌套函数状节点（不处理其内部赋值）：chunkNodes + 常见嵌套函数/类形态
+		// 嵌套函数状节点（不处理其内部赋值）：chunkNodes + pack 边界集（迭代40 P0-3 H19）
 		const nested = new Set([
 			...this.pack.chunkNodes,
-			"lambda_expression",
-			"anonymous_method_expression",
-			"function_definition",
-			"function_declaration",
-			"arrow_function",
-			"method_definition",
-			"class_definition",
-			"class_declaration",
+			...(this.pack.nestedFnBoundaryNodes ?? EMPTY_SHAPES),
 		]);
 		const visit = (n: SyntaxNode): void => {
 			if (n !== node && nested.has(n.type)) return; // 嵌套 chunk 的绑定归它们
@@ -238,8 +244,12 @@ export class Extractor {
 					n.childForFieldName("value") ??
 					n.children[n.children.length - 1] ??
 					null;
-				// C# variable_declarator 的 value 字段是 equals_value_clause 包装（"=" 表达式）——解包
-				if (value !== null && value.type === "equals_value_clause") {
+				// 迭代40 P0-3：value 包装节点解包走 pack 数据（C# variable_declarator 的
+				// value 字段是 equals_value_clause 包装——"=" 表达式）
+				if (
+					value !== null &&
+					(this.pack.valueWrapNodes ?? EMPTY_SHAPES).includes(value.type)
+				) {
 					value =
 						value.childForFieldName("value") ??
 						value.children[value.children.length - 1] ??
@@ -274,30 +284,24 @@ export class Extractor {
 	private ctorClsOf(value: SyntaxNode): string | null {
 		const ctorCalls = shapesOf(this.pack, "ctorCallNodes");
 		const callShapes = shapesOf(this.pack, "callShapes");
-		if (ctorCalls.includes(value.type) && value.type === "object_creation_expression") {
-			// C#：new X(...) / new X<T>(...) → type 字段（ctorTypeName 已处理泛型剥除）
-			const t = value.childForFieldName("type");
-			return t !== null ? ctorTypeName(t) : null;
-		}
-		if (ctorCalls.includes(value.type) && value.type === "new_expression") {
-			// 迭代38 规则7：JS/TS 构造器可 return 任意对象 → new X() 不产 trusted localBinding（假纯洞 B2）
+		// 迭代40 P0-3 H02：构造节点 → 类型名字段走 pack 数据（C# type / TS constructor），
+		// 统一 ctorTypeName 剥壳（identifier/generic_name/qualified_name 通用）
+		const typeField = this.pack.ctorTypeFields?.[value.type];
+		if (ctorCalls.includes(value.type) && typeField !== undefined) {
+			// 迭代38 规则7：JS/TS 构造器可 return 任意对象 → 不产 trusted 绑定（假纯洞 B2）
 			if (this.pack.trustedCtor === false) return null;
-			// TS/JS：new X(...)
-			const ctor = value.childForFieldName("constructor") ?? value.children[1];
-			if (
-				ctor &&
-				(ctor.type === "identifier" || ctor.type === "property_identifier")
-			)
-				return ctor.text;
+			const ctor = value.childForFieldName(typeField) ?? value.children[1] ?? null;
+			if (ctor) return ctorTypeName(ctor, this.pack);
 			return null;
 		}
 		if (callShapes.includes(value.type)) {
-			// Python/TS 类调用：x = C()（函数名 RHS 也绑——消费端 kind=class 校验兜底 ?）
+			// Python/TS 类调用：x = C()（函数名 RHS 也绑——消费端 kind=class 校验兜底 ?）。
+			// 迭代40 P0-3 H12：require 名走 pack 数据（仅 JS 族）
 			const fn = value.childForFieldName("function") ?? value.children[0];
 			if (
 				fn &&
 				(fn.type === "identifier" || fn.type === "property_identifier") &&
-				fn.text !== "require"
+				!(this.pack.requireFnNames ?? EMPTY_SHAPES).includes(fn.text)
 			) {
 				return fn.text;
 			}
@@ -328,31 +332,37 @@ export class Extractor {
 							c.type === "property_identifier"
 						) {
 							bases.push(c.text);
-						} else if (c.type === "extends_clause") {
-							// 迭代39：TS class_heritage 内包一层 extends_clause（extends 表达式）
+						} else if (
+							(this.pack.heritageWrapNodes ?? EMPTY_SHAPES).includes(
+								c.type,
+							)
+						) {
+							// 迭代39：TS class_heritage 内包一层 extends_clause（extends 表达式）；
+							// 迭代40 P0-3：包装节点走 pack 数据
 							for (const k of c.children) if (k.isNamed) pushBase(k);
-						} else if (c.type === "generic_name") {
-							const t = ctorTypeName(c); // List<int> → List（末段）
+						} else if (
+							(this.pack.typeNameNodes ?? EMPTY_SHAPES).includes(c.type) &&
+							c.type === "generic_name"
+						) {
+							const t = ctorTypeName(c, this.pack); // List<int> → List（末段）
 							if (t !== null) bases.push(t);
 							else dynamic = true;
 						} else {
 							dynamic = true; // 动态 heritage：member_expression / 调用 / subscript 等
 						}
 					};
-					if (n.type === "class_definition") {
-						// Python：superclasses 字段（argument_list）；无字段/空 = 无基类
-						const sup = n.childForFieldName("superclasses");
+					// 迭代40 P0-3 H10：基类容器字段走 pack 数据（Python class_definition →
+					// "superclasses" 字段；C#/TS 无字段 → heritageNodes 子节点查找）
+					const heritageField = this.pack.heritageFields?.[n.type];
+					if (heritageField !== undefined) {
+						const sup = n.childForFieldName(heritageField);
 						// isNamed 过滤：argument_list 含逗号等匿名子节点（否则误标 dynamic）
 						if (sup) for (const c of sup.children) if (c.isNamed) pushBase(c);
 					} else {
-						// C# base_list 是**子节点**非字段（探针实证）/ TS class_heritage 命名子节点
-						// 迭代39 P2-1：heritage 容器节点走投影表
-						const bl =
-							n.childForFieldName("base_list") ??
-							n.children.find((c) =>
-								shapesOf(this.pack, "heritageNodes").includes(c.type),
-							) ??
-							null;
+						// C# base_list / TS class_heritage 是子节点（探针实证）——heritageNodes 表查找
+						const bl = n.children.find((c) =>
+							shapesOf(this.pack, "heritageNodes").includes(c.type),
+						) ?? null;
 						if (bl) for (const c of bl.children) if (c.isNamed) pushBase(c);
 					}
 					if (bases.length > 0) map[name.text] = bases;
@@ -368,7 +378,9 @@ export class Extractor {
 	 *  sealed override 不可再覆写 → 静态分派精确，排除。base_list ≥2 命名子节点（基类 + 接口）→
 	 *  该类全部方法隐含 virtual 族（接口实现隐式 virtual，保守并集；单接口形态 = B13 残余）。
 	 *  Python/JS 走 pack.polymorphicMethods（一切方法多态），不需本表。 */
-	private virtualMembersOf(root: SyntaxNode): Record<string, readonly string[]> | null {
+	private virtualMembersOf(
+		root: SyntaxNode,
+	): Record<string, readonly string[]> | null {
 		const out: Record<string, string[]> = {};
 		const visit = (n: SyntaxNode): void => {
 			if (this.pack.classNodes.includes(n.type)) {
@@ -385,10 +397,14 @@ export class Extractor {
 					const namedBases = bl
 						? bl.children.filter((c) => c.isNamed).length
 						: 0;
-					const allVirtual = namedBases >= 2; // 接口存在 → 方法可能隐含 virtual
+					const allVirtual =
+						namedBases >= (this.pack.interfaceHeuristicMinBases ?? Infinity); // 迭代40 P0-3 B03：接口启发阈值走 pack 数据
 					// 迭代39 审计必修 2：**接口声明本身** = 全部方法无条件 virtual（C# 接口分派恒动态——
-					// 接口作静态类型的接收者会精确解析到无方法体的接口 chunk → 假纯，独立审计反例）
-					const isInterface = n.type === "interface_declaration";
+					// 接口作静态类型的接收者会精确解析到无方法体的接口 chunk → 假纯，独立审计反例）。
+					// 迭代40 P0-3：接口节点判定走 pack 数据（C# interface_declaration；其他语言不填）
+					const isInterface = (
+						this.pack.interfaceNodes ?? EMPTY_SHAPES
+					).includes(n.type);
 					// 方法在 declaration_list 内（非直接子节点）——递归，嵌套类/结构体边界即停（归它们自己）
 					const walk = (node: SyntaxNode): void => {
 						if (node !== n && this.pack.classNodes.includes(node.type)) return;
@@ -396,15 +412,50 @@ export class Extractor {
 							const mn = node.childForFieldName("name");
 							if (mn) {
 								const mods = node.children.map((x) => x.text); // 修饰符 token 可能命名/匿名——全子节点文本匹配
-								const sealed = mods.includes("sealed");
-								const virtual =
-									mods.includes("virtual") ||
-									mods.includes("override") ||
-									mods.includes("abstract");
+								// 迭代40 P0-3 H03：修饰符语义走 pack 数据（C# virtual/override/abstract/sealed；
+								// 其他语言不填 → 无 virtual 族——与 polymorphicMethods 语义正交）
+								const vmods = this.pack.virtualModifiers ?? EMPTY_SHAPES;
+								const smods = this.pack.sealedModifiers ?? EMPTY_SHAPES;
+								const sealed = mods.some((m) => smods.includes(m));
+								const virtual = mods.some((m) => vmods.includes(m));
 								if (!sealed && (allVirtual || virtual || isInterface)) {
 									(out[name.text] ??= []).push(mn.text);
 								}
 							}
+							return;
+						}
+						for (const c of node.children) walk(c);
+					};
+					for (const c of n.children) walk(c);
+				}
+			}
+			for (const c of n.children) visit(c);
+		};
+		visit(root);
+		return Object.keys(out).length > 0 ? out : null;
+	}
+
+	/** 迭代40 M6：类字段名提取（TS/JS public_field_definition——无 getter 声明的字段读取纯）。
+	 *  类名 → 字段名列表；与 virtualMembersOf 同构（classNodes 遍历 + 嵌套类边界即停）。 */
+	private memberNamesOf(
+		root: SyntaxNode,
+	): Record<string, readonly string[]> | null {
+		const memberNodes = this.pack.memberNameNodes ?? EMPTY_SHAPES;
+		if (memberNodes.length === 0) return null;
+		const out: Record<string, string[]> = {};
+		const visit = (n: SyntaxNode): void => {
+			if (this.pack.classNodes.includes(n.type)) {
+				const name = n.childForFieldName("name");
+				if (name) {
+					const walk = (node: SyntaxNode): void => {
+						if (node !== n && this.pack.classNodes.includes(node.type)) return;
+						if (memberNodes.includes(node.type)) {
+							const nm = node.children.find(
+								(c) =>
+									c.type === "property_identifier" ||
+									c.type === "identifier",
+							);
+							if (nm) (out[name.text] ??= []).push(nm.text);
 							return;
 						}
 						for (const c of node.children) walk(c);
@@ -449,9 +500,10 @@ export class Extractor {
 		if (shapesOf(this.pack, "writeUnary").includes(node.type)) {
 			// 迭代25：C# i++ / this.x++ / ++i。操作数是唯一 named 子节点（++/-- 是匿名 token）；
 			// 不用 children[0]（prefix 的 children[0] 是 `++`）——web-tree-sitter 引用比较恒真（iter24 教训）。
-			// 注意：!x / -x / ~x 同为 prefix_unary_expression 但语义是**读**（逻辑非/取负）——只认 ++/-- 操作符。
-			const isIncDec = node.children.some(
-				(c) => c.text === "++" || c.text === "--",
+			// 注意：!x / -x / ~x 同为 prefix_unary_expression 但语义是**读**（逻辑非/取负）——
+			// 只认增减操作符（迭代40 P0-3：token 走 pack 数据，C# "++"/"--"）
+			const isIncDec = node.children.some((c) =>
+				(this.pack.incDecTokens ?? EMPTY_SHAPES).includes(c.text),
 			);
 			if (!isIncDec) return [];
 			const arg = node.children.find((c) => c.isNamed) ?? null;
@@ -487,36 +539,41 @@ export class Extractor {
 			const p2 = p;
 			// ① name 字段（def foo / function foo / C# method/catch_declaration name，迭代26）
 			if (p2 && p2.childForFieldName("name")?.id === node.id) return [];
-			// ② C# variable_declarator 无 name 字段——children[0] 即声明名位置（裸 identifier 或 pattern）。
+			// ② 声明名位（迭代40 P0-3：declNodes 表）——children[0] 即声明名位置（裸 identifier 或 pattern）。
 			//    简单名（var q=1）已被 assigned 覆盖（迭代25c），本规则对其冗余无害；真收益 = pattern 名。
 			if (
 				p2 &&
-				p2.type === "variable_declarator" &&
-				p2.children[0]?.id === node.id
+				(shapesOf(this.pack, "declNodes").includes(p2.type) &&
+					p2.children[0]?.id === node.id)
 			)
 				return [];
-			// ③ pattern 名：C# tuple_pattern / TS array_pattern 的直接 identifier 子节点（pattern 在声明名位置）
+			// ③ pattern 名（迭代40 P0-3 H15）：声明名位置 pattern 的直接 identifier 子节点
 			const pp = p2?.parent;
 			if (
 				pp &&
-				pp.type === "variable_declarator" &&
-				pp.children[0]?.id === p2?.id &&
-				(p2?.type === "tuple_pattern" || p2?.type === "array_pattern")
+				(shapesOf(this.pack, "declNodes").includes(pp.type) &&
+					pp.children[0]?.id === p2?.id &&
+					(this.pack.patternNameNodes ?? EMPTY_SHAPES).includes(p2?.type ?? ""))
 			)
 				return [];
-			// ④ C# foreach 变量：for_each_statement 的裸 identifier 直接子节点，且位于 `in` token 之前
-			//    （其后同名 identifier 是集合 arr——真读，不得抑制）。
-			if (p2 && p2.type === "for_each_statement") {
+			// ④ foreach 变量（迭代40 P0-3 H07）：foreach 节点的裸 identifier 直接子节点，
+			//    且位于 `in` token 之前（其后同名 identifier 是集合——真读，不得抑制）
+			if (
+				p2 &&
+				(this.pack.foreachNodes ?? EMPTY_SHAPES).includes(p2.type)
+			) {
 				const kids = p2.children;
-				const inIdx = kids.findIndex((c) => c.type === "in");
+				const inIdx = kids.findIndex(
+					(c) => c.type === this.pack.foreachInToken,
+				);
 				if (inIdx >= 0 && kids.some((c, i) => c.id === node.id && i < inIdx))
 					return [];
 			}
-			// ⑤ 异常变量：catch_clause（TS 经投影表）/ except as_pattern_target 的唯一 identifier
+			// ⑤ 异常变量：catch 节点 / except as pattern 的唯一 identifier
 			if (
 				p2 &&
 				(shapesOf(this.pack, "catchNodes").includes(p2.type) ||
-					p2.type === "as_pattern_target")
+					(this.pack.patternNameNodes ?? EMPTY_SHAPES).includes(p2.type))
 			)
 				return [];
 			if (
@@ -531,7 +588,8 @@ export class Extractor {
 		const isAssignmentParent = (t: string): boolean =>
 			shapesOf(this.pack, "writeAssigns").includes(t) ||
 			shapesOf(this.pack, "writeUpdates").includes(t);
-		const isCallLike = (t: string): boolean => SC.includes(t) || SCT.includes(t);
+		const isCallLike = (t: string): boolean =>
+			SC.includes(t) || SCT.includes(t);
 		if (parent && isAssignmentParent(parent.type)) {
 			// 赋值左值跳过（写侧已处理；augmented/update 的右值读由右侧表达式节点捕获）
 			const left =
@@ -549,7 +607,11 @@ export class Extractor {
 		}
 		// 边缘：a.b?.c() 内层成员——member_access_expression(a.b) 的 parent 是 conditional_access_expression
 		// （非调用），但该 conditional 是 invocation 的 function 链一部分 → 排除内层成员
-		if (parent && S.includes(parent.type) && parent.type === "conditional_access_expression") {
+		if (
+			parent &&
+			S.includes(parent.type) &&
+			parent.type === "conditional_access_expression"
+		) {
 			const gp = parent.parent;
 			if (gp && isCallLike(gp.type)) {
 				const fn = gp.childForFieldName("function") ?? gp.children[0] ?? null;
@@ -578,7 +640,7 @@ export class Extractor {
 				null;
 		}
 		if (!obj || !attrNode) return [];
-		if (obj.text === "self" || obj.text === "cls" || obj.text === "this")
+		if (this.pack.selfNames.includes(obj.text)) // 迭代40 P0-3 H05：自引用名走 pack.selfNames 表（原硬编码 self/cls/this）
 			return [`self.${attrNode.text}`];
 		if (obj.type === "identifier") {
 			if (chunk.params.includes(obj.text) || !chunk.assigned.includes(obj.text))
@@ -605,34 +667,45 @@ export class Extractor {
 		return null;
 	}
 
-	/** 异常捕获类型提取（迭代7 ④）：catch_clause（TS catch {} / catch(e) → "*" 吞一切）；
-	 *  Python except_clause（except ValueError → "ValueError"；裸 except: → "*"）。非捕获节点 → null。 */
+	/** 异常捕获类型提取（迭代7 ④ + 迭代40 P0-3 B01）：catch 类型化形态走 pack 数据
+	 *  （C# catch_declaration 含 type → 精确类型；TS/JS catch 无 → "*" 吞一切；
+	 *  Python except_clause 类型是直接子节点）。非捕获节点 → null。 */
 	private catchTypeOf(node: SyntaxNode): string | null {
 		const catches = shapesOf(this.pack, "catchNodes");
-		if (catches.includes(node.type) && node.type === "catch_clause")
-			return "*"; // TS/JS catch 无条件吞一切（无类型化 catch）
 		if (catches.includes(node.type)) {
+			// 类型化 catch（C# catch (IOException e) → catch_declaration 含 type）——
+			// 通用形态判定：catchDeclNodes 命中 → 提取类型；无 → 落原分支
+			const decls = this.pack.catchDeclNodes ?? EMPTY_SHAPES;
+			const decl = node.children.find((c) => decls.includes(c.type));
+			if (decl) {
+				const typ = decl.childForFieldName("type") ?? null;
+				if (typ) return ctorTypeName(typ, this.pack) ?? "*";
+				return "*"; // catch (e) 无类型（罕见）→ 吞一切
+			}
 			// Python：except ValueError: / except (A, B): / except: / except Exception as e:
+			// 类型节点 = identifier（公共）或成员访问（memberNodes 表）
 			const typ = node.children.find(
 				(c) =>
 					c.type === "identifier" ||
-					c.type === "attribute" ||
-					c.type === "tuple",
+					shapesOf(this.pack, "memberNodes").includes(c.type) ||
+					(this.pack.catchMultiTypeNodes ?? EMPTY_SHAPES).includes(c.type),
 			);
 			if (!typ) return "*"; // 裸 except:
-			if (typ.type === "tuple") return "*"; // except (A, B): 多类型——保守吞一切（过近似安全）
+			// 迭代40 P0-3 漏网：多类型捕获节点走 pack 数据（Python except (A,B) 的 tuple——保守吞一切）
+			if ((this.pack.catchMultiTypeNodes ?? EMPTY_SHAPES).includes(typ.type))
+				return "*";
 			return typ.text; // 精确类型（仅字面匹配；项目自定义类型未提取继承边 → 保守不减其子类）
 		}
 		return null;
 	}
 
-	/** chunk 自身参数名（不进入嵌套函数——只取本 chunk 的 parameters 字段直接子节点）。 */
+	/** chunk 自身参数名（不进入嵌套函数——只取本 chunk 的参数列表直接子节点）。
+	 *  迭代40 P0-3 H18：参数列表节点走 pack 数据（parameters/formal_parameters）。 */
 	private paramNames(root: SyntaxNode): string[] {
 		const out: string[] = [];
-		// 迭代36 独立审计：删除迭代35 的错误 fallback（实证 tree-sitter-c_sharp 所有带参数形态——method/
-		// ctor/local function/lambda/anonymous/operator/indexer/record——均有 `parameters` 命名字段，
-		// 原 fallback 不可达；"参数收集对 C# 失效"前提错误）。保留 parameter 节点 name 提取（显式参数名）。
-		const params = root.childForFieldName("parameters");
+		const params = root.childForFieldName(
+			this.pack.paramListField ?? "parameters",
+		);
 		if (!params) return out;
 		const push = (n: SyntaxNode): void => {
 			if (shapesOf(this.pack, "paramNodes").includes(n.type)) {
@@ -645,17 +718,48 @@ export class Extractor {
 					return;
 				}
 			}
+			// 迭代40 P0-3 H11：参数名槽位走 pack 数据（Python typed_parameter 无 name 字段 →
+			// "__firstIdentifier"；其余语言 name/pattern 字段）
+			const slots = this.pack.paramNameSlots?.[n.type];
+			if (slots) {
+				for (const slot of slots) {
+					if (slot === "__child0") {
+						const c0 = n.children[0] ?? null;
+						if (
+							c0 &&
+							(c0.type === "identifier" ||
+								c0.type === "property_identifier")
+						) {
+							out.push(c0.text);
+							return;
+						}
+					} else if (slot === "__firstIdentifier") {
+						const id = n.children.find(
+							(c) =>
+								c.type === "identifier" ||
+								c.type === "property_identifier",
+						);
+						if (id) {
+							out.push(id.text);
+							return;
+						}
+					} else {
+						const named = n.childForFieldName(slot);
+						if (
+							named &&
+							(named.type === "identifier" ||
+								named.type === "property_identifier")
+						) {
+							out.push(named.text);
+							return;
+						}
+					}
+				}
+			}
 			const named =
 				n.childForFieldName("name") ??
 				n.childForFieldName("pattern") ??
-				// 迭代38：tree-sitter-python typed_parameter 无 name 字段（子节点 = identifier 裸名）
-				(n.type === "typed_parameter"
-					? (n.children.find(
-							(c) =>
-								c.type === "identifier" || c.type === "property_identifier",
-						) ?? null)
-					: null);
-			n.childForFieldName("name") ?? n.childForFieldName("pattern");
+				null;
 			if (
 				named &&
 				(named.type === "identifier" || named.type === "property_identifier")
@@ -669,33 +773,56 @@ export class Extractor {
 		return out;
 	}
 
-	/** 迭代35 A1：参数显式类型提取（方法参数 Dictionary<string,int> d → d: "Dictionary"）。
+	/** 迭代35 A1 + 迭代40 P0-3 H11/H18：参数显式类型提取（方法参数 Dictionary<string,int> d → d: "Dictionary"）。
 	 *  迭代36 独立审计修正：收集**全部显式参数类型**（剥壳后）——string/int 等表条目全纯方向安全；
-	 *  项目类撞表键由 link A1 分支守卫排除（不在此过滤）。删不可达 fallback（C# 全有 parameters 字段）。 */
+	 *  项目类撞表键由 link A1 分支守卫排除（不在此过滤）。参数列表节点/名字槽位走 pack 数据。 */
 	private paramTypesOf(root: SyntaxNode): Record<string, string> {
 		const out: Record<string, string> = {};
-		const params = root.childForFieldName("parameters");
+		const params = root.childForFieldName(
+			this.pack.paramListField ?? "parameters",
+		);
 		if (!params) return out;
 		for (const c of params.children) {
 			if (!shapesOf(this.pack, "paramNodes").includes(c.type)) continue;
-			// 迭代38：typed_parameter 无 name 字段——name = 首个 identifier 子节点（探针实证）
-			const name =
-				c.childForFieldName("name") ??
-				(c.type === "typed_parameter"
-					? (c.children.find(
-							(x) =>
-								x.type === "identifier" || x.type === "property_identifier",
-						) ?? null)
-					: null);
-			const type = c.childForFieldName("type");
+			// 迭代38：typed_parameter 无 name 字段——name = 首个 identifier 子节点（探针实证）；
+			// 迭代40 P0-3 H11：槽位机制统一（__firstIdentifier）
+			const slots = this.pack.paramNameSlots?.[c.type];
+			let name: SyntaxNode | null = c.childForFieldName("name") ?? null;
+			if (!name && slots) {
+				for (const slot of slots) {
+					if (slot === "__firstIdentifier") {
+						name =
+							c.children.find(
+								(x) =>
+									x.type === "identifier" ||
+									x.type === "property_identifier",
+							) ?? null;
+						break;
+					}
+				}
+			}
+			// 迭代40 M6：类型注解解包（typeWrapNodes：TS type_annotation / Python type）
+			let ty = c.childForFieldName(this.pack.paramTypeField ?? "type");
+			while (
+				ty !== null &&
+				(this.pack.typeWrapNodes ?? EMPTY_SHAPES).includes(ty.type)
+			) {
+				ty = ty.children.find((x) => x.isNamed) ?? null;
+			}
 			if (
 				!name ||
-				!type ||
+				!ty ||
 				(name.type !== "identifier" && name.type !== "property_identifier")
 			)
 				continue;
-			const t = ctorTypeName(type); // 复用构造类型名剥壳（generic_name/qualified_name/predefined_type）
+			const t = ctorTypeName(ty, this.pack); // 复用构造类型名剥壳（generic_name/qualified_name/predefined_type）
 			if (t !== null) out[name.text] = t;
+			else if (
+				(this.pack.objectLiteralTypeNodes ?? EMPTY_SHAPES).includes(ty.type)
+			) {
+				// 对象字面量类型（TS `{name?: string}`）：属性是数据字段无 getter → 读取恒纯
+				out[name.text] = "__objectLiteral";
+			}
 		}
 		return out;
 	}
@@ -728,11 +855,14 @@ export class Extractor {
 		return out;
 	}
 
-	/** 异常抛出类型提取（盲区1）：raise X / throw new Y() → 类型文本；裸 raise/throw → "*"；非抛出节点 → null。 */
+	/** 异常抛出类型提取（盲区1 + 迭代40 P0-3 H09）：raise/throw 类型文本；裸 → "*"。
+	 *  实参提取字段走 pack 数据（throwArgFields：TS throw_statement → "argument"；
+	 *  Python raise 无字段 → 子节点查找）。非抛出节点 → null。 */
 	private thrownTypeOf(node: SyntaxNode): string | null {
-		// 迭代39 P2-1：抛出节点走投影表
-		if (shapesOf(this.pack, "throwNodes").includes(node.type) && node.type === "raise_statement") {
-			// Python：raise / raise ValueError / raise ValueError("x")
+		if (!shapesOf(this.pack, "throwNodes").includes(node.type)) return null;
+		const argField = this.pack.throwArgFields?.[node.type];
+		if (argField === undefined) {
+			// Python：raise / raise ValueError / raise ValueError("x")——子节点查找
 			const exc = node.children.find(
 				(c) =>
 					c.type === "call" ||
@@ -749,22 +879,23 @@ export class Extractor {
 			const flat = flattenCallTarget(exc, this.pack);
 			return flat !== null ? flat.split(".").pop()! : "*";
 		}
-		// 迭代39 P2-1：throw 节点走投影表
-		if (shapesOf(this.pack, "throwNodes").includes(node.type) && node.type === "throw_statement") {
-			// TS/JS：throw new Error() / throw err / throw "x"
-			const arg =
-				node.childForFieldName("argument") ??
-				node.children.find((c) => c.type !== "throw");
-			if (!arg) return "*";
-			if (arg.type === "new_expression") {
-				const ctor = arg.childForFieldName("constructor") ?? arg.children[1];
-				if (ctor) return ctor.type === "identifier" ? ctor.text : "*";
-				return "*";
-			}
-			if (arg.type === "identifier") return arg.text;
+		// TS/JS：throw new Error() / throw err / throw "x"
+		const arg =
+			node.childForFieldName(argField) ??
+			node.children.find((c) => c.type !== "throw");
+		if (!arg) return "*";
+		if (arg.type === "new_expression") {
+			// 迭代40 P0-3 H02：类型名字段走 pack 数据
+			const typeField = this.pack.ctorTypeFields?.[arg.type];
+			const ctor =
+				typeField !== undefined
+					? (arg.childForFieldName(typeField) ?? arg.children[1])
+					: null;
+			if (ctor) return ctor.type === "identifier" ? ctor.text : "*";
 			return "*";
 		}
-		return null;
+		if (arg.type === "identifier") return arg.text;
+		return "*";
 	}
 
 	/**
@@ -806,7 +937,7 @@ export class Extractor {
 			attr: string | null | undefined,
 		): string | null => {
 			if (!obj || !attr) return null;
-			if (obj.text === "self" || obj.text === "cls" || obj.text === "this")
+			if (this.pack.selfNames.includes(obj.text)) // 迭代40 P0-3 H05：自引用名走 pack.selfNames 表
 				return `self.${attr}`;
 			if (
 				obj.type === "identifier" &&
@@ -816,10 +947,21 @@ export class Extractor {
 			}
 			return null;
 		};
-		if (left.type === "attribute") {
-			const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
+		// 迭代40 P0-3 H06：attribute/member_expression/member_access_expression 三段同构消重——
+		// 统一走 memberNodes 表（conditional_access 排除——原代码对 ?. 写不检测，保持等价）
+		if (
+			shapesOf(this.pack, "memberNodes").includes(left.type) &&
+			left.type !== "conditional_access_expression"
+		) {
+			const obj =
+				left.childForFieldName("object") ??
+				left.childForFieldName("expression") ??
+				left.children[0] ??
+				null;
 			const attr =
 				left.childForFieldName("attribute") ??
+				left.childForFieldName("property") ??
+				left.childForFieldName("name") ??
 				left.children[left.children.length - 1] ??
 				null;
 			const rt = readTarget(obj, attr?.text);
@@ -827,41 +969,6 @@ export class Extractor {
 			// ②b（迭代26）：d[k].x = v（obj 是 subscript）→ 镜像读侧 subscriptRoot → "d.⊤"。
 			// 仅复杂 obj（subscript/call 链）启用——identifier 局部/外部已由 readTarget 正确判定，
 			// subscriptRoot 对裸 identifier 会误报局部（o.x=1 的 o 在 assigned → 不得产生写）。
-			const root =
-				obj !== null &&
-				obj.type !== "identifier" &&
-				obj.type !== "property_identifier"
-					? this.subscriptRoot(obj)
-					: null;
-			return root !== null ? `${root}.⊤` : null;
-		}
-		if (left.type === "member_expression") {
-			const obj = left.childForFieldName("object") ?? left.children[0] ?? null;
-			const attr =
-				left.childForFieldName("property") ??
-				left.children[left.children.length - 1] ??
-				null;
-			const rt = readTarget(obj, attr?.text);
-			if (rt !== null) return rt;
-			const root =
-				obj !== null &&
-				obj.type !== "identifier" &&
-				obj.type !== "property_identifier"
-					? this.subscriptRoot(obj)
-					: null;
-			return root !== null ? `${root}.⊤` : null;
-		}
-		// 迭代24 写侧对偶（审计 ⑦）：C# this.x = v / instance.Field = v 的 left 是 member_access_expression
-		// （字段 expression/name）——此前只认 attribute/member_expression，C# 字段写完全不可见
-		if (left.type === "member_access_expression") {
-			const obj =
-				left.childForFieldName("expression") ?? left.children[0] ?? null;
-			const attr =
-				left.childForFieldName("name") ??
-				left.children[left.children.length - 1] ??
-				null;
-			const rt = readTarget(obj, attr?.text);
-			if (rt !== null) return rt;
 			const root =
 				obj !== null &&
 				obj.type !== "identifier" &&
@@ -916,26 +1023,16 @@ export class Extractor {
 		return null;
 	}
 
-	/** C# 类成员方法体判定：最近函数状祖先 ∈ {method_declaration, constructor_declaration}。
-	 *  class_declaration 本体（kind="class"）→ false（字段声明级写由 declared 短路，不需 self）。
-	 *  local_function_statement/lambda/anonymous 排除：捕获外层局部时语义等同 TS 闭包（裸外部写）。 */
+	/** 类成员方法体判定（迭代40 P0-3 H04）：命中/停止节点集走 pack 数据
+	 *  （C# method/constructor_declaration 命中；local_function/lambda/嵌套类停止）。
+	 *  class_declaration 本体（kind="class"）→ false（字段声明级写由 declared 短路，不需 self）。 */
 	private inClassMemberBody(node: SyntaxNode | null | undefined): boolean {
+		const hits = this.pack.classMemberBodyNodes ?? EMPTY_SHAPES;
+		const stops = this.pack.classMemberBodyStopNodes ?? EMPTY_SHAPES;
 		let p = node?.parent;
 		while (p !== null && p !== undefined) {
-			if (
-				p.type === "method_declaration" ||
-				p.type === "constructor_declaration"
-			)
-				return true;
-			if (
-				p.type === "local_function_statement" ||
-				p.type === "lambda_expression" ||
-				p.type === "anonymous_method_expression" ||
-				p.type === "class_declaration" ||
-				p.type === "struct_declaration" ||
-				p.type === "interface_declaration"
-			)
-				return false;
+			if (hits.includes(p.type)) return true;
+			if (stops.includes(p.type)) return false;
 			p = p.parent;
 		}
 		return false;
@@ -958,24 +1055,35 @@ export class Extractor {
 			left.children[left.children.length - 1] ??
 			null;
 		if (!obj || !attr || attr.type !== "property_identifier") return null;
-		const isExports = obj.text === "exports" || obj.text === "module.exports";
+		// 迭代40 P0-3 B02：CJS 导出对象名走 pack 数据（仅 JS 族声明——C#/Python 不再误触发）
+		const isExports = (this.pack.cjsExportObjNames ?? EMPTY_SHAPES).includes(
+			obj.text,
+		);
 		if (!isExports) return null;
 		const value =
 			node.childForFieldName("right") ??
 			node.children[node.children.length - 1] ??
 			null;
-		if (value === null || !/function/.test(value.type)) return null;
+		if (value === null) return null;
+		// 迭代40 P0-3 H16：函数字面量判定走 pack 数据（替代 /function/ 正则）
+		if (!(this.pack.fnLiteralNodes ?? EMPTY_SHAPES).includes(value.type))
+			return null;
 		return attr.text;
 	}
 
-	/** chunk 展示名：优先 name 字段；变量声明的箭头函数取变量名；赋值 RHS 的 Python lambda 取变量名。 */
+	/** chunk 展示名：优先 name 字段；变量声明的箭头函数取变量名；赋值 RHS 的 Python lambda 取变量名。
+	 *  迭代40 P0-3 H16：lambda/函数字面量节点判定走 pack 数据（Python lambda + assignment；
+	 *  fnLiteralNodes 替代 /function/ 正则）。 */
 	private chunkName(node: SyntaxNode): string | null {
-		if (node.type === "lambda") {
+		if ((this.pack.lambdaNodes ?? EMPTY_SHAPES).includes(node.type)) {
 			// handler = lambda: ... → 提为命名 chunk（体调用归它，模块级赋值不再假 IMPURE）；
 			// 实参/其他位置 lambda（map(lambda…)）→ 不提 chunk，体调用归外层（map 执行时确实调用）
 			let p = node.parent;
 			while (p !== null && p.type === "parenthesized_expression") p = p.parent;
-			if (p !== null && p.type === "assignment") {
+			if (
+				p !== null &&
+				(this.pack.lambdaAssignNodes ?? EMPTY_SHAPES).includes(p.type)
+			) {
 				const left = p.childForFieldName("left") ?? p.children[0] ?? null;
 				if (left !== null && left.type === "identifier") return left.text;
 			}
@@ -984,7 +1092,11 @@ export class Extractor {
 		if (node.type === "variable_declarator") {
 			// 仅当值是函数字面量时才是 chunk：const f = () => {...}
 			const value = node.childForFieldName("value");
-			if (value === null || !/function/.test(value.type)) return null;
+			if (
+				value === null ||
+				!(this.pack.fnLiteralNodes ?? EMPTY_SHAPES).includes(value.type)
+			)
+				return null;
 			const nameNode = node.childForFieldName("name") ?? node.children[0];
 			return nameNode ? nameNode.text : null;
 		}
@@ -1026,17 +1138,17 @@ export class Extractor {
 	/** 调用点提取：点连文本 + 首段对象 + 末段名。不可拍平（super().m()、factory()()、d[k]()）产哨兵走未知；字面量接收者（"x".strip、[].push）产 receiver 事实。 */
 	private callOf(node: SyntaxNode): RawCall {
 		const argFns = this.argFnsOf(node);
-		// 迭代33 C1 构造器建模：C# object_creation_expression（new X(...)）——取 type 字段剥壳为类型名，
-		// 产 ctor 标记走专用分支（link.ts 构造分支）。tree-sitter-c_sharp 无 constructor/function 字段
-		// （wasm 实证：field type 是 identifier/generic_name；implicit new() 无 type → UNRESOLVED 诚实）。
-		// 迭代39 P2-1：构造调用节点走投影表（C# object_creation_expression 产 ctor 标记）。
-		if (
+		// 迭代33 C1 + 迭代40 P0-3 H02：构造调用建模——ctor 标记节点（C# object_creation_expression
+		// 产 ctor 标记走 link 专用分支；TS new_expression 走裸名 + ctor-merge——类名裸名可见）
+		const markCtor =
 			shapesOf(this.pack, "ctorCallNodes").includes(node.type) &&
-			node.type === "object_creation_expression"
-		) {
-			const typeNode = node.childForFieldName("type") ?? null;
+			(this.pack.ctorMarkNodes ?? EMPTY_SHAPES).includes(node.type);
+		if (markCtor) {
+			const typeNode =
+				node.childForFieldName(this.pack.ctorTypeFields?.[node.type] ?? "") ??
+				null;
 			if (typeNode) {
-				const name = ctorTypeName(typeNode);
+				const name = ctorTypeName(typeNode, this.pack);
 				if (name !== null) {
 					return {
 						target: `new ${name}`,
@@ -1058,8 +1170,10 @@ export class Extractor {
 		}
 		const fn =
 			shapesOf(this.pack, "ctorCallNodes").includes(node.type) &&
-			node.type === "new_expression"
-				? (node.childForFieldName("constructor") ?? node.children[0])
+			(this.pack.ctorTypeFields?.[node.type] ?? undefined) !== undefined
+				? (node.childForFieldName(
+						this.pack.ctorTypeFields?.[node.type] ?? "",
+					) ?? node.children[0])
 				: (node.childForFieldName("function") ?? node.children[0]);
 		if (!fn)
 			return {
@@ -1117,23 +1231,84 @@ export class Extractor {
 	}
 
 	/**
+	 * 属性读取形态判定（迭代40 B5）：obj.Prop / 裸名 identifier 读值。
+	 * 纯表驱动（P2-1 纪律）：全部节点形态/槽位判定走 pack 数据表（propertyReadSkipMorphs /
+	 * propertyReadSkipParents / propertyReadNameSlots），引擎零语言常量。
+	 */
+	private isPropertyRead(node: SyntaxNode): boolean {
+		const p = node.parent;
+		if (p === null) return false;
+		// 形态排除：调用目标链 / 赋值左值 / ++/-- 目标（已有各自通道）
+		if (this.pack.propertyReadSkipMorphs?.includes(p.type)) return false;
+		// 声明/类型位排除（C# 声明、类型参数、特性、标签、cast/is/as 等——无运行时读取）
+		if (this.pack.propertyReadSkipParents?.includes(p.type)) return false;
+		// 声明名位排除（name/type 槽位——无运行时读取；value 位保留）。
+		// 位置比较（web-tree-sitter 每次访问产新包装对象，=== 引用比较失效）
+		const slots = this.pack.propertyReadNameSlots?.[p.type];
+		if (slots) {
+			const samePos = (a: SyntaxNode | null): boolean =>
+				a !== null &&
+				a.startIndex === node.startIndex &&
+				a.endIndex === node.endIndex;
+			for (const slot of slots) {
+				if (slot === "__child0") {
+					// 无命名字段的形态（C# variable_declarator——name 恒为 children[0]，语法固定）
+					if (samePos(p.children[0] ?? null)) return false;
+				} else if (samePos(p.childForFieldName(slot))) {
+					return false;
+				}
+			}
+		}
+		return true;
+	}
+
+	/** 属性读取调用点（obj.Prop 读值）：拍平 + prop 标记。不可拍平（d[k].x 等）→ ? 诚实。 */
+	private propertyReadOf(node: SyntaxNode): RawCall {
+		const flat = flattenCallTarget(node, this.pack);
+		if (flat === null)
+			return {
+				target: UNRESOLVED_TARGET,
+				obj: null,
+				attr: UNRESOLVED_TARGET,
+				receiver: null,
+				argFns: [],
+				prop: true,
+			};
+		const dot = flat.indexOf(".");
+		if (dot === -1)
+			return {
+				target: flat,
+				obj: null,
+				attr: flat,
+				receiver: null,
+				argFns: [],
+				prop: true,
+			};
+		return {
+			target: flat,
+			obj: flat.slice(0, dot),
+			attr: flat.slice(dot + 1),
+			receiver: null,
+			argFns: [],
+			prop: true,
+		};
+	}
+
+	/**
 	 * 接收者类型：字面量 → 内建类型（literalReceivers）；链式（obj 是调用）→ 被调方法的
 	 * 返回类型（builtinMethodReturns，语言事实）；构造器（new C()）→ "class:C"；表外 → null。
 	 */
 	private receiverTypeOf(obj: SyntaxNode): string | null {
 		const lit = literalReceiverType(obj, this.pack);
 		if (lit !== null) return lit;
-		// 迭代39 P2-1：构造器接收者节点走投影表
-		if (
-			shapesOf(this.pack, "ctorCallNodes").includes(obj.type)
-		) {
-			// 迭代33 C1：object_creation_expression（C# new X()）与 new_expression 对称——取类型名走 class: 分支
-			// （此前 C# 构造器被 literalReceivers 短路为 "object" → new List<int>().Add(x) 链断）
+		// 迭代39 P2-1 + 迭代40 P0-3 H02：构造器接收者节点走投影表 + 类型名字段数据
+		if (shapesOf(this.pack, "ctorCallNodes").includes(obj.type)) {
+			const typeField = this.pack.ctorTypeFields?.[obj.type];
 			const ctor =
-				obj.type === "object_creation_expression"
-					? (obj.childForFieldName("type") ?? obj.children[1])
-					: (obj.childForFieldName("constructor") ?? obj.children[1]);
-			const name = ctor ? ctorTypeName(ctor) : null;
+				typeField !== undefined
+					? (obj.childForFieldName(typeField) ?? obj.children[1])
+					: null;
+			const name = ctor ? ctorTypeName(ctor, this.pack) : null;
 			if (name !== null) return `class:${name}`;
 			return null;
 		}
@@ -1142,10 +1317,7 @@ export class Extractor {
 			// 迭代31 S1：C# 调用节点是 invocation_expression（此前缺失 → C# 链第二环起全断，
 			// 21,488 bare <unresolved> 站点大块来源）。fn 字段与 attribute/member 提取与 TS/Python 同构。
 			const fn = obj.childForFieldName("function") ?? obj.children[0];
-			if (
-				fn &&
-				shapesOf(this.pack, "memberNodes").includes(fn.type)
-			) {
+			if (fn && shapesOf(this.pack, "memberNodes").includes(fn.type)) {
 				const innerObj = fn.childForFieldName("object") ?? fn.children[0];
 				const innerAttr =
 					fn.childForFieldName("attribute") ??
@@ -1186,23 +1358,44 @@ export class Extractor {
 			}
 		};
 		for (const c of args.children) {
-			if (c.type === "keyword_argument") {
+			// 迭代40 P0-3 漏网：关键字实参节点走 pack 数据（Python keyword_argument → value 字段）
+			if ((this.pack.keywordArgNodes ?? EMPTY_SHAPES).includes(c.type)) {
 				const v = c.childForFieldName("value");
 				if (v) pushArg(v);
 			} else if (c.isNamed) {
-				// C# 参数是 argument 包装节点（argument → identifier）——解包一层（迭代30 T3 实证）。
+				// 迭代40 P0-3 漏网：实参包装节点走 pack 数据（C# argument → 解包一层取命名子节点）
 				pushArg(
-					c.type === "argument" ? (c.children.find((x) => x.isNamed) ?? c) : c,
+					(this.pack.argWrapNodes ?? EMPTY_SHAPES).includes(c.type)
+						? (c.children.find((x) => x.isNamed) ?? c)
+						: c,
 				);
 			}
 		}
 		return out;
 	}
 
-	/** 函数内绑定名（赋值目标 + 参数名——参数同样遮蔽外层 import；遮蔽守卫用）。流不敏感保守收集。 */
+	/** 函数内绑定名（赋值目标 + 参数名——参数同样遮蔽外层 import；遮蔽守卫用）。流不敏感保守收集。
+	 *  迭代40 P0-3 H11/H18：参数名槽位/参数列表节点走 pack 数据。 */
 	private assignedNames(root: SyntaxNode): string[] {
 		const out: string[] = [];
 		const pushParam = (n: SyntaxNode): void => {
+			// 迭代40 P0-3 H11：槽位机制（Python typed_parameter → __firstIdentifier）
+			const slots = this.pack.paramNameSlots?.[n.type];
+			if (slots) {
+				for (const slot of slots) {
+					if (slot === "__firstIdentifier") {
+						const id = n.children.find(
+							(c) =>
+								c.type === "identifier" ||
+								c.type === "property_identifier",
+						);
+						if (id) {
+							out.push(id.text);
+							return;
+						}
+					}
+				}
+			}
 			const named =
 				n.childForFieldName("name") ?? n.childForFieldName("pattern");
 			if (
@@ -1216,7 +1409,8 @@ export class Extractor {
 		};
 		const walk = (n: SyntaxNode): void => {
 			if (this.pack.assignmentTargets.includes(n.type)) {
-				// require 导入声明（const x = require(...)）不是遮蔽——importMap 已登记该绑定
+				// require 导入声明（const x = require(...)）不是遮蔽——importMap 已登记该绑定。
+				// 迭代40 P0-3 H12：require 名走 pack 数据（仅 JS 族）
 				let isRequireDecl = false;
 				if (n.type === "variable_declarator") {
 					const val = n.childForFieldName("value");
@@ -1224,7 +1418,9 @@ export class Extractor {
 						? (val.childForFieldName("function") ?? val.children[0])
 						: null;
 					isRequireDecl =
-						!!fn && fn.type === "identifier" && fn.text === "require";
+						!!fn &&
+						fn.type === "identifier" &&
+						(this.pack.requireFnNames ?? EMPTY_SHAPES).includes(fn.text);
 				}
 				if (!isRequireDecl) {
 					// 迭代25：C# variable_declarator 无 name 字段（名字是裸 identifier 子节点）→ children[0] fallback；
@@ -1241,7 +1437,9 @@ export class Extractor {
 						out.push(left.text);
 					}
 				}
-			} else if (n.type === "parameters") {
+			} else if (
+				(this.pack.paramListNodeTypes ?? EMPTY_SHAPES).includes(n.type)
+			) {
 				for (const c of n.children) pushParam(c); // 参数名遮蔽外层绑定
 			}
 			for (const c of n.children) walk(c);
@@ -1348,8 +1546,12 @@ function literalReceiverType(node: SyntaxNode, pack: LangPack): string | null {
 	}
 	const t = pack.literalReceivers[n.type];
 	if (t === undefined) return null;
-	// tree-sitter-python 的 f-string 与 bytes 同是 string 节点：b"/B" 前缀才是 bytes
-	if (t === "str" && /^[bB]['"]/.test(n.text)) return "bytes";
+	// 迭代40 P0-3 H14：bytes 前缀检查只对声明的类型做（Python "str"——b"" 前缀才是 bytes）
+	if (
+		(pack.bytesPrefixTypes ?? EMPTY_SHAPES).includes(t) &&
+		/^[bB]['"]/.test(n.text)
+	)
+		return "bytes";
 	return t;
 }
 
@@ -1369,7 +1571,10 @@ function flattenCallTarget(node: SyntaxNode, pack: LangPack): string | null {
 	) {
 		return node.text;
 	}
-	if (members.includes(node.type) && node.type !== "conditional_access_expression") {
+	if (
+		members.includes(node.type) &&
+		node.type !== "conditional_access_expression"
+	) {
 		const obj = node.childForFieldName("object") ?? node.children[0];
 		const attr =
 			node.childForFieldName("attribute") ??
@@ -1396,7 +1601,10 @@ function flattenCallTarget(node: SyntaxNode, pack: LangPack): string | null {
 		}
 		return null;
 	}
-	if (members.includes(node.type) && node.type === "conditional_access_expression") {
+	if (
+		members.includes(node.type) &&
+		node.type === "conditional_access_expression"
+	) {
 		// C# null 条件访问（迭代20）：obj?.Method → obj 部分 flatten + member_binding 标识符
 		const expr = node.children[0];
 		const binding = node.children.find((c) => memberWraps.includes(c.type));
@@ -1412,34 +1620,38 @@ function flattenCallTarget(node: SyntaxNode, pack: LangPack): string | null {
 	return null;
 }
 
-/** 构造类型名提取（迭代33 C1）：identifier → 文本；generic_name → 剥 type_argument_list 取名；
- *  qualified_name → 取末段（new System.Collections.Generic.List<T>() → List）；其余 → null（诚实）。 */
-function ctorTypeName(node: SyntaxNode): string | null {
+/** 构造类型名提取（迭代33 C1 + 迭代40 P0-3 H13）：identifier → 文本；剥壳节点集走 pack 数据
+ *  （generic_name → 剥 type_argument_list 取名；qualified_name → 取末段；Python type 注解包装）。
+ *  其余 → null（诚实）。 */
+function ctorTypeName(node: SyntaxNode, pack?: LangPack): string | null {
 	if (
 		node.type === "identifier" ||
 		node.type === "type_identifier" ||
 		node.type === "predefined_type"
 	)
 		return node.text;
-	if (node.type === "type") {
-		// 迭代38：tree-sitter-python 注解包装（typed_parameter 的 type 字段是 type 别名节点，内含真实类型）
+	const typeNameNodes = pack?.typeNameNodes ?? EMPTY_SHAPES;
+	const typeWrapNodes = pack?.typeWrapNodes ?? EMPTY_SHAPES;
+	if (typeWrapNodes.includes(node.type)) {
+		// 注解包装（Python "type" / TS "type_annotation"——typed_parameter 的 type 字段是
+		// 包装节点，内含真实类型）
 		const inner = node.children.find((c) => c.isNamed);
-		return inner ? ctorTypeName(inner) : null;
+		return inner ? ctorTypeName(inner, pack) : null;
 	}
-	if (node.type === "generic_name") {
+	if (typeNameNodes.includes(node.type) && node.type === "generic_name") {
 		// generic_name: [identifier|name, type_argument_list]——取 name 子节点或首子节点
 		const name = node.childForFieldName("name") ?? node.children[0];
 		if (name && (name.type === "identifier" || name.type === "type_identifier"))
 			return name.text;
 		return null;
 	}
-	if (node.type === "qualified_name") {
+	if (typeNameNodes.includes(node.type) && node.type === "qualified_name") {
 		// 迭代34 独立审计 Low-Med：末段节点递归剥壳——System.Collections.Generic.Dictionary<K,V> 的末子
 		// 是 generic_name（非 identifier），此前 filter 只留 identifier → 返回末段 identifier（如 "Generic"）
 		// 且 ctor:Generic 进 miss 记账（迭代36 独立审计：旧行为描述修正——非"空 → null"）。
 		// "取末段"必须是节点级递归（generic_name/qualified_name/identifier/predefined_type 均可）。
 		const last = node.children[node.children.length - 1];
-		if (last) return ctorTypeName(last);
+		if (last) return ctorTypeName(last, pack);
 		return null;
 	}
 	return null;
@@ -1452,17 +1664,15 @@ function findDefaultExport(root: SyntaxNode, pack: LangPack): string | null {
 	const visit = (n: SyntaxNode): void => {
 		if (found !== null) return;
 		if (shapesOf(pack, "exportStmtNodes").includes(n.type)) {
-			const hasDefault = n.children.some((c) => c.type === "default");
+			// 迭代40 P0-3 H17：导出 token 文本走 pack 数据（TS/JS "default"/"export"）
+			const tokens = pack.exportStmtTokens ?? EMPTY_SHAPES;
+			const hasDefault = n.children.some((c) => tokens.includes(c.text));
 			if (hasDefault) {
 				for (const c of n.children) {
 					if (pack.chunkNodes.includes(c.type)) {
 						const nameNode = c.childForFieldName("name");
 						if (nameNode) found = nameNode.text;
-					} else if (
-						c.type === "identifier" &&
-						c.text !== "default" &&
-						c.text !== "export"
-					) {
+					} else if (c.type === "identifier" && !tokens.includes(c.text)) {
 						// export default foo（标识符引用：别名再导出解析依赖 defaultExport 登记）
 						found = c.text;
 					}

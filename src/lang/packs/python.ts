@@ -495,7 +495,21 @@ export const pythonPack: LangPack = {
 	chunkNodes: ["function_definition", "class_definition", "lambda"],
 	classNodes: ["class_definition"],
 	callNodes: ["call"],
-	// ponytail(已解决): 赋值 RHS 的 lambda 已提为命名 chunk（handler = lambda: ... 不再假 IMPURE module）；
+	ctorChunkNames: ["__init__"], // 迭代40 P0-3 H01：构造器 chunk 名（link 合并构造体效应）
+	// 迭代40 P0-3 批3：形状数据化
+	heritageFields: { class_definition: "superclasses" }, // H10：Python 基类容器字段
+	paramNameSlots: { typed_parameter: ["__firstIdentifier"] }, // H11：typed_parameter 无 name 字段
+	typeNameNodes: [], // H13：Python 类型包装移入 typeWrapNodes
+	typeWrapNodes: ["type"], // M6：Python 注解包装
+	bytesPrefixTypes: ["str"], // H14：b"" bytes 前缀判别
+	patternNameNodes: ["as_pattern_target"], // H15：except-as 变量
+	lambdaNodes: ["lambda"], // H16：赋值 RHS lambda 提 chunk
+	lambdaAssignNodes: ["assignment"], // H16
+	paramListNodeTypes: ["parameters"], // H18：参数列表节点类型（assignedNames walk）
+	paramListField: "parameters", // H18：参数列表字段名（paramNames/paramTypesOf）
+	keywordArgNodes: ["keyword_argument"], // P0-3 漏网：Python 关键字实参
+	catchMultiTypeNodes: ["tuple"], // P0-3 漏网：except (A,B) 多类型
+	nestedFnBoundaryNodes: ["function_definition", "class_definition", "lambda"], // H19
 	// 实参/其他位置 lambda 不提 chunk（体调用归外层——map(lambda, ...) 模块级仍正确判 IMPURE）
 	nestingNodes: [
 		"if_statement",

@@ -591,9 +591,10 @@ describe("C# 语言包（迭代19）", () => {
 			| undefined;
 		expect(run).toBeDefined();
 		// 迭代31 S3（审计实证活洞）：修复前 hofAlwaysArgs 空表 → Console.WriteLine 回调 io 被吞 → PURE=0 假纯。
-		// 修复后：Select 进 hofAlwaysArgs → 回调未解析 → calls 含 ? → UNKNOWN=1（公理 3，绝不假纯）
+		// 迭代40 B5 后：方法组实参（System.Console.WriteLine）经属性读取通道命中效应表 → 确定 io → IMPURE=2
+		// （比旧 UNKNOWN 更精确——方法组被 HOF 调用必然执行 io；S2 方向安全）
 		expect(run!.purity).not.toBe(0); // 不容忍 PURE——回调可能 io
-		expect(run!.purity).toBe(1); // UNKNOWN——诚实未知
+		expect(run!.purity).toBe(2); // IMPURE——确定 io（B5 属性读取通道）
 	});
 
 	it("迭代31 S1：C# 链式调用第二环起恢复解析（receiverTypeOf 支持 invocation_expression）", async () => {
@@ -632,9 +633,9 @@ describe("C# 语言包（迭代19）", () => {
 		expect(run).toBeDefined();
 		// HIGH-1（复审实证活洞）：Last ∈ linqHof \ hofAlwaysArgs 差集——修复前 frameworkPure 放行
 		// addArgEdges 但 UNKNOWN 门只查 hofAlwaysArgs → 命名回调被吞 → PURE=0 假纯。
-		// 修复后：addArgEdges 门同时认 linqHof → 未解析回调 → calls 含 ? → UNKNOWN=1（公理 3）
+		// 迭代40 B5 后：方法组实参经属性读取通道命中效应表 → 确定 io → IMPURE=2（同 S3）
 		expect(run!.purity).not.toBe(0); // 不容忍 PURE
-		expect(run!.purity).toBe(1); // UNKNOWN
+		expect(run!.purity).toBe(2); // IMPURE——确定 io（B5 属性读取通道）
 	});
 
 	it("迭代31 MEDIUM-2：String.Join 值实参不误伤（纯静态非 HOF → PURE）", async () => {
@@ -733,10 +734,10 @@ describe("C# 语言包（迭代19）", () => {
 		expect(sel).toBeDefined();
 		expect(selFw).toBeDefined();
 		// Enumerable = hof 整类（迭代32：1 键取代 linqHof 29 算子）——Twice 解析成边且纯 → PURE；
-		// Console.WriteLine 未解析 → unconditional 门 → UNKNOWN（非假纯）
+		// 迭代40 B5 后：Console.WriteLine 方法组实参经属性读取通道命中效应表 → 确定 io → IMPURE（非假纯）
 		expect(sel!.purity).toBe(0); // PURE——回调 Twice 纯
 		expect(selFw!.purity).not.toBe(0); // 不容忍 PURE——框架回调 io 未确证
-		expect(selFw!.purity).toBe(1); // UNKNOWN
+		expect(selFw!.purity).toBe(2); // IMPURE——确定 io（B5 属性读取通道）
 	});
 
 	it("迭代32 T4：Text 子命名空间嵌套（复审 Blocking 修复——System.Text.Encoding.UTF8 纯计算 → PURE）", async () => {
@@ -1027,5 +1028,126 @@ describe("C# 语言包（迭代19）", () => {
 		expect(run).toBeDefined();
 		// xs 重绑（count=2）→ 不绑；参数 other 注入 → xs.Add 动态分派 ? → UNKNOWN 诚实（方向安全）
 		expect(run!.purity).toBe(1); // UNKNOWN——守卫守住（宁 UNKNOWN 不 PURE）
+	});
+
+	it("迭代40 B5：自定义 getter io 传染（参数类型/隐式 this/this/局部构造 → IMPURE 非假纯）", async () => {
+		const root = project("b5-prop", {
+			"C.cs": [
+				"using System;",
+				"public class Config {",
+				'    public int Value { get { Console.WriteLine("io"); return 1; } }',
+				"    public int Auto { get; set; } = 42;",
+				"    public int Field = 7;",
+				"}",
+				"public class User {",
+				'    public int Cached { get { Console.WriteLine("u io"); return 3; } }',
+				"    public int ReadParam(Config c) { return c.Value; }",
+				"    public int Own() { return Cached; }",
+				"    public int OwnThis() { return this.Cached; }",
+				"    public int Local() { var cfg = new Config(); return cfg.Value; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		expect(r.stats.parseErrors).toBe(0);
+		const readParam = by(r).get("C.cs::User.ReadParam") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		const own = by(r).get("C.cs::User.Own") as { purity: number } | undefined;
+		const ownThis = by(r).get("C.cs::User.OwnThis") as
+			| { purity: number }
+			| undefined;
+		const local = by(r).get("C.cs::User.Local") as
+			| { purity: number }
+			| undefined;
+		const prop = by(r).get("C.cs::Config.Value") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		expect(readParam).toBeDefined();
+		expect(own).toBeDefined();
+		expect(ownThis).toBeDefined();
+		expect(local).toBeDefined();
+		expect(prop).toBeDefined();
+		// B5 修复前：getter 体效应并入类 chunk，属性读取不建边 → 读取方假纯 PURE=0
+		// 修复后：property chunk 独立 + 属性读取建 prop 边 → 四通道全传染 io
+		expect(prop!.purity).toBe(2); // getter chunk 自身 io
+		expect(prop!.effects.has("io")).toBe(true);
+		expect(readParam!.purity).toBe(2); // 参数类型绑定 → getter chunk 边
+		expect(own!.purity).toBe(2); // 隐式 this 裸名读取
+		expect(ownThis!.purity).toBe(2); // this 读取
+		expect(local!.purity).toBe(2); // 局部构造绑定
+	});
+
+	it("迭代40 B5：自动属性/字段读取判纯（无用户代码；参数/隐式 this/类名静态通道）", async () => {
+		const root = project("b5-pure", {
+			"C.cs": [
+				"public class Config {",
+				"    public int Auto { get; set; } = 42;",
+				"    public int Field = 7;",
+				"    public static int StaticField = 9;",
+				"}",
+				"public class User {",
+				"    public int ReadAuto(Config c) { return c.Auto; }",
+				"    public int ReadField(Config c) { return c.Field; }",
+				"    public int Stat() { return Config.StaticField; }",
+				"    public int OwnMissing() { return this.Missing; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const auto = by(r).get("C.cs::User.ReadAuto") as
+			| { purity: number }
+			| undefined;
+		const field = by(r).get("C.cs::User.ReadField") as
+			| { purity: number }
+			| undefined;
+		const stat = by(r).get("C.cs::User.Stat") as { purity: number } | undefined;
+		const miss = by(r).get("C.cs::User.OwnMissing") as
+			| { purity: number }
+			| undefined;
+		expect(auto).toBeDefined();
+		expect(field).toBeDefined();
+		expect(stat).toBeDefined();
+		expect(miss).toBeDefined();
+		// C# 静态语义：字段/自动属性/不存在成员读取不执行用户代码 → 纯（S1 模型内成立）
+		expect(auto!.purity).toBe(0); // 自动属性空 chunk 零效应
+		expect(field!.purity).toBe(0); // 字段 miss+prop → 纯
+		expect(stat!.purity).toBe(0); // 类名静态字段 → 纯
+		expect(miss!.purity).toBe(0); // this 不存在成员 → 纯（编译错 = 无运行时行为）
+	});
+
+	it("迭代40 M5：obj?.Prop 条件访问读取建边——getter io 传染（?. 假纯通道闭合）", async () => {
+		const root = project("b5-cond", {
+			"C.cs": [
+				"using System;",
+				"public class Config {",
+				"    public int Value { get { Console.WriteLine(\"io\"); return 1; } }",
+				"    public int Auto { get; set; } = 42;",
+				"    public int Get() { Console.WriteLine(\"m\"); return 1; }",
+				"}",
+				"public class User {",
+				"    public int Read(Config c) { return c?.Value ?? 0; }",
+				"    public int ReadAuto(Config c) { return c?.Auto ?? 0; }",
+				"    public int Call(Config c) { c?.Get(); return 0; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const read = by(r).get("C.cs::User.Read") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		const auto = by(r).get("C.cs::User.ReadAuto") as
+			| { purity: number }
+			| undefined;
+		const call = by(r).get("C.cs::User.Call") as { purity: number } | undefined;
+		expect(read).toBeDefined();
+		expect(auto).toBeDefined();
+		expect(call).toBeDefined();
+		// M5 修复前：c?.Value 不建边 → getter io 不传染（M_out M5 假纯通道）；
+		// 修复后：conditional_access 走 prop 通道 → 参数类型解析 → getter 传染
+		expect(read!.purity).toBe(2); // c?.Value → getter io 传染
+		expect(read!.effects.has("io")).toBe(true);
+		expect(auto!.purity).toBe(0); // c?.Auto 自动属性空 chunk → 纯
+		expect(call!.purity).toBe(2); // c?.Get() 是调用（conditional 是 invocation 的 function）→ 方法 io 传染
 	});
 });

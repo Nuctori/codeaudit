@@ -1,10 +1,15 @@
-# codeaudit 技术债摘要（迭代 39 重基线 / 数学模型细化后）
+# codeaudit 技术债摘要（迭代 40 重基线 / B5 属性访问器假纯洞闭合 + 方向分类）
 
-> 重基线于迭代 39（2026-08-13）：数学模型细化为 M=(IR,Σ,Λ,π,H,F)（docs/iter39/00-model.md），
-> 收掉 P0-1（字段初始化器假纯洞）、B7（C# virtual 精确分派）、B9（moduleBindings 继承）、
-> B10（mutate 写位置）、node: 数据化、AST 形状契约网（P2-2）、投影数据化（P2-1）。
-> 现基线：335/335 测试（vitest 串行）+ tsc 干净 + 真实扫描冒烟通过。评审：迭代39 独立审计。
-> 分类：**A. 形式正确性修复（已修）** / **B. 工程妥协（有意，方向安全）** / **C. 无主债（应还）** / **D. 外部债（非本仓库可修）**
+> 重基线于迭代 40（2026-08-13）：B5（C# 属性访问器假纯洞）闭合——property chunk + 属性读取 prop 边；
+> B 表重审引入**方向分类**（方向安全 ≠ 假纯通道，iter31 定义对齐）；M_out 模型外通道清单形式化。
+> 现基线：339/339 测试（vitest 串行）+ tsc 干净 + 真实扫描冒烟通过。
+> 分类：**A. 形式正确性修复（已修）** / **B. 工程妥协（有意，方向分类）** / **C. 无主债（应还）** / **D. 外部债（非本仓库可修）**
+>
+> **方向分类字段**（迭代40 引入，对齐 iter31 操作定义）：
+>
+> - `安全-过近似` = 只多报效应（假 IMPURE），S2 方向，永不假纯
+> - `安全-未知` = 只降级 UNKNOWN（假 UNKNOWN），损判别力不损健全性
+> - `假纯可能` = 漏报方向（S1 现实违反通道）——模型外或未建模形态；必须入 M_out 清单或触发率量化
 
 ---
 
@@ -18,17 +23,38 @@
 | A4 | **frameworkPure 前缀级假纯洞**（Enumerable.Select(xs, WriteLine) 判 PURE） | 已修：成员级白名单（iter32，csharp.ts frameworkPure 两级结构） |
 | A5 | **string.Join 撞名误伤**（全局 HOF 表吞值实参） | 已修：Join/GroupJoin 移出全局表（iter31） |
 | A6 | **记账不变量破坏**（calls[?] 而 unknownSites=0，标注不可见） | 已修：addArgEdges 兜底走 markUnknown 通道（iter31） |
+| A7 | **属性访问器假纯洞（B5）**：自定义 getter io 不传染读取方（实证 `c.Value` 判 PURE 而 getter 执行 io） | 已修（迭代40）：property_declaration 提 chunk（自动属性=空 chunk）+ member_access/裸名 identifier 读取形态建 prop 调用点 + link 四通道 miss+prop 判纯（C# 静态语义：字段/自动属性/不存在成员读取无用户代码；partial 类由跨文件成员表并集覆盖）。实证：getter io 四通道全传染（参数类型/隐式 this/this/局部构造），自动属性/字段/静态字段/不存在成员全判纯；方法组实参（Select(xs, Console.WriteLine)）升级 UNKNOWN→确定 IMPURE |
 
-## B. 工程妥协（有意，方向安全——但降低判别力）
+## B. 工程妥协（有意——方向分类标注）
 
-| # | 妥协 | 语义 | 代价 | 迭代37 后状态 |
-| --- | --- | --- | --- | --- |
-| B1 | **效应表 70+ 类基数无校准** | 每类人工裁决（Debug io/PlayerPrefs state 明确；Path fs/Screen io/Transform state 保守） | 过度判定 → 假 IMPURE（方向安全，但 LOW 阈值分布偏移） | **部分缓解**：P1-1 注入白名单补 frameworkPure/pureCtor——新 API 可注入免改包代码（校准仍是人工数据债） |
-| B2 | **frameworkIo["this"] 20 组件 + gameObject/transform 隐式 this** | this.gameObject.SetActive → io（固定 io 非细分） | 组件链一律 io，无法区分读/写 | 保留（数据裁决） |
-| B3 | **LINQ 链全 ?**（xs.Where(...).Select(...)） | 变量 receiver 动态 → 诚实 ? | 集合内存操作判 unknown（可标注 PURE） | 保留（iter31 S1 链修复部分缓解——builtinMethodReturns 链式接收者解析） |
-| B4 | **事件订阅不建模**（+= / AddListener） | 回调方法独立判定，订阅方不建边 | 事件回调不传染（方向安全） | 保留（语言语义建模，第一版级） |
-| B5 | **属性访问器不建 chunk**（自定义 getter/setter 有逻辑） | 自动属性无逻辑；自定义 getter 漏检 | 带逻辑的 getter 效应漏（方向安全） | 保留（第一版级） |
-| B6 | **隐式 this 与局部变量竞态**：裸名 gameObject 若局部变量遮蔽 → 仍判 io | 遮蔽守卫只查 assigned | 极小 | 保留（P0-2 数据化不改变语义） |
+| # | 妥协 | 语义 | 代价 | 方向分类 | 状态 |
+| --- | --- | --- | --- | --- | --- |
+| B1 | **效应表 70+ 类基数无校准** | 每类人工裁决（Debug io/PlayerPrefs state 明确；Path fs/Screen io/Transform state 保守） | 过度判定 → 假 IMPURE（LOW 阈值分布偏移） | 安全-过近似 | **部分缓解**：P1-1 注入白名单补 frameworkPure/pureCtor——新 API 可注入免改包代码（校准仍是人工数据债） |
+| B2 | **frameworkIo["this"] 20 组件 + gameObject/transform 隐式 this** | this.gameObject.SetActive → io（固定 io 非细分） | 组件链一律 io，无法区分读/写 | 安全-过近似 | 保留（数据裁决） |
+| B3 | **LINQ 链全 ?**（xs.Where(...).Select(...)） | 变量 receiver 动态 → 诚实 ? | 集合内存操作判 unknown（可标注 PURE） | 安全-未知 | 保留（iter31 S1 链修复部分缓解——builtinMethodReturns 链式接收者解析） |
+| B4 | **事件订阅不建模**（+= / AddListener） | 回调方法独立判定，订阅方不建边 | 事件触发时执行 io 回调 → 订阅方判纯 | **假纯可能** | 保留（语言语义建模，第一版级）——入 M_out；触发不确定性是唯一缓冲，无触发率量化 |
+| B6 | **隐式 this 与局部变量竞态**：裸名 gameObject 若局部变量遮蔽 → 仍判 io | 遮蔽守卫只查 assigned | 极小 | 安全-过近似 | 保留（P0-2 数据化不改变语义） |
+| B7 | **C# virtual 精度**：多态守卫不区分 virtual/非 virtual | 非 virtual 静态分派本可精确；? 是健全降级 | 基类 self 调用噪音 | 安全-未知 | 已修（迭代39 L4：virtualMembers 提取，非 virtual 免守卫） |
+| B8 | **项目外子类不可见**（库/插件扩展你的类） | 多态并集漏项目外覆写 | 项目外覆写 → 假纯 | **假纯可能** | 入 M_out——与项目外写者同族，无静态解 |
+| B12 | **Python **new** 逃逸**（C() 可 return 任意对象） | lb/trustedCtor 对 Python 的残余 | 构造返回任意对象 → 类型不可信 | **假纯可能** | 入 M_out（同 monkey-patch 族，文档化接受） |
+| B13 | **C# 单接口基类实现的方法隐含 virtual**（base_list 单子无法区分接口与外部类） | 类侧残余罕见 | 接口方法静态分派误判 | 安全-过近似 | 保留（接口清单数据可消，IDisposable 等） |
+| B14 | **静态初始化器并入 new C()**（类型加载时执行非实例化） | L5 过近似 | 构造多报静态初始化器效应 | 安全-过近似 | 保留（静态初始化器独立建模可消） |
+
+## M_out：模型外通道清单（S1 现实相对性边界，迭代40 形式化）
+
+A6 的 S1 是**模型相对**的（"实际效应定义在模型真值上"）。以下通道在模型外仍可产生**现实假纯**（模型内 PURE、现实有效应）——按触发条件与接受理由逐条声明，不称"方向安全"：
+
+| # | 通道 | 触发条件 | 方向 | 接受理由 | 升级路径 |
+| --- | --- | --- | --- | --- | --- |
+| M1 | **事件订阅不建模**（B4） | 订阅方持有事件，事件触发执行 io 回调 | 假纯可能 | 触发不确定性（回调可能永不执行）；事件驱动建模是第一版级语言语义 | 事件订阅边（订阅方 → 回调方法，方向 S2） |
+| M2 | **项目外子类覆写**（B8） | 库/插件 extends 项目类并覆写方法 | 假纯可能 | 项目外代码不可静态可见（与 M3 同族） | 无静态解；文档化 + 触发率实测 |
+| M3 | **项目外状态写者** | 测试夹具/框架注入写项目状态 | 假纯可能 | 同上（README 已知限制） | 无静态解 |
+| M4 | **Python **new** / monkey-patch**（B12） | `C()` 被 monkey-patch 返回任意对象；`C.m = ...` 运行时换方法 | 假纯可能 | 动态语言语义，静态不可见 | 文档化接受 |
+| M5 | **C# 条件访问属性读取**（`obj?.Prop`） | conditional_access 形态未建 prop 边，getter io 不传染 | 假纯可能 | **已修（迭代40 M5）**：propertyReadNodes 加 conditional_access_expression（`a?.b()` 的 conditional 是 invocation 的 function → 现有 parent 排除覆盖） | — |
+| M6 | **TS/JS/Python 属性读取** | `obj.prop` 读取（TS getter 已建 chunk 但读取不建边；Python property 动态） | 假纯可能 | **已修（迭代40 M6，TS/JS）**：member_expression 建 prop 边 + memberNames 字段清单 + selfPropReadIsPure（JS 语义 this.attr 非 getter 读取无副作用）+ __objectLiteral（对象字面量类型属性恒纯）+ TS paramNodes 补全（A1 预存盲区）。Python 保持（__getattr__ 动态，静态不可判定） | Python：文档化接受（动态属性协议） |
+| M7 | **C# enum 成员读取**（`Color.Red`） | enum 不在 classNodes → 读取落 ? | 安全-未知（非假纯） | 方向安全，判别力损失小 | enum_declaration 入 classNodes |
+
+**契约**：M1-M6 任一升级修复后移出清单；新发现的模型外通道必须入清单（防"方向安全"标签掩盖漏报）。
 
 ## C. 无主债（应还）
 
@@ -36,7 +62,7 @@
 | --- | --- | --- | --- |
 | C1 | **resolveCall cognitive 高**（迭代 18 D1 + C# 分支） | 2-4h | **部分清偿**：P0-1 削 link 硬编码分支 ~15 行、P0-2 削 extractor 3 处 pack.name；resolveImport 已拆（iter36 r2）；resolveCall 主体未拆 |
 | C2 | **真实项目 fixture**（InitDeity/旧宇宙无回归快照——C# 修复无防回归网兜） | 2-3h | 保留 |
-| C3 | **标注工作流 E2E**（unknowns→标注→回读→语料全链路无测试） | 1h | 保留 |
+| C3 | **标注工作流 E2E**（unknowns→标注→回读→语料全链路无测试） | 1h | **已闭环**（核实于迭代40）：contract.test.ts corpus-e2e 测试覆盖导出（calls 明细/冷启动无先验）→ 回读 → 语料累积 → 幂等全链路 |
 | C4 | **README 测试数漂移** | — | **已根治**：CI 门禁 check-readme-tests.cjs（D-119，81c40b1） |
 | C5 | **效应表测试稀疏**：70+ 类只测 10 个——其余无断言 | 1h | 保留 |
 | C6 | **局部变量类型推断缺失**（API.g.cs 生成代码 30.5% 未知站点——构造器初始化子集 ~2-3k） | 2h + 度量 | **已闭环**（迭代37 P1-2，c09d335）：localBindingsOf 单赋值构造绑定 + link 消费（G4 守卫：单赋值 ∧ ¬param ∧ 构造形态；`var xs = new List<int>()` → xs.Add 纯信箱）；残余 = 方法结果/下标 receiver 绑定（需跨 chunk 数据流，仍延后） |
@@ -83,7 +109,7 @@
 | B9 | **moduleBindings 不接继承**（db = new Pool() 只查 own-class） | 模块单例基类方法 → ?（诚实） | resolveClassMember 入 resolveFromObjectImport（参数管道 ~6 行） |
 | B10 | **mutate 无 stateWrites 位置** | --state 耦合图漏该方法变异（下界，元数据级） | 变异方法名作位置（`d.append`）需读方对称匹配 |
 | B11 | **C# 字段初始化器效应不建模**（int x = ReadFile()） | 隐式 ctor 纯的健全性前提（预存在残余） | 字段初始化器归入 class chunk（与 ctor 体合并同款） |
-| B12 | **Python __new__ 逃逸**（C() 可 return 任意对象） | lb/trustedCtor 对 Python 的残余（同 monkey-patch 族） | 文档化接受 |
+| B12 | **Python **new** 逃逸**（C() 可 return 任意对象） | lb/trustedCtor 对 Python 的残余（同 monkey-patch 族） | 文档化接受 |
 
 ## 迭代 39 清空项（本轮闭合）
 
@@ -107,9 +133,60 @@
 
 **验收口径**（docs/iter39/00-model.md + 独立审计必修 5 反例）：337/337（迭代39 缺口闭合 4 + ast-shape 6 契约 + B7 拆分 2 + 审计反例 2）；tsc 干净；真实扫描分布正常。
 
+## 迭代 40 清空项（本轮闭合）
+
+| 项 | 类型 | 闭合方式 |
+| --- | --- | --- |
+| B5 属性访问器假纯洞 | 假纯（实证：`c.Value` 读取方 PURE 而 getter 执行 io） | A7：property_declaration 提 chunk（自动属性=空 chunk，自定义 getter/setter 体调用归属属性 chunk）+ propertyReadNodes 数据表（C# member_access_expression + identifier）+ link 四通道 prop 解析（self/implicitThis/参数类型/局部构造/全局类：成员 miss + prop → 纯，C# 静态语义论证） |
+| "方向安全"标签掩盖漏报 | 文档正确性 | B 表方向分类三值（安全-过近似 / 安全-未知 / 假纯可能）+ M_out 模型外通道清单 M1-M7（B4/B8/B12 改标假纯可能） |
+
+## 迭代 40 新增债（有意残余 + 升级路径）
+
+| # | 债 | 语义 | 方向 | 升级路径 |
+| --- | --- | --- | --- | --- |
+| B15 | **C# 裸名 identifier 读取全量建边**（性能） | 表达式位置 identifier 都建 prop 边，每处走裸名解析（bySimple + implicitThis resolveClassMember） | 安全-未知（miss 判纯，无假纯） | **已实测（迭代40）**：合成 500 文件 C# 大库 790ms（1.6ms/文件）——性能可接受，无需优化；大库（InitDeity 级）如遇退化再启用快速拒绝 |
+| B16 | **方法组实参升级确定 IMPURE**（Select(xs, Console.WriteLine)） | 方法组引用经 prop 通道命中效应表 → 确定效应（旧 UNKNOWN） | 安全-过近似 | 测试已更新（S3/HIGH-1/T3 断言 UNKNOWN→IMPURE）；方法组引用语义 = 委托创建（未执行），精确建模需区分"引用"与"读取"形态 |
+| B17 | **C# qualified_name/字段名探针债** | variable_declarator 无 name 命名字段（children[0] 兜底）；web-tree-sitter 节点引用不恒等（=== 失效，位置比较） | — | 已数据化（propertyReadNameSlots "__child0"）；位置比较已固化；若 wasm 升级改变形态，ast-shape 契约网兜底 |
+| B18 | **B5 数据化收敛（0hack 要求）** | 初版 isPropertyRead 排除判定硬编码在引擎（PROP_READ_SKIP_PARENTS 40+ C# 节点 + variable_declarator/parameter/catch_declaration 字段特判）——违反 P2-1；link prop miss→纯 无语言门控（语义泄漏） | — | 已收敛：propertyReadSkipMorphs / propertyReadSkipParents / propertyReadNameSlots / propMissIsPure 四表数据化（pack.ts + csharp.ts），extractor 零语言常量，link 五通道 propMissIsPure 门控（动态语言未来接入自动落 ? 诚实） |
+
+## 迭代 40 P0-3 清空项（独立审计 25 项 hack 全数据化）
+
+| 审计项 | 类型 | 闭合方式 |
+| --- | --- | --- |
+| H01 构造器 chunk 名（link `__init__`/`constructor`） | 语言常量 | `ctorChunkNames`（Python/TS 填；C# 走 isCtor 分支） |
+| H02 构造节点→字段策略（object_creation/new_expression 特判 ×3） | 语言常量 | `ctorTypeFields` + `ctorMarkNodes`（C# type / TS constructor；统一 ctorTypeName 剥壳） |
+| H03 sealed/virtual/override/abstract + interface_declaration | 语言常量 | `virtualModifiers`/`sealedModifiers`/`interfaceNodes`（仅 C# 填） |
+| H04 inClassMemberBody C# 节点集 | 语言常量 | `classMemberBodyNodes`/`classMemberBodyStopNodes` |
+| H05 self/cls/this 绕开 selfNames 表（×2） | 表绕过 | `pack.selfNames.includes` |
+| H06 externalWritePos 四段同构复制 | 极小性 | memberNodes 统一分支消重（-24 行；conditional 排除保等价） |
+| H07 for_each_statement + "in" token | 语言常量 | `foreachNodes` + `foreachInToken` |
+| H08 conditional_access 点名特判 | 表绕过 | memberWrapNodes/成员字段统一提取（既有表） |
+| H09 raise/throw 分叉 | 语言常量 | `throwArgFields`（TS throw→argument；Python 子节点查找） |
+| H10 class_definition/base_list 继承字段分叉 | 语言常量 | `heritageFields`（Python superclasses；C#/TS 走 heritageNodes） |
+| H11 typed_parameter 特判（×3） | 语言常量 | `paramNameSlots`（__firstIdentifier 槽位机制） |
+| H12 exports/module.exports/require（×3） | 语言常量 | `cjsExportObjNames`/`requireFnNames`（仅 JS 族——C#/Python 不再误触发） |
+| H13 ctorTypeName 节点名（type/generic/qualified） | 语言常量 | `typeNameNodes`（ctorTypeName 收 pack 参数递归） |
+| H14 str + bytes 前缀正则 | 语言常量 | `bytesPrefixTypes`（仅 Python 声明） |
+| H15 tuple_pattern/array_pattern/as_pattern_target | 语言常量 | `patternNameNodes` |
+| H16 /function/ 正则 + lambda/assignment | 语言常量 | `fnLiteralNodes`/`lambdaNodes`/`lambdaAssignNodes` |
+| H17 export_statement/default/export token | 表绕过 | `exportStmtTokens` + declNodes 复用 |
+| H18 "parameters" 节点/字段混淆 | 语言常量 | `paramListNodeTypes`（节点类型：TS formal_parameters）+ `paramListField`（字段名：跨语言 parameters）——字段名与节点类型是两维度，审计实证混淆即坏 |
+| H19 嵌套函数边界 8 节点集 | 语言常量 | `nestedFnBoundaryNodes` |
+| H20 SKIP_DIRS 生态目录名 | 工程配置 | 保留（跨语言工程默认值，非语言知识；文档化） |
+| B01 catch_clause → "*" 施加于 C# 类型化 catch | 语义泄漏 | `catchDeclNodes`（C# 类型化提取；TS/JS 吞一切）——throwsTypes 元数据修复 |
+| B02 CJS 导出语义对任意语言生效 + stateWrites 抑制 | 语义泄漏 | `cjsExportObjNames` 门控（仅 JS 族触发） |
+| B03 namedBases≥2 virtual 启发式无条件运行 | 语义泄漏 | `interfaceHeuristicMinBases`（仅 C# 填） |
+| C01 "引擎零语言常量/零 extractor 改动"声称失实 | 文档 | P0-3 全数据化后声称恢复真实（pack.ts 注释复核通过）；extractor 残留节点名 = 跨语言公共名/核心语义值 |
+| C02 EXTRACT_SIDE_TABLES 白名单滞后（新提取侧表注入静默失效） | 正确性 | 补 propertyRead* 5 表 + 同步纪律注释 |
+
+**修复过程实证**：P0-3 引入 3 处回归（Python typed_parameter 进 assigned → ptype 分支误挡 → RawChunk 补 params 字段豁免；TS formal_parameters 字段/节点两维度混淆 → 拆双表；python.ts for_statement 两次编辑被吞 → nesting 回归）——全部由 341 测试网兜住；vitest maxWorkers=2（CLI 并发 spawn 内存峰值，迭代21 forks 先例同族）。
+
 ## 总体评估
 
-- **形式正确性**：核心（SCC/效应格/A6/A7/内容寻址/前缀回退/语言隔离）全部有证明或复审闭环；A1-A6 已修复并测试。
-- **工程妥协**：全部方向安全（假 IMPURE 不假纯）；B1-B6 是有意取舍，A7 效应原子 7 类契约下可解释。
+## 总体评估
+
+- **形式正确性**：核心（SCC/效应格/A6/A7/内容寻址/前缀回退/语言隔离）全部有证明或复审闭环；A1-A7 已修复并测试。
+- **工程妥协**：方向分类后**不再整体声称方向安全**——B 表逐条标注；假纯可能通道（B4/B8/B12）全部入 M_out 清单并声明触发条件与接受理由。
+- **M_out 契约**：模型外通道 = S1 现实违反边界；任一升级修复后移出清单；新通道必须入清单（防标签掩盖）。
 - **无特例语言无关**：E/Φ 分解达成（引擎零语言常量、pack 全量消化差异）；残余差异均为**数据/行为注入**而非引擎分流（docs/iter37/01-math-review.md §8 + 03-synthesis.md §1.3）。
-- **偿还顺序**：C6（度量前置局部绑定）→ C7（并集边+产品裁决）→ C1（resolveCall 拆分）→ C2 → C5 → C3。
+- **偿还顺序**：B15（性能实测）→ C1（resolveCall 拆分）→ C2 → C5 → C3。

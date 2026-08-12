@@ -21,7 +21,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 337 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 继承/多态反例 + 形状契约 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 343 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 继承/多态反例 + 形状契约 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -149,6 +149,7 @@ src/
 ## 已知限制（有意为之）
 
 - **动态分派不追踪**：`obj.method()` 中 `obj` 是局部变量时，边不可知——记为 `?`（未知），audit 模式下降级为 UNKNOWN，不伪造边（诚实承认看不见）；不可拍平的调用形态（`super().m()`、`factory()()`、`d[k]()`）同样记 `?`。
+- **C# 属性访问器（迭代40 B5 闭合）**：属性声明提独立 chunk（自定义 getter/setter 体调用归属属性，自动属性=空 chunk）；`obj.Prop` 读取形态建调用边——自定义 getter 的 io 传染读取方（此前假纯）；字段/自动属性/不存在成员读取判纯（C# 静态语义：不执行用户代码）。残余：`obj?.Prop` 条件访问读取、TS/JS/Python 属性读取、事件订阅、项目外子类/写者——见 docs/technical-debt.md M_out 清单（假纯可能通道，逐条声明触发条件）。
 - **状态写与读方传播（2026-08-11）**：`self.x =`/`this.x =`/Python `global`/`nonlocal`/外部对象属性写（`user.status = …`）→ `state` 效应（函数只改实例/全局状态不再判 PURE）；`verdict.stateDeps` 输出读方耦合（谁读了被项目内其他 chunk 写的位置）——纯元数据不进判定（公理3：读不是副作用）。残余：项目外写者（测试夹具/框架注入）不可见 → 漏报；写侧盲区（下标写 `d[k]=`、调用结果写 `f().x=`）不检测；`self.x` 无类限定（跨类同名超近似）。
 - **强制转换内建的协议残余**：`len(x)`/`str(x)`/`int(x)` 等判纯，但 x 是用户对象时会分派 `__len__`/`__str__`/`__int__`（可带 io）——接受为有意范围（移除则 unknown-rate 爆炸）；`hash/repr/format/getattr/setattr/iter/next/vars/dir` 已移出判未知。
 - **混合模块非 impure 成员 → UNKNOWN**：拆表 schema 的成员表只列 io 成员 + `:p` 显式纯标记（已实现 json.dumps/crypto.createHash 等）；未标记成员（如 `time.strftime`）仍落 UNKNOWN——方向安全（假未知非假纯），继续标记按需扩展。

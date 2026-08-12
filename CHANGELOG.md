@@ -1,5 +1,39 @@
 # Changelog
 
+## [Unreleased] — 迭代 40（B5 属性访问器假纯洞闭合 + P0-3 引擎零语言常量全数据化）
+
+### 新增
+
+- C# 属性访问器建模（B5 假纯洞闭合）：property_declaration 提 chunk（自动属性=空 chunk，自定义 getter/setter 体调用归属属性 chunk）；propertyReadNodes 数据表（member_access_expression + 裸名 identifier 读取形态）→ prop 调用点
+- link 五通道 prop 解析：self/隐式 this/参数类型/局部构造/全局类分支——成员 miss + 属性读取 → 纯（C# 静态语义：字段/自动属性/不存在成员读取无用户代码；partial 类由跨文件成员表并集覆盖）
+- B 表方向分类三值（安全-过近似 / 安全-未知 / 假纯可能）+ M_out 模型外通道清单 M1-M7（S1 现实相对性边界形式化）
+- C# 测试 +2（B5 传染组 + 纯成员组）
+- P0-3 独立审计 25 项 hack 全数据化：LangPack 新增 ~30 数据字段（ctorChunkNames/ctorTypeFields/ctorMarkNodes/virtualModifiers/sealedModifiers/interfaceNodes/catchDeclNodes/cjsExportObjNames/requireFnNames/interfaceHeuristicMinBases/classMemberBodyNodes/foreachNodes/foreachInToken/throwArgFields/heritageFields/paramNameSlots/typeNameNodes/bytesPrefixTypes/patternNameNodes/fnLiteralNodes/lambdaNodes/exportStmtTokens/paramListNodeTypes/paramListField/nestedFnBoundaryNodes/heritageWrapNodes/argWrapNodes/keywordArgNodes/catchMultiTypeNodes/valueWrapNodes/incDecTokens/propMissIsPure 等）——extractor 零语言常量恢复真实（C01 声称闭环）
+- RawChunk 补 params 字段：参数名进 assigned（防 import 遮蔽）+ ptype 分支参数豁免（A1 类型标注是声明事实）
+- examples/essence.mjs 恢复（TODO P0-1）：90 行蒸馏副本，8/8 断言（handle_request chain=2 → sqlite3 chain=0）
+- M5 C# `obj?.Prop` 条件访问读取（propertyReadNodes 加 conditional_access_expression——`a?.b()` 调用形态由现有 parent 排除覆盖）
+- M6 TS/JS 属性读取建模：member_expression 建 prop 边 + memberNames 字段清单（public_field_definition 提取）+ selfPropReadIsPure（JS 语义 this.attr 非 getter 读取无副作用）+ __objectLiteral（对象字面量类型属性恒纯）+ TS paramNodes/paramNameSlots/typeWrapNodes 补全（**A1 参数类型绑定对 TS 的预存盲区**）+ ptype 链式首段查询（u.name.length 的接收者根）
+- docs/essence-guide.md（TODO P3-1）：五层结构图 + 被砍项映射表 + 使用路径
+- vitest maxWorkers=2：B5 后 CLI 单进程内存增大，全并发 spawn 峰值超限（V8 Zone OOM 实证）——限并发保 CI 稳定（迭代21 forks 先例同族）
+- 诊断脚本清理（TODO P1-1）：删 diag-id×3/analyze-id-report/stats-purity/guard-annotations 6 个历史脚本；保留 annotate-slice/merge-annotations（标注工作流，docs 引用）与 check-readme-tests（CI 门禁）
+
+### 修复
+
+- 自定义 getter io 传染（实证反例：`c.Value` 读取方此前判 PURE 而 getter 执行 io）——参数类型/隐式 this/this/局部构造四通道全传染
+- 方法组实参升级确定判定（Select(xs, Console.WriteLine) 从 UNKNOWN → 确定 IMPURE——方法组被 HOF 调用必然执行 io）
+- 探针发现：C# variable_declarator 无 name 命名字段（children[0] 兜底）；web-tree-sitter 节点引用不恒等（位置比较替代 ===）
+- P0-3 回归 3 例（341 测试网兜住）：Python typed_parameter 进 assigned → ptype 误挡 → params 豁免；TS 参数列表字段名/节点类型两维度混淆 → 拆 paramListField/paramListNodeTypes 双表；python.ts nestingNodes for_statement 两次编辑被吞 → nesting 回归
+- C# 参数进 assigned（补四·五 #6 参数遮蔽对 C# 的死路径）+ 参数名 prop 读取跳过（参数引用读取纯是静态事实）
+- C# 类型化 catch 精确提取（B01）：catch_declaration 含 type → 类型文本（此前被 TS 吞一切语义覆盖，throwsTypes 元数据修复）
+- effectOverride EXTRACT_SIDE_TABLES 补 propertyRead* 5 表（C02：注入静默失效 bug）
+- README 339 测试
+
+### 已知残余（M_out）
+
+- 事件订阅（B4）/ 项目外子类覆写（B8）/ 项目外状态写者 / Python __new__（B12）→ 假纯可能通道，触发条件与接受理由见 docs/technical-debt.md M_out 清单
+- C# `obj?.Prop` 条件访问读取、TS/JS/Python 属性读取 → 迭代40 范围外（M5/M6，升级路径已列）
+- B15（C# 裸名 identifier 全量建边性能）待大库实测；H20 SKIP_DIRS 为工程默认配置（非语言知识）
+
 ## [Unreleased] — 迭代 39（数学模型细化 M=(IR,Σ,Λ,π,H,F) + 缺口全收）
 
 ### 新增

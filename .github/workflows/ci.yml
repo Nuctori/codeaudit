@@ -29,3 +29,5 @@ jobs:
       - run: node dist/cli.js scan src --no-cache --topology > /dev/null
       # 库 API 冒烟：require 可加载
       - run: node -e "require('./dist/index.js')"
+      # essence 蒸馏副本（TODO P3-2）：算法层语义变更时 8 断言同步失败——防"灵魂"与实现漂移
+      - run: node examples/essence.mjs

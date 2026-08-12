@@ -644,7 +644,9 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
 				"export function run() { const f = console.log; return [1].map(f); }\n",
 		});
 		const b = by(await scanProject(root));
-		expect(b.get("a.ts::run")!.purity).toBe(Purity.UNKNOWN); // f 是变量实参 → 不能证明纯
+		// 迭代40 M6：console.log 方法组引用经 prop 通道命中效应表 → 确定 io（与 B5 的
+		// Select(xs, Console.WriteLine) 同语义：f 被 map 调用 → 执行 console.log → io）
+		expect(b.get("a.ts::run")!.purity).toBe(Purity.IMPURE);
 	});
 
 	it("不变量机检在真实扫描上为零违规（健全性证书）", async () => {
@@ -1205,5 +1207,30 @@ describe("定义性事实族（用户覆写会议否决后实施）", () => {
 		const v = b.get("C.cs::C.Hide")!;
 		expect(v.purity).toBe(Purity.IMPURE);
 		expect([...v.effects]).toContain("io");
+	});
+
+	it("迭代40 M6：TS/JS 属性读取建模（字段纯 / getter 传染 / 参数类型 / 动态 ?）", async () => {
+		const root = project("m6-ts-prop", {
+			"c.ts": [
+				"class Config {",
+				"  name: string = 'x';",
+				"  count = 0;",
+				"  get size(): number { console.log('io'); return 1; }",
+				"  read(): number { return this.count + this.size; }",
+				"  readField(): string { return this.name; }",
+				"  getter(): number { return this.size; }",
+				"}",
+				"export function typed(c: Config): number { return c.count + c.size; }",
+				"export function dynamic(c: any): number { return c.anything; }",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		// M6 修复前：TS 属性读取不建边 → getter io 不传染（M_out M6 假纯通道）；
+		// 修复后：member_expression 建 prop 边 + memberNames 字段清单判纯
+		expect(b.get("c.ts::Config.read")!.purity).toBe(Purity.IMPURE); // this.count 纯 + this.size getter io
+		expect(b.get("c.ts::Config.getter")!.purity).toBe(Purity.IMPURE); // this.size 直接传染
+		expect(b.get("c.ts::Config.readField")!.purity).toBe(Purity.PURE); // this.name 字段（memberNames）纯
+		expect(b.get("c.ts::typed")!.purity).toBe(Purity.IMPURE); // 参数类型 Config → count 纯 + size 传染
+		expect(b.get("c.ts::dynamic")!.purity).toBe(Purity.UNKNOWN); // any → 动态 ? 诚实（不判纯）
 	});
 });

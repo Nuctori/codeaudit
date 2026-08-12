@@ -48,10 +48,15 @@ const EFFECT_TABLE_SHAPES: Readonly<Record<keyof EffectTables, "record-effect" |
 const EFFECTS: readonly string[] = ["io", "net", "fs", "db", "random", "clock", "state"];
 const PURE_HOF = new Set(["pure", "hof"]);
 
-/** 提取侧表名（白名单拒绝——参与缓存，注入会静默失效）。 */
+/** 提取侧表名（白名单拒绝——参与缓存，注入会静默失效）。
+ *  迭代40 C02 修复：补 propertyReadNodes/propertyReadSkipMorphs/propertyReadSkipParents/
+ *  propertyReadNameSlots/propMissIsPure——B5 新增提取侧表此前漏列，注入会静默不生效（缓存命中
+ *  跳过提取，override 只改 link 侧表——不一致）。单一数据源：新增提取侧表时必须同步本清单。 */
 const EXTRACT_SIDE_TABLES = new Set([
   "literalReceivers", "builtinMethodReturns", "chunkNodes", "classNodes",
   "callNodes", "nestingNodes", "selfNames", "assignmentTargets",
+  "propertyReadNodes", "propertyReadSkipMorphs", "propertyReadSkipParents",
+  "propertyReadNameSlots", "propMissIsPure",
 ]);
 
 /**

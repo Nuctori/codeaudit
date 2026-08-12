@@ -432,13 +432,15 @@ export function link(
 				);
 			}
 
-			// 构造器体效应并入 class chunk（S1 修复）：class C 的 __init__/constructor 在实例化时执行，
-			// 其 io 必须传播到 class chunk（否则 `def f(): return C()` 判纯但运行时构造器写 io → 假纯）
-			if (rc.kind === "class") {
+			// 构造器体效应并入 class chunk（S1 修复）：class C 的构造器在实例化时执行，
+			// 其 io 必须传播到 class chunk（否则 `def f(): return C()` 判纯但运行时构造器写 io → 假纯）。
+			// 迭代40 P0-3 H01：构造器 chunk 名走 pack 数据（Python __init__ / TS constructor；
+			// C# ctor 名 = 类名走 resolveClassMember isCtor 分支，不填）
+			if (rc.kind === "class" && fi.pack.ctorChunkNames) {
 				for (const [k, c2] of fi.chunkByKey) {
 					if (
 						c2.ownerClass === rc.name &&
-						(c2.name === "__init__" || c2.name === "constructor")
+						fi.pack.ctorChunkNames.includes(c2.name)
 					) {
 						calls.add(k);
 					}
@@ -792,6 +794,32 @@ function ancestorClosureOf(
 	return reach;
 }
 
+/** 迭代40 M6：类字段名存在性（本类 + 祖先闭包内任一文件的 memberNames 命中）。
+ *  仅 TS/JS 提取（memberNameNodes）；C# 无 memberNames → 恒 false（propMissIsPure 已覆盖）。
+ *  JS 语义：无 getter 声明的字段读取无副作用（读不存在属性 = undefined）→ 判纯。 */
+function memberNameExists(
+	cls: string,
+	name: string,
+	pack: LangPack,
+	files: ReadonlyMap<string, FileIndex>,
+	globalClasses: ReadonlyMap<
+		string,
+		{ file: string; key: string; lang: string }[]
+	>,
+	superMap: ReadonlyMap<string, ReadonlySet<string>>,
+): boolean {
+	for (const c of ancestorClosureOf(cls, pack, superMap)) {
+		const entries = globalClasses.get(c);
+		if (!entries) continue;
+		for (const e of entries) {
+			if (e.lang !== pack.name) continue;
+			const tf = files.get(e.file);
+			if (tf?.facts.memberNames?.[c]?.includes(name)) return true;
+		}
+	}
+	return false;
+}
+
 /** 迭代38 A + 迭代39 B7：类成员解析（继承/多态最小健全版）。
  *  polymorphic=true（self/隐式 this/参数接收者）：运行时对象可能是 cls 的子类——
  *  后代守卫：Python/JS 一切方法多态（pack.polymorphicMethods）→ cls ∈ hasSubclass 即降 "unknown"；
@@ -1014,8 +1042,21 @@ function resolveObjDispatch(
 	// 迭代36 独立审计 High 修复：项目类名撞表键（项目自建 List/Dictionary 类作参数类型）→ 跳过表绑定
 	// ——与 ctor 分支同守卫。否则 `xs.Add`（xs 参数类型为项目 List 类）误判 PURE（假纯红线）。
 	// 仅当参数未遮蔽（assigned 无同名重绑）。
-	const ptype = caller.paramTypes?.[call.obj ?? ""];
-	if (ptype !== undefined && !caller.assigned.includes(call.obj ?? "")) {
+	// 迭代40 M6：prop 链式读取（u.name.length 的 obj="u.name"）→ 类型查询取接收者根首段
+	const ptype = caller.paramTypes?.[(call.obj ?? "").split(".")[0]!];
+	// 迭代40 P0-3：参数豁免——参数名在 assigned（防 import 遮蔽，四·五 #6），但显式类型标注
+	// （A1）是声明事实，不应被遮蔽守卫误挡（参数声明非重绑；重绑场景与基线行为一致）。
+	if (
+		ptype !== undefined &&
+		(!caller.assigned.includes(call.obj ?? "") ||
+			caller.params.includes(call.obj ?? ""))
+	) {
+		// 迭代40 M6：对象字面量类型（TS `{name?: string}`）——属性读取恒纯（类型字面量属性
+		// 是数据字段无 getter）；必须在 isProject 之前（__objectLiteral 不是项目类）
+		if (ptype === "__objectLiteral" && call.prop) {
+			sink.hitTable(`type:${ptype}.${call.attr}`);
+			return true;
+		}
 		const pcls = globalClasses.get(ptype);
 		const isProject =
 			pcls && pcls.length > 0 && pcls.some((c) => c.lang === pack.name);
@@ -1045,6 +1086,27 @@ function resolveObjDispatch(
 			if (r === "unknown") {
 				sink.addUnknownCall(call);
 				sink.markUnknown();
+				return true;
+			}
+			// 迭代40 B5：参数类型类成员 miss + 属性读取 → 纯（字段/自动属性；C# 静态语义，
+			// 与 self/全局类分支同论证）。方法调用 miss 保持 ?（诚实）。
+			// 迭代40 B5/M6：参数类型类成员 miss + 属性读取 → 纯（C# 静态语义 propMissIsPure；
+			// TS/JS 查 memberNames 字段清单；__objectLiteral = 对象字面量类型属性读取恒纯）。
+			// 方法调用 miss 保持 ?。
+			if (
+				call.prop &&
+				(ptype === "__objectLiteral" ||
+					pack.propMissIsPure ||
+					memberNameExists(
+						ptype,
+						call.attr,
+						pack,
+						files,
+						globalClasses,
+						superMap,
+					))
+			) {
+				sink.hitTable(`type:${ptype}.${call.attr}`);
 				return true;
 			}
 		} else {
@@ -1091,7 +1153,10 @@ function resolveObjDispatch(
 	// （paramTypes 双保险）。不用 assigned/moduleAssigned——局部声明（var xs = ...）本身就在
 	// assigned 且 moduleAssigned 含整树赋值（assignedNames(root) 遍历函数体），会误杀全部局部变量；
 	// 局部声明遮蔽模块级同名（C# var / Python 赋值即局部 / TS 声明），绑定可靠。
-	if (lb !== undefined && !Object.hasOwn(caller.paramTypes ?? {}, call.obj ?? "")) {
+	if (
+		lb !== undefined &&
+		!Object.hasOwn(caller.paramTypes ?? {}, call.obj ?? "")
+	) {
 		const lbCls = globalClasses.get(lb);
 		if (lbCls && lbCls.some((c) => c.lang === pack.name)) {
 			// 迭代38 A：局部精确构造（polymorphic=false——祖先闭包并集，无后代守卫；
@@ -1110,6 +1175,23 @@ function resolveObjDispatch(
 				false,
 			);
 			if (r === "edges") {
+				sink.hitTable(`lb:${lb}.${call.attr}`);
+				return true;
+			}
+			// 迭代40 B5/M6：局部构造类成员 miss + 属性读取 → 纯（同 ptype 分支论证）
+			if (
+				r === "none" &&
+				call.prop &&
+				(pack.propMissIsPure ||
+					memberNameExists(
+						lb,
+						call.attr,
+						pack,
+						files,
+						globalClasses,
+						superMap,
+					))
+			) {
 				sink.hitTable(`lb:${lb}.${call.attr}`);
 				return true;
 			}
@@ -1144,6 +1226,21 @@ function resolveObjDispatch(
 			if (tf && addUnionEdges(tf, q, sink)) any = true;
 		}
 		if (any) return true;
+		// 迭代40 B5/M6：项目类成员 miss + 属性读取 → 纯（C# 静态语义 propMissIsPure / TS-JS
+		// memberNames 字段清单；partial 类已由 same 全文件并集覆盖）
+		if (
+			call.prop &&
+			(pack.propMissIsPure ||
+				memberNameExists(
+					call.obj,
+					call.attr,
+					pack,
+					files,
+					globalClasses,
+					superMap,
+				))
+		)
+			return true;
 	}
 	// hasOwn 守卫：impureGlobals 普通对象字面量，继承键（constructor 等）→ undefined（纪律与 B1 同源）
 	const rule = Object.hasOwn(pack.impureGlobals, call.obj)
@@ -1312,6 +1409,23 @@ function resolveCall(
 				sink.markUnknown();
 				return;
 			}
+			// 迭代40 B5/M6：属性读取成员 miss（"none"——字段/自动属性/不存在成员）→ 纯。
+			// C# 静态语义 propMissIsPure；TS/JS selfPropReadIsPure（this.attr 非 getter 读取
+			// 无副作用——JS 语义读 undefined；getter 已建 chunk 命中）；memberNames 字段清单兜底。
+			if (
+				call.prop &&
+				(pack.propMissIsPure ||
+					pack.selfPropReadIsPure ||
+					memberNameExists(
+						caller.ownerClass,
+						call.attr,
+						pack,
+						files,
+						globalClasses,
+						superMap,
+					))
+			)
+				return;
 		}
 		sink.addUnknownCall(call);
 		sink.markUnknown(); // 继承/混入/冲突：诚实标记
@@ -1323,9 +1437,13 @@ function resolveCall(
 	if (call.obj === null && !caller.assigned.includes(call.attr)) {
 		const local = fi.bySimple.get(call.attr);
 		if (local && local.length > 0) {
-			const top = local.filter(
-				(k) => fi.chunkByKey.get(k)!.ownerClass === null,
-			);
+			// 迭代40 B5：裸名属性读取跳过类 chunk——读取类名/类型引用无运行时效应
+			// （(Config)x / Config c 的 Config 会被 identifier 形态误收；类 chunk 只能经
+			// 成员访问 Config.X 或构造 new Config() 引用）。方法/函数 chunk 保持边。
+			const top = local.filter((k) => {
+				const c = fi.chunkByKey.get(k)!;
+				return c.ownerClass === null && (call.prop ? c.kind !== "class" : true);
+			});
 			if (top.length === 1) {
 				sink.addEdge(top[0]!);
 				return;
@@ -1358,6 +1476,22 @@ function resolveCall(
 				sink.markUnknown();
 				return;
 			}
+			// 迭代40 B5/M6：裸名属性读取成员 miss → 纯（同 self 分支论证——TS/JS 隐式 this 语义
+			// 与显式 this 相同；局部变量读取同样无用户代码——miss 判纯双向安全）。
+			if (
+				call.prop &&
+				(pack.propMissIsPure ||
+					pack.selfPropReadIsPure ||
+					memberNameExists(
+						caller.ownerClass,
+						call.attr,
+						pack,
+						files,
+						globalClasses,
+						superMap,
+					))
+			)
+				return;
 		}
 		// 仅方法候选：裸名调用不指向方法 → 落到后续分支（import/效应表/未知）
 	}

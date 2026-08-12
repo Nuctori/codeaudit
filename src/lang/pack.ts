@@ -28,6 +28,11 @@ export interface RawCall {
 	readonly argFns: readonly string[];
 	/** 构造调用类型名（new X(...)；非构造为 undefined）。迭代33 C1：构造器建模。 */
 	readonly ctor?: string;
+	/**
+	 * 属性读取形态（非调用：obj.Prop 读值）——迭代40 B5：C# 属性访问器假纯洞。
+	 * 成员 miss 时按静态语言语义判纯（字段/自动属性/不存在成员读取无用户代码）。
+	 */
+	readonly prop?: boolean;
 }
 
 /** 原始 import 记录。 */
@@ -66,6 +71,8 @@ export interface RawChunk {
 	readonly ownerClass: string | null;
 	/** 迭代35 A1：参数显式类型（参数名 → 类型名，Dictionary<string,int> d → d:"Dictionary"）——变量 receiver 查 builtinTypeEffects。 */
 	readonly paramTypes?: Readonly<Record<string, string>>;
+	/** 参数名（迭代40 P0-3：ptype 分支遮蔽守卫的豁免维度——参数声明非重绑）。 */
+	readonly params: readonly string[];
 	/** 迭代37 P1-2：函数内局部单赋值构造绑定（var xs = new List<int>() → xs:"List"）——消费端 G4 守卫
 	 *  （单赋值 ∧ ¬assigned ∧ ¬param；RHS 构造调用形态；多赋值/非构造不绑）。 */
 	readonly localBindings?: Readonly<Record<string, string>>;
@@ -91,6 +98,9 @@ export interface RawFileFacts {
 	/** 迭代39 B7：virtual 族方法（类名 → 方法名列表）。C# virtual/override/abstract（无 sealed）；
 	 *  base_list ≥2 命名子节点（基类 + 接口）→ 该类全部方法隐含 virtual 族（保守，B13 残余为单接口形态）。 */
 	readonly virtualMembers?: Readonly<Record<string, readonly string[]>>;
+	/** 类字段名（迭代40 M6：无 getter 声明的字段读取纯——JS 语义；TS/JS 提取，C# 不需要
+	 *  （propMissIsPure 静态论证已覆盖）。跨文件祖先查询在 link 侧。 */
+	readonly memberNames?: Readonly<Record<string, readonly string[]>>;
 }
 
 export interface LangPack {
@@ -105,13 +115,41 @@ export interface LangPack {
 	// 每张表对应引擎 F 的一个查表通道（裸名/对象/模块/ns 前缀/类型成员/构造/回调），匹配模式不同
 	// （精确/段前缀/最长点分回退）且优先级不可重排（receiver 先于裸名防字面量劫持；impure 先于 pure；
 	// hof 与 hofAlways 是不同语义原子——坍缩即假纯通道）。统一为单表属过度抽象（迭代37 裁决不做），
-	// 勿因"表多"合并。语言差异 = 各表数据（通用机制 + 语言数据），引擎零语言常量（P0 达成）。
+	// 勿因"表多"合并。语言差异 = 各表数据（通用机制 + 语言数据），引擎零语言常量（P0 达成；
+	// 迭代40 P0-3 独立审计 25 项硬编码全数据化复核通过——剩余节点名均为 tree-sitter 跨语言
+	// 公共名 identifier/property_identifier/type_identifier/predefined_type 或核心语义值）。
 	/** 作为 chunk 的节点类型。 */
 	readonly chunkNodes: readonly string[];
 	/** 类节点类型（用于方法归属）。 */
 	readonly classNodes: readonly string[];
 	/** 调用节点类型。 */
 	readonly callNodes: readonly string[];
+	/**
+	 * 属性读取形态节点（非调用：obj.Prop 读值）——迭代40 B5。读取形态 = 非调用目标链、
+	 * 非赋值左值、非 ++/-- 目标（这些形态已有各自通道，见 propertyReadSkipMorphs）。
+	 * 成员 miss 时的语义见 RawCall.prop + propMissIsPure。
+	 */
+	readonly propertyReadNodes?: readonly string[];
+	/**
+	 * 属性读取形态排除：parent 形态（调用目标链/赋值左值/++/-- 目标——已有各自通道）。
+	 * 与 propertyReadNodes 同语言对齐（TS 未来接入时填 call_expression 等自己的形态名）。
+	 */
+	readonly propertyReadSkipMorphs?: readonly string[];
+	/**
+	 * 属性读取形态排除：parent 声明/类型位（无运行时读取——声明、类型参数、特性、标签等）。
+	 * C# 填 40+ 节点（cast/is/as/泛型/声明…）；新语言接入时填自己的类型位节点。
+	 */
+	readonly propertyReadSkipParents?: readonly string[];
+	/**
+	 * 属性读取形态排除：parent 的 name/type 槽位（声明名位无运行时读取，value 位保留）。
+	 * 值 = 命名字段数组；"__child0" = children[0]（无命名字段的语言形态，C# variable_declarator）。
+	 */
+	readonly propertyReadNameSlots?: Readonly<Record<string, readonly string[]>>;
+	/**
+	 * 属性读取成员 miss 语义：true = 静态语言（字段/自动属性/不存在成员读取不执行用户代码 → 纯）。
+	 * 动态语言（TS/JS/Python）不设 → miss 落 ? 诚实——防"属性读取=纯"语义泄漏到动态语言。
+	 */
+	readonly propMissIsPure?: boolean;
 	/** 计算嵌套深度时 +1 的节点类型。 */
 	readonly nestingNodes: readonly string[];
 	/** 自引用名（方法内对象调用的接收者）。 */
@@ -230,6 +268,96 @@ export interface LangPack {
 	 *  （与参数下标写 d[0]=1 → stateWrites 同语义统一，iter36 §b-7）。
 	 *  只收真实高频变异方法；局部绑定（lb）不接（局部对象变异不可见）；TS/JS 不可达不加（死表）。 */
 	readonly builtinMutators?: Readonly<Record<string, ReadonlySet<string>>>;
+
+	// ---- 迭代40 P0-3：形状/语义数据化（独立审计 25 项 hack 收敛）----
+	/** 构造器 chunk 名（构造体效应并入 class chunk 的合并键；Python __init__ / TS constructor；
+	 *  C# ctor 名 = 类名走 isCtor 分支，不填）。H01。 */
+	readonly ctorChunkNames?: readonly string[];
+	/** 类型化 catch 的声明节点（C# catch_declaration——含 type 子节点；TS/JS catch 无 → 不填）。B01。 */
+	readonly catchDeclNodes?: readonly string[];
+	/** CJS 导出对象名（exports / module.exports——exports.x = fn 建命名 chunk）。仅 JS 填；B02。 */
+	readonly cjsExportObjNames?: readonly string[];
+	/** require 函数名（require 导入声明不是遮蔽、RHS 不产构造绑定）。仅 JS 填；H12。 */
+	readonly requireFnNames?: readonly string[];
+	/** 接口存在启发式阈值（base_list 命名子节点 ≥ N 视为含接口 → 全方法隐含 virtual 族）。
+	 *  C# = 2（基类+接口）；其他语言不设 → 不触发。B03。 */
+	readonly interfaceHeuristicMinBases?: number;
+	/** 构造节点 → 类型名字段（C# object_creation_expression → "type"；TS new_expression →
+	 *  "constructor"）。提取侧构造名剥壳统一走 ctorTypeName。H02。 */
+	readonly ctorTypeFields?: Readonly<Record<string, string>>;
+	/** 产 ctor 标记的节点（走 link resolveCtorCall 专用通道）。C# object_creation_expression
+	 *  （类名不裸名可见 → 需专用通道）；TS new_expression 走裸名 + ctor-merge（填空）。H02。 */
+	readonly ctorMarkNodes?: readonly string[];
+	/** virtual 族修饰符 token（C# virtual/override/abstract；其他语言不填 → 无 virtual 族）。
+	 *  H03。 */
+	readonly virtualModifiers?: readonly string[];
+	/** sealed 修饰符 token（C# sealed——不可再覆写 → 静态分派精确）。H03。 */
+	readonly sealedModifiers?: readonly string[];
+
+	// ---- 迭代40 P0-3 批3：extractor 剩余语言形状数据化（H04-H19）----
+	/** 类成员方法体节点（inClassMemberBody 命中集——C# method/constructor_declaration）。H04。 */
+	readonly classMemberBodyNodes?: readonly string[];
+	/** 类成员方法体边界（inClassMemberBody 停止集——local_function/lambda/嵌套类）。H04。 */
+	readonly classMemberBodyStopNodes?: readonly string[];
+	/** foreach 节点 + `in` token 文本（C# for_each_statement → "in"）。H07。 */
+	readonly foreachNodes?: readonly string[];
+	readonly foreachInToken?: string;
+	/** throw 节点 → 实参提取字段（TS throw_statement → "argument"；Python raise 无字段 →
+	 *  "__namedChildren"）。H09。 */
+	readonly throwArgFields?: Readonly<Record<string, string>>;
+	/** 类节点 → 基类容器字段（Python class_definition → "superclasses"；C#/TS 无字段 →
+	 *  heritageNodes 子节点查找）。H10。 */
+	readonly heritageFields?: Readonly<Record<string, string>>;
+	/** 参数名槽位（propertyReadNameSlots 同机制：命名字段 / "__child0" / "__firstIdentifier"）。
+	 *  Python typed_parameter 无 name 字段 → "__firstIdentifier"。H11。 */
+	readonly paramNameSlots?: Readonly<Record<string, readonly string[]>>;
+	/** 类型名剥壳节点（ctorTypeName 递归集——generic_name/qualified_name/type）。H13。 */
+	readonly typeNameNodes?: readonly string[];
+	/** 需 bytes 前缀检查的字面量类型（Python "str"——b"" 前缀判别）。H14。 */
+	readonly bytesPrefixTypes?: readonly string[];
+	/** 声明名 pattern 节点（tuple_pattern/array_pattern/as_pattern_target——声明名抑制）。H15。 */
+	readonly patternNameNodes?: readonly string[];
+	/** 函数字面量节点（chunkName 的 /function/ 正则替代——箭头/函数表达式）。H16。 */
+	readonly fnLiteralNodes?: readonly string[];
+	/** lambda 节点 + 命名父节点（Python lambda 提 chunk 的赋值父判定）。H16。 */
+	readonly lambdaNodes?: readonly string[];
+	readonly lambdaAssignNodes?: readonly string[];
+	/** 导出语句 token（export_statement 内 "default"/"export"）。H17。 */
+	readonly exportStmtTokens?: readonly string[];
+	/** 参数列表节点类型（assignedNames 的 walk 匹配——Python "parameters" / TS "formal_parameters" /
+	 *  C# "parameter_list"）。H18。 */
+	readonly paramListNodeTypes?: readonly string[];
+	/** 参数列表字段名（paramNames/paramTypesOf 的 childForFieldName——跨语言通用 "parameters"）。H18。 */
+	readonly paramListField?: string;
+	/** 嵌套函数边界节点（localBindingsOf 跳过集——嵌套 chunk 的绑定归它们自己）。H19。 */
+	readonly nestedFnBoundaryNodes?: readonly string[];
+	/** heritage 内部包装节点（TS class_heritage 内包 extends_clause）。P0-3 漏网。 */
+	readonly heritageWrapNodes?: readonly string[];
+	/** 实参包装节点（C# argument——解包一层取命名子节点）。P0-3 漏网。 */
+	readonly argWrapNodes?: readonly string[];
+	/** 关键字实参节点（Python keyword_argument——取 value 字段）。P0-3 漏网。 */
+	readonly keywordArgNodes?: readonly string[];
+	/** 多类型捕获节点（Python except (A,B) 的 tuple——保守吞一切）。P0-3 漏网。 */
+	readonly catchMultiTypeNodes?: readonly string[];
+	/** 接口声明节点（C# interface_declaration——方法无条件 virtual）。P0-3 漏网。 */
+	readonly interfaceNodes?: readonly string[];
+	/** 赋值 value 包装节点（C# equals_value_clause——解包取 value 字段）。P0-3 漏网。 */
+	readonly valueWrapNodes?: readonly string[];
+	/** 增减操作符 token（C# "++"/"--"——writeUnary 只认增减非逻辑非）。P0-3 漏网。 */
+	readonly incDecTokens?: readonly string[];
+	/** 类字段声明节点（TS/JS public_field_definition——memberNames 提取：无 getter 声明的字段
+	 *  读取纯，JS 语义）。M6。 */
+	readonly memberNameNodes?: readonly string[];
+	/** 类型注解包装节点（Python "type" / TS "type_annotation"——解包取命名子节点）。M6。 */
+	readonly typeWrapNodes?: readonly string[];
+	/** 参数类型字段名（C#/Python "type"；TS "type_annotation"）。M6。 */
+	readonly paramTypeField?: string;
+	/** self/this 属性读取成员 miss 恒纯（TS/JS：this.attr 非 getter 读取无副作用——JS 语义
+	 *  读 undefined；getter 已建 chunk 命中。Python 不填——__getattr__ 动态）。M6。 */
+	readonly selfPropReadIsPure?: boolean;
+	/** 对象字面量类型节点（TS "object_type"——`{name?: string}` 参数：属性读取无 getter 恒纯，
+	 *  提取为 "__objectLiteral" 标记，link ptype 分支消费）。M6。 */
+	readonly objectLiteralTypeNodes?: readonly string[];
 
 	// ---- 行为侧 ----
 	/** 从 AST 提取 import 记录（含再导出）。 */

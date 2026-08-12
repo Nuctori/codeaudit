@@ -66,12 +66,14 @@ describe("E2E: tsapp（TypeScript）", () => {
     expect(save.chain).toBe(0);
 
     // service.ts 从桶文件 ./index 导入 saveUser → 再导出跟随到 db.ts
+    // 迭代40 M6：payload.name 属性读取（动态 receiver）→ ? 归零 audit 链——乐观链 chainDev 保留传染深度
     const svcSave = by.get("src/service.ts::UserService.save")!;
-    expect(svcSave.chain).toBe(1);
+    expect(svcSave.purity).toBe(Purity.IMPURE);
+    expect(svcSave.chainDev).toBe(1);
 
-    // this.save 解析为类内方法 → batch chain 2
+    // this.save 解析为类内方法 → batch chainDev 2
     const batch = by.get("src/service.ts::UserService.batch")!;
-    expect(batch.chain).toBe(2);
+    expect(batch.chainDev).toBe(2);
 
     // console.log → io（handle 自己是效应源）
     const handle = by.get("src/handler.ts::handle")!;
@@ -97,7 +99,8 @@ describe("E2E: jsapp（JavaScript / CommonJS）", () => {
     const by = index(report);
 
     expect(by.get("store.js::write")!.chain).toBe(0);
-    expect(by.get("handler.js::handlePut")!.chain).toBe(1);
+    // 迭代40 M6：payload.name 属性读取 → ? 归零 audit 链——chainDev 保留 write 传染深度
+    expect(by.get("handler.js::handlePut")!.chainDev).toBe(1);
     expect(by.get("handler.js::normalize")!.purity).toBe(Purity.UNKNOWN); // name.trim() 参数方法 → `?`
   });
 });

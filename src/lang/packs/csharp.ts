@@ -629,7 +629,10 @@ const frameworkPure: Record<
 	},
 };
 
-/** C# chunk 节点：类/方法/构造/局部函数。属性访问器第一版不建（自动属性无逻辑）。 */
+/**
+ * C# chunk 节点：类/方法/构造/局部函数/属性声明（迭代40 B5：属性访问器假纯洞闭合——
+ * 自定义 getter/setter 体调用归属属性 chunk；自动属性 = 空 chunk，读取判纯的锚点）。
+ */
 const chunkNodes = [
 	"class_declaration",
 	"struct_declaration",
@@ -637,6 +640,7 @@ const chunkNodes = [
 	"method_declaration",
 	"constructor_declaration",
 	"local_function_statement",
+	"property_declaration",
 ];
 
 const classNodes = [
@@ -645,6 +649,76 @@ const classNodes = [
 	"interface_declaration",
 ];
 const callNodes = ["invocation_expression", "object_creation_expression"];
+// 迭代40 B5 + M5：属性读取形态（obj.Prop 读值 / 裸名属性读 / obj?.Prop 条件读）→ 调用点（prop 标记）。
+// member_access_expression = obj.Prop；identifier = 隐式 this 裸名读（C# 类内裸名属性/字段——
+// 局部变量/参数读取 miss 判纯，双向安全）；conditional_access_expression = obj?.Prop（M5：
+// flattenCallTarget 已支持 conditional 解包——member_binding 内标识符拍平为 obj.Prop）。
+const propertyReadNodes = ["member_access_expression", "identifier", "conditional_access_expression"];
+// 属性读取形态排除（parent 形态——调用目标链/赋值左值/++/-- 已有各自通道）
+const propertyReadSkipMorphs = [
+	"member_access_expression", // 链中段（a.b.c 的 a.b——末段处理）
+	"invocation_expression", // 调用目标（obj.M() 的 obj.M——callOf 处理）
+	"assignment_expression", // 赋值左值（stateWritePos 处理）
+	"augmented_assignment_expression",
+	"postfix_unary_expression", // ++/-- 写形态
+	"prefix_unary_expression",
+];
+// 属性读取形态排除（parent 声明/类型位——无运行时读取：声明、类型参数、特性、标签、cast/is/as 等）
+const propertyReadSkipParents = [
+	"variable_declaration",
+	"field_declaration",
+	"property_declaration",
+	"method_declaration",
+	"constructor_declaration",
+	"local_function_statement",
+	"class_declaration",
+	"struct_declaration",
+	"interface_declaration",
+	"enum_declaration",
+	"enum_member_declaration",
+	"delegate_declaration",
+	"namespace_declaration",
+	"object_creation_expression",
+	"generic_name",
+	"type_argument_list",
+	"type_parameter_list",
+	"type_parameter",
+	"base_list",
+	"using_directive",
+	"attribute_list",
+	"attribute",
+	"sizeof_expression",
+	"typeof_expression",
+	"nameof_expression",
+	"member_binding_expression",
+	"operator_declaration",
+	"conversion_operator_declaration",
+	"destructor_declaration",
+	"indexer_declaration",
+	"label_statement",
+	"goto_statement",
+	"implicit_this_expression",
+	"cast_expression",
+	"as_expression",
+	"is_expression",
+	"array_type",
+	"nullable_type",
+	"pointer_type",
+	"default_expression",
+	"type_pattern",
+	"declaration_pattern",
+	"recursive_pattern",
+	"base_expression",
+	"checked_expression",
+	"unchecked_expression",
+];
+// 属性读取排除的 name/type 槽位（声明名位无运行时读取，value 位保留）：
+// variable_declarator 无 name 命名字段（探针实证）→ "__child0" = children[0]（语法固定）
+const propertyReadNameSlots: Record<string, readonly string[]> = {
+	variable_declarator: ["__child0"],
+	parameter: ["name", "type"],
+	catch_declaration: ["name"],
+};
 const nestingNodes = [
 	"if_statement",
 	"for_statement",
@@ -749,6 +823,38 @@ export const csharpPack: LangPack = {
 	chunkNodes,
 	classNodes,
 	callNodes,
+	propertyReadNodes, // 迭代40 B5：属性读取形态（obj.Prop）→ prop 调用点
+	propertyReadSkipMorphs, // 形态排除（调用目标链/赋值左值/++/--）
+	propertyReadSkipParents, // 声明/类型位排除
+	propertyReadNameSlots, // name/type 槽位排除（variable_declarator 用 __child0）
+	propMissIsPure: true, // C# 静态语义：成员 miss + 属性读取 → 纯（动态语言不设 → ? 诚实）
+	interfaceHeuristicMinBases: 2, // 迭代40 P0-3 B03：base_list ≥2（基类+接口）→ 全方法隐含 virtual
+	ctorTypeFields: { object_creation_expression: "type" }, // 迭代40 P0-3 H02：new X() 类型名字段
+	ctorMarkNodes: ["object_creation_expression"], // 迭代40 P0-3 H02：仅 C# 产 ctor 标记（TS 走裸名+ctor-merge）
+	virtualModifiers: ["virtual", "override", "abstract"], // 迭代40 P0-3 H03：virtual 族修饰符
+	sealedModifiers: ["sealed"], // 迭代40 P0-3 H03：sealed 修饰符（不可再覆写）
+	// 迭代40 P0-3 批3：形状数据化
+	classMemberBodyNodes: ["method_declaration", "constructor_declaration"], // H04
+	classMemberBodyStopNodes: [
+		"local_function_statement",
+		"lambda_expression",
+		"anonymous_method_expression",
+		"class_declaration",
+		"struct_declaration",
+		"interface_declaration",
+	], // H04
+	foreachNodes: ["for_each_statement"], // H07
+	foreachInToken: "in", // H07
+	throwArgFields: { throw_statement: "argument" }, // H09
+	typeNameNodes: ["generic_name", "qualified_name"], // H13
+	patternNameNodes: ["tuple_pattern", "array_pattern", "as_pattern_target"], // H15
+	fnLiteralNodes: ["anonymous_method_expression", "lambda_expression"], // H16（C# 匿名方法/表达式 lambda）
+	paramListNodeTypes: ["parameter_list"], // H18：参数列表节点类型（assignedNames walk）
+	paramListField: "parameters", // H18：参数列表字段名（paramNames/paramTypesOf）
+	argWrapNodes: ["argument"], // P0-3 漏网：C# 实参包装解包
+	interfaceNodes: ["interface_declaration"], // P0-3 漏网：接口方法无条件 virtual
+	valueWrapNodes: ["equals_value_clause"], // P0-3 漏网：C# 赋值 value 包装解包
+	incDecTokens: ["++", "--"], // P0-3 漏网：增减操作符（writeUnary 只认增减）
 	nestingNodes,
 	selfNames,
 	impureBuiltins,
