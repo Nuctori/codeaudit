@@ -682,6 +682,7 @@ describe("C# 语言包（迭代19）", () => {
 				"    public void Hide(GameObject item) { item.gameObject.SetActive(false); }",
 				"    public void Ext(GameObject root) { root.gameObject.RefreshSelf(true); }",
 				"    public void Direct() { this.gameObject.SetActive(true); }",
+				"    public void Local(GameObject src) { var item = src; item.gameObject.SetActive(false); }",
 				"}",
 			].join("\n"),
 		});
@@ -689,17 +690,23 @@ describe("C# 语言包（迭代19）", () => {
 		const hide = by(r).get("C.cs::C.Hide") as { purity: number; effects: Set<string> } | undefined;
 		const ext = by(r).get("C.cs::C.Ext") as { purity: number; effects: Set<string> } | undefined;
 		const direct = by(r).get("C.cs::C.Direct") as { purity: number; effects: Set<string> } | undefined;
+		const local = by(r).get("C.cs::C.Local") as { purity: number; effects: Set<string> } | undefined;
 		expect(hide).toBeDefined();
 		expect(ext).toBeDefined();
 		expect(direct).toBeDefined();
+		expect(local).toBeDefined();
 		// 迭代33 C2（InitDeity 98 chunks/115 站痛点）：item.gameObject.SetActive（局部变量 receiver）→ io
 		// （修复前 obj=item 变量全漏 → ?）；root.gameObject.RefreshSelf（项目扩展不在白名单）→ 仍 UNKNOWN 诚实；
 		// this.gameObject.SetActive 既有路径不变
+		// 迭代34 独立审计修复：C2 分支移回 assigned 守卫之前——**真局部变量**（var item = src）也覆盖
+		// （原实现嵌套在守卫内，局部变量被 assigned 跳过——审计实证 UNKNOWN；此用例防回归）
 		expect(hide!.effects.has("io")).toBe(true);
 		expect(hide!.purity).toBe(2); // IMPURE——SetActive io
 		expect(ext!.purity).toBe(1); // UNKNOWN——RefreshSelf 不在白名单（诚实）
 		expect(direct!.effects.has("io")).toBe(true);
 		expect(direct!.purity).toBe(2); // IMPURE——既有判定不变
+		expect(local!.effects.has("io")).toBe(true);
+		expect(local!.purity).toBe(2); // IMPURE——局部变量 receiver 也覆盖（迭代34 修复）
 	});
 
 	it("迭代33 TP5：NUnit StringAssert/Does 判纯（675 站痛点恢复）", async () => {
@@ -756,5 +763,34 @@ describe("C# 语言包（迭代19）", () => {
 		expect(unlisted!.purity).toBe(1); // new UnknownThing → UNKNOWN（未列诚实）
 		expect(userM!.effects.has("fs")).toBe(true);
 		expect(userM!.purity).toBe(2); // new Proj → 构造体 fs 传导
+	});
+
+	it("迭代34：ctorTypeName 泛型末段递归 + 项目类撞 pureCtor 名单优先", async () => {
+		const root = project("ctor-fix", {
+			"C.cs": [
+				"using System.Collections.Generic;",
+				"public class C {",
+				"    public void Gen() { var d = new System.Collections.Generic.Dictionary<string, int>(); }",
+				"    public void Pre() { var s = new string('x', 2); }",
+				"}",
+				// 项目类撞 pureCtor 名单名（List）且构造体有 io——必须走项目类构造边非 pureCtor
+				"public class List { public List() { System.Console.WriteLine(\"ctor\"); } }",
+				"public class User { public void M() { var l = new List(); } }",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const gen = by(r).get("C.cs::C.Gen") as { purity: number } | undefined;
+		const pre = by(r).get("C.cs::C.Pre") as { purity: number } | undefined;
+		const userM = by(r).get("C.cs::User.M") as { purity: number; effects: Set<string> } | undefined;
+		expect(gen).toBeDefined();
+		expect(pre).toBeDefined();
+		expect(userM).toBeDefined();
+		// 迭代34 修复：qualified_name 末段递归（Dictionary<K,V> → Dictionary ∈ pureCtor → PURE——
+		// 此前末段 generic_name 被 filter 丢 → null → 假 UNKNOWN）；predefined_type（string）→ "string"
+		// ∈ pureCtor → PURE（此前 null）；项目类撞 pureCtor（List 带 io 构造）→ 项目类边优先 → io 传导
+		expect(gen!.purity).toBe(0); // new System.Collections.Generic.Dictionary<string,int> → PURE
+		expect(pre!.purity).toBe(0); // new string('x',2) → PURE
+		expect(userM!.effects.has("io")).toBe(true);
+		expect(userM!.purity).toBe(2); // new List（项目类撞名单）→ 构造体 io 传导（迭代34 修复防假纯）
 	});
 });

@@ -819,7 +819,7 @@ function flattenCallTarget(node: SyntaxNode): string | null {
 /** 构造类型名提取（迭代33 C1）：identifier → 文本；generic_name → 剥 type_argument_list 取名；
  *  qualified_name → 取末段（new System.Collections.Generic.List<T>() → List）；其余 → null（诚实）。 */
 function ctorTypeName(node: SyntaxNode): string | null {
-  if (node.type === "identifier" || node.type === "type_identifier") return node.text;
+  if (node.type === "identifier" || node.type === "type_identifier" || node.type === "predefined_type") return node.text;
   if (node.type === "generic_name") {
     // generic_name: [identifier|name, type_argument_list]——取 name 子节点或首子节点
     const name = node.childForFieldName("name") ?? node.children[0];
@@ -827,8 +827,12 @@ function ctorTypeName(node: SyntaxNode): string | null {
     return null;
   }
   if (node.type === "qualified_name") {
-    const parts = node.children.filter((c) => c.type === "identifier" || c.type === "type_identifier");
-    return parts.length > 0 ? parts[parts.length - 1]!.text : null;
+    // 迭代34 独立审计 Low-Med：末段节点递归剥壳——System.Collections.Generic.Dictionary<K,V> 的末子
+    // 是 generic_name（非 identifier），此前 filter 只留 identifier → 空 → null（连 miss 记账都无）。
+    // "取末段"必须是节点级递归（generic_name/qualified_name/identifier/predefined_type 均可）。
+    const last = node.children[node.children.length - 1];
+    if (last) return ctorTypeName(last);
+    return null;
   }
   return null;
 }

@@ -194,10 +194,14 @@ export function link(
       const effectFromModule = (rawModule: string, member: string | null): boolean => {
         const module = rawModule.replace(/^node:/, ""); // node:fs ≡ fs
         const rule = fi.pack.impureModules[module];
+        // 迭代33 TP4 修复：effectFromModule 是 sink 构造（L244 加前缀）之前的独立闭包——
+        // 5 处 bump 必须同样加 pack 前缀，否则 module 命中键无前缀 → classifyUsage 按 pack 过滤后
+        // 全语言消失（Med-High：hits 低估/corpus-inactive 高估，污染效应表使用率审计）。
+        const mk = `${fi.pack.name}\u0000module:${module}`;
         if (typeof rule === "string") {
           // 模块整体效应类（fs: "fs"、http: "net"、sqlite3: "db"…）
           direct.add(rule);
-          bump(tableHit, `module:${module}`);
+          bump(tableHit, mk);
           return true;
         }
         if (Array.isArray(rule) && member !== null) {
@@ -208,7 +212,7 @@ export function link(
             const prefix = parts.slice(0, i).join(".");
             if (rule.includes(prefix)) {
               direct.add("io");
-              bump(tableHit, `module:${module}`);
+              bump(tableHit, mk);
               return true;
             }
             // 成员带效应类后缀（"randomBytes:random" / "now:clock"）或纯标记（"member:p"）
@@ -216,17 +220,17 @@ export function link(
             if (tagged) {
               const cls = tagged.slice(prefix.length + 1);
               if (cls === "p") {
-                bump(tableHit, `module:${module}`);
+                bump(tableHit, mk);
                 return true;
               }
               direct.add(cls as Effect);
-              bump(tableHit, `module:${module}`);
+              bump(tableHit, mk);
               return true;
             }
           }
         }
         if (fi.pack.pureModules.has(module)) {
-          bump(tableHit, `module:${module}`);
+          bump(tableHit, mk);
           return true;
         }
         return false;
@@ -482,21 +486,22 @@ function resolveCall(
 
   // 0.5 构造调用（迭代33 C1：new X(...) 构造器建模——C# object_creation_expression 产 ctor 标记）。
   // 规则：① impureGlobals 类型键 → 对应效应（FileStream:fs/Random:random/WaitForSeconds:clock 免费复用）；
-  // ② 纯构造清单（pureCtor——List/Dictionary/Vector*/异常族等）→ 纯；③ 项目类（globalClasses 单命中
-  // 且 !ambiguous）→ 边到 **ctor chunk**（constructor_declaration，chunkNodes 已含；byQualified "Type.Type"——
-  // 禁止走 bySimple 裸名分支——那会错边到 class chunk 丢构造体效应 = 假纯）；④ 其余框架类型 → ? 诚实
-  // （未列类型默认不纯，红线：绝不给"未知皆纯"）。
+  // ② 项目类（globalClasses 单命中且 !ambiguous）→ 边到 **ctor chunk**（constructor_declaration，
+  //    byQualified "Type.Type"——禁止走 bySimple 裸名分支（错边到 class chunk 丢构造体效应 = 假纯））；
+  //    **项目类优先于 pureCtor 名单**（迭代34 独立审计 Med：项目自建类撞 List/Color/Uri 等名单名且构造体
+  //    有 io → 先查 pureCtor 会假纯，红线方向——与常规路径"项目类优先于效应表"一致）；
+  // ③ 纯构造清单（pureCtor）→ 纯；④ 其余框架类型 → ? 诚实（未列类型默认不纯，绝不给"未知皆纯"）。
   if (call.ctor !== undefined) {
     const t = call.ctor;
     const rule = Object.hasOwn(pack.impureGlobals, t) ? pack.impureGlobals[t] : undefined;
     if (typeof rule === "string") { sink.addEffect(rule); sink.hitTable(`ctor:${t}`); return; }
     if (Array.isArray(rule)) {
-      // 成员数组形态（异常类型等）：构造即整体效应——取数组首效应（保守 io）
+      // 迭代34 独立审计 Low：当前 csharp impureGlobals 全为 string 值（数组形态仅 python impureModules）——
+      // 本分支对 ctor（仅 C# 产生）不可达，是防御代码。构造即整体效应 → 保守 io。
       sink.addEffect("io"); sink.hitTable(`ctor:${t}`); return;
     }
-    if (pack.pureCtor && pack.pureCtor.has(t)) { sink.hitTable(`ctor:${t}:p`); return; }
-    // 项目类构造：边到 ctor chunk（防假纯——构造体效应必须传导）
-    if (!caller.assigned.includes(t)) {
+    // 项目类构造（优先于 pureCtor——防假纯）：边到 ctor chunk
+    if (!caller.assigned.includes(t) && !fi.moduleAssigned.has(t)) {
       const cls = globalClasses.get(t);
       if (cls && cls.length === 1 && cls[0]!.lang === pack.name) {
         const tf = files.get(cls[0]!.file);
@@ -506,6 +511,7 @@ function resolveCall(
         }
       }
     }
+    if (pack.pureCtor && pack.pureCtor.has(t)) { sink.hitTable(`ctor:${t}:p`); return; }
     sink.missTable(`ctor:${t}`); // 未列框架类型/歧义 → 补表候选 + 诚实 ?
     sink.addUnknownCall(call);
     sink.markUnknown();
@@ -590,22 +596,23 @@ function resolveCall(
     // 仅方法候选：裸名调用不指向方法 → 落到后续分支（import/效应表/未知）
   }
 
+  // 迭代33 C2（InitDeity 痛点）：X.gameObject.* 前缀白名单 → io（Unity 组件属性，变量 receiver）。
+  // **必须在 assigned 守卫之前**（本形态主体是局部变量 receiver——item.gameObject.SetActive 的 item
+  // 在 assigned 命中会被下方守卫跳过）。白名单复用 frameworkIo.gameObject 既有清单；项目扩展方法
+  // （root.gameObject.RefreshSelf）不在白名单 → 落回 ? 诚实。
+  if (call.obj !== null && call.attr.startsWith("gameObject.")) {
+    const rest = call.attr.slice("gameObject.".length);
+    const member = rest.indexOf(".") === -1 ? rest : rest.slice(0, rest.indexOf("."));
+    if (pack.frameworkIo.gameObject?.includes(member)) {
+      sink.addEffect("io");
+      sink.hitTable("frame:gameObject"); // 复用既有槽位（与 obj="gameObject" 精确命中统计合并）
+      return;
+    }
+  }
+
   // 2.5 框架命名空间（egg ctx.model.* / ctx.service.* → io 边界；遮蔽/参数同名则跳过判定）。
   // selfNames 豁免（迭代18）：self 是参数会进 assigned——self.client.post 是实例属性访问非本地遮蔽
   if (call.obj !== null && (!caller.assigned.includes(call.obj) || pack.selfNames.includes(call.obj))) {
-    // 迭代33 C2（InitDeity 痛点）：X.gameObject.* 前缀白名单 → io（Unity 组件属性，变量 receiver）。
-    // 必须在 assigned 守卫**之前**的独立分支：item.gameObject.SetActive 的 item 是局部变量（assigned 命中
-    // 会被守卫跳过）——本形态主体恰是局部变量。白名单复用 frameworkIo.gameObject 既有清单；
-    // 项目扩展方法（root.gameObject.RefreshSelf）不在白名单 → 落回 ? 诚实。
-    if (call.attr.startsWith("gameObject.")) {
-      const rest = call.attr.slice("gameObject.".length);
-      const member = rest.indexOf(".") === -1 ? rest : rest.slice(0, rest.indexOf("."));
-      if (pack.frameworkIo.gameObject?.includes(member)) {
-        sink.addEffect("io");
-        sink.hitTable("frame:gameObject"); // 复用既有槽位（与 obj="gameObject" 精确命中统计合并）
-        return;
-      }
-    }
     // Object.hasOwn 守卫：frameworkIo 是普通对象字面量，裸下标/`in` 会命中继承的
     // Object.prototype 键（hasOwnProperty/toString/constructor…）→ truthy → for...of 函数崩溃（DoS）
     const prefixes = Object.hasOwn(pack.frameworkIo, call.obj) ? pack.frameworkIo[call.obj] : undefined;

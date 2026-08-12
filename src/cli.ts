@@ -91,7 +91,7 @@ function printHelp(): void {
   --no-cache           禁用增量缓存
   --topology           拓扑健康度：密度/环/深度/自环 + 人类解读（json 模式顶层加 topology 字段）
   --sources            效应源清单：chain=0 IMPURE——直接调 io/net/random/state 的源头（背锅者，按调用点排序）
-  --state              状态耦合图：写方按读者数排序（json 模式顶层加 stateCoupling）
+  --state              状态耦合图：写方按读者数排序（json 模式顶层加 stateCoupling；默认 top 50、硬上限 500——大项目防序列化超限）
   --strict             存在 IMPURE chunk 时退出码为 1
   --gate               与 --changed 联用：grade ≥ high（风险≥35）时退出码 1（合入门禁；invalid 不放行）
   --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
@@ -304,9 +304,10 @@ async function main(): Promise<void> {
     // --state：json 顶层加状态耦合链（迭代23 D-127；与 sources/topology 同款 additive——
     // 迭代33 崩溃修复：全量计算（避免 --top 预滤 verdicts 导致耦合失真）但输出截断——
     // InitDeity 6591 写方 × readerKeys 跨积超 V8 字符串上限（Invalid string length 实证）。
-    // 默认 top 50（覆盖热点），消费端既有 slice 契约不变。
+    // 默认 top 50（覆盖热点）；**硬上限 500**（迭代34 独立审计 Low：用户 --state --top 5000
+    // 在 InitDeity 规模仍会复现崩溃——截断必须封顶，不能完全交给 --top）。
     const payload3 = args.state
-      ? { ...payload2, stateCoupling: stateCouplingOf(report.verdicts).slice(0, args.top ?? 50) }
+      ? { ...payload2, stateCoupling: stateCouplingOf(report.verdicts).slice(0, Math.min(args.top ?? 50, 500)) }
       : payload2;
     console.log(JSON.stringify(payload3, (k, v) =>
       v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v, 2));

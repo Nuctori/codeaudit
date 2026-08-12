@@ -30,4 +30,23 @@ describe("classifyUsage 分语言记账（迭代33 TP4）", () => {
 		expect(csharp.summary.hits).toBe(1);
 		expect(python.summary.hits).toBe(1);
 	});
+
+	it("迭代34 TP4 修复：module 命中键带 pack 前缀（effectFromModule 直写路径）", () => {
+		const packs = new Map([
+			["csharp", csharpPack],
+			["python", pythonPack],
+		]);
+		// effectFromModule 的 5 处 bump 在 sink 构造前——模拟它产出的带前缀键（迭代34 Med-High 修复）：
+		// 此前 module:os 无前缀 → classifyUsage 按 pack 过滤后 python 行 hits=0/corpus-inactive（数据损坏）
+		const hit = new Map([
+			["python\u0000module:os", 7], // os 模块命中（effectFromModule 直写）
+			["python\u0000module:json", 3],
+		]);
+		const usage = classifyUsage(packs, hit, new Map());
+		const python = usage.find((u) => u.pack === "python")!;
+		// os/json 都在 python impureModules → 枚举表键 → 命中计入 hits（TP4 修复前无前缀键 → 全 0）
+		expect(python.summary.hits).toBe(2);
+		// corpus-inactive 是"表有键但语料未咨询"（91 条目中 89 个未命中）——正常，不淹没 hits
+		expect(python.summary.hits).toBeGreaterThan(0);
+	});
 });

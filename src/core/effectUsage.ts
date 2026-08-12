@@ -162,18 +162,12 @@ export function classifyUsage(
 		// 迭代33 TP4：miss 键带 pack 前缀（link.ts `${pk}\u0000${slot}`）——必须按当前 pack 过滤，
 		// 否则每个 pack 行都显示全部语言的 miss（纯 C# 语料下 python 行也显示 36041 误导）。
 		const prefix = `${packName}\u0000`;
+		// 迭代34 独立审计 Low：旧 `module:... === ""` 恒假死逻辑已删除——保留全部未中槽位为补表候选
+		// （原"排除已枚举键"意图会误伤：miss 键可能与枚举槽位同名但形态不同，宁多不少）。
 		const missSlots = [...miss.entries()]
 			.filter(([slot]) => slot.startsWith(prefix))
 			.map(([slot, n]) => ({ slot: slot.slice(prefix.length), miss: n }))
-			.filter(
-				(item) =>
-					item.miss > 0 &&
-					!keySets.some(([, k]) =>
-						k.startsWith("./")
-							? false
-							: `module:${k.replace(/^node:/, "")}` === "",
-					),
-			)
+			.filter((item) => item.miss > 0)
 			.sort((a, b) => b.miss - a.miss);
 		const missSites = missSlots.reduce((s, x) => s + x.miss, 0);
 		out.push({

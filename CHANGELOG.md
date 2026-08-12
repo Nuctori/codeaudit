@@ -1,5 +1,23 @@
 # Changelog
 
+## [Unreleased] — 迭代 33-34（InitDeity 痛点修复 + 构造器建模 + 独立审计修复）
+
+### 新增
+
+- C1 构造器建模（`new X()`）：C# object_creation_expression → ctor 标记 → 专用分支——impureGlobals 类型键（FileStream:fs/Random:random/WaitForSeconds:clock）/ 项目类构造边（ctor chunk 传导构造体效应，防假纯）/ pureCtor 清单（List/Dictionary/Vector*/异常族等纯分配）/ 未列类型 `?` 诚实。InitDeity unknown 5102→4644（-9%）
+- C2 `X.gameObject.*` 前缀白名单 → io（Unity 组件属性，局部变量 receiver——98 chunks 翻确定效应）
+- TP5 NUnit StringAssert/Does 入 pureGlobals（675 站假 UNKNOWN 恢复）
+
+### 修复
+
+- `--state` json 崩溃（Invalid string length）：全量计算 + 输出截断（默认 top 50、硬上限 500）
+- 效应表记账按语言分桶（TP4）：5 个 pack 行不再显示同一数据；module 命中键带 pack 前缀（独立审计 Med-High 修复）
+- C2 分支移回 assigned 守卫之前（独立审计 Med——真局部变量 receiver 覆盖）
+- ctor 判定顺序：项目类优先于 pureCtor 名单（独立审计 Med——项目类撞名单构造体 io 不再假纯）
+- ctorTypeName 泛型末段递归 + predefined_type（独立审计 Low-Med）
+- effectUsage missSlots 死逻辑删除、ctor Array.isArray 注释修正（独立审计 Low）
+- README 303 测试
+
 ## [Unreleased] — 迭代 31-32（LINQ monad 审计 + S1 链修复 + S3 假纯堵洞 + frameworkPure 成员级白名单）
 
 ### 新增
