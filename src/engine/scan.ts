@@ -373,6 +373,17 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	// 标注回读：证据注入源头（公理3 闭环）。PURE → 移除该 chunk 自己的 `?`；
 	// IMPURE → 加直接 io 效应。id 不匹配（内容已变）的条目静默忽略。
 	const ann = opts.annotations;
+	// 证明台账基线：标注前 UNKNOWN 集合——标注后仍 PURE 且非标注目标 = 因上游标注移除 `?`
+	// 而释放（derived，证明链依赖 annotated 上游，非独立证明）。仅带标注时计算（无标注零额外成本）。
+	const baselineUnknown =
+		ann && ann.size > 0
+			? new Set(
+					analyze(chunks2).verdicts
+						.filter((v) => v.purity === Purity.UNKNOWN)
+						.map((v) => v.chunk.key),
+				)
+			: null;
+	const annotatedKeys = new Set<string>(); // PURE 标注生效的 chunk key（证明台账：annotated）
 	const analyzedChunks =
 		ann && ann.size > 0
 			? chunks2.map((c) => {
@@ -395,15 +406,30 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 					// 迭代21 数学解（交叉审计 A）：一条 PURE 标注 = **全部**调用点确证（suggested_prompt 契约）——
 					// 多站点（unknownSites=2）只减 1 会让判定翻 PURE 但记账不自洽（calls 无 ? 而 sites>0）；
 					// 置 0 修复记账不变量 calls.has("?") === (unknownSites > 0)
+					annotatedKeys.add(c.key);
 					return { ...c, calls, unknownSites: 0 };
 				})
 			: chunks2;
 	const { verdicts, cycleCount, staleEdges, invariantViolations } =
 		analyze(analyzedChunks);
+	// provenance 打标（证明义务台账）：PURE 判定来源 = 标注生效 / 标注释放 / 机器证明；非 PURE 不打标
+	const verdicts2 =
+		ann && ann.size > 0
+			? verdicts.map((v) => {
+					if (v.purity !== Purity.PURE) return v;
+					if (annotatedKeys.has(v.chunk.key))
+						return { ...v, provenance: "annotated" as const };
+					if (baselineUnknown!.has(v.chunk.key))
+						return { ...v, provenance: "derived" as const };
+					return v;
+				})
+			: verdicts;
 
-	const impure = verdicts.filter((v) => v.purity === Purity.IMPURE).length;
-	const unknown = verdicts.filter((v) => v.purity === Purity.UNKNOWN).length;
-	const uncertain = verdicts.filter((v) => !v.chainCertain).length;
+	const impure = verdicts2.filter((v) => v.purity === Purity.IMPURE).length;
+	const unknown = verdicts2.filter((v) => v.purity === Purity.UNKNOWN).length;
+	const uncertain = verdicts2.filter((v) => !v.chainCertain).length;
+	const annotated = verdicts2.filter((v) => v.provenance === "annotated").length;
+	const derived = verdicts2.filter((v) => v.provenance === "derived").length;
 
 	// 标注一致性校验（迭代21 数学解 A）：PURE 标注的 chunk 在 analyze 后必须判 PURE——
 	// 否则标注未生效（stale-edge/parseError/传播型/矛盾）→ 逐实例报告（防静默 no-op + 语料污染）
@@ -414,7 +440,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	}
 	const annotationRejected =
 		pureAnnIds.size > 0
-			? verdicts
+			? verdicts2
 					.filter((v) => v.purity !== Purity.PURE && pureAnnIds.has(v.chunk.id))
 					.map((v) => ({
 						id: v.chunk.id,
@@ -430,22 +456,23 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	return {
 		root,
 		mode: "audit",
-		verdicts,
+		verdicts: verdicts2,
 		stats: {
 			files: facts.length,
 			skippedFiles,
 			parseErrors: facts.filter((f) => f.parseError).length,
-			chunks: verdicts.length,
-			pure: verdicts.length - impure - unknown,
+			chunks: verdicts2.length,
+			pure: verdicts2.length - impure - unknown,
 			impure,
 			unknown,
 			annotationRejected,
 			effectTableUsage,
-			unknownRate: verdicts.length === 0 ? 0 : uncertain / verdicts.length,
+			unknownRate: verdicts2.length === 0 ? 0 : uncertain / verdicts2.length,
 			cycles: cycleCount,
 			cachedFiles,
 			staleEdges,
 			invariantViolations,
+			provenance: { annotated, derived },
 		},
 	};
 }

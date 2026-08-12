@@ -27,6 +27,13 @@ export enum Purity {
  */
 export type Effect = "io" | "net" | "fs" | "db" | "random" | "clock" | "state";
 
+/**
+ * PURE 判定的证明来源（证明义务台账；只对 PURE 有意义，非 PURE 恒 "static"）：
+ * - "static"：链路无未知依赖，分析器机器证明（A6-inner 证书）
+ * - "annotated"：标注生效且一致性验证通过（人工/AI 证明，scan.ts 打标）
+ * - "derived"：因上游标注移除 `?` 而释放为 PURE（证明链依赖 annotated 上游，非独立证明）
+ */
+export type Provenance = "static" | "annotated" | "derived";
 export interface Chunk {
   /** 内容寻址身份：规范化源码文本的哈希。公理4。 */
   readonly id: string;
@@ -82,6 +89,8 @@ export interface Verdict {
    * false 表示结论依赖未知符号，需要标注。
    */
   readonly chainCertain: boolean;
+  /** PURE 判定的证明来源（见 Provenance；非 PURE 恒 "static"，无意义）。 */
+  readonly provenance: Provenance;
 }
 
 export interface ScanStats {
@@ -106,6 +115,9 @@ export interface ScanStats {
   readonly staleEdges: number;
   /** 传播不变量违规数（边单调性 purity(caller)≥purity(callee)、链三角）；0 = 不变量全部成立。 */
   readonly invariantViolations: number;
+  /** 证明台账（PURE 判定来源）：annotated = 标注生效且判 PURE；derived = 因上游标注释放；
+   *  static 可推导 = pure − annotated − derived（机器证明，A6-inner）。 */
+  readonly provenance: { readonly annotated: number; readonly derived: number };
 }
 
 export interface ScanReport {

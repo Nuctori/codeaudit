@@ -585,6 +585,13 @@ async function main(): Promise<void> {
 				(s.cachedFiles > 0 ? `, cached ${s.cachedFiles}` : "") +
 				(s.parseErrors > 0 ? `, parse-errors ${s.parseErrors}` : ""),
 		);
+		// 证明义务台账（provenance）：仅标注场景显示（无标注时全部 static，平凡事实不占输出）
+		if (s.provenance.annotated + s.provenance.derived > 0) {
+			console.log(
+				`  证明台账：${s.pure - s.provenance.annotated - s.provenance.derived} 静态证明 / ${s.provenance.annotated} 标注 / ${s.provenance.derived} 释放` +
+					`（static=机器证明 A6-inner；annotated=标注生效；derived=依赖标注传播）`,
+			);
+		}
 		// 调用图完整度（发散 F21）：未知站点占比——用户投入标注前先知道"图的完整度"
 		const totalSites = report.verdicts.reduce(
 			(sum, v) => sum + v.chunk.calls.size + v.chunk.unknownSites,

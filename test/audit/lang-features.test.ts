@@ -348,6 +348,44 @@ describe("标注回读（AI 标注闭环注入端）", () => {
 		);
 	});
 
+	it("provenance 台账：PURE 标注 → annotated，下游释放 → derived，机器证明 → static", async () => {
+		const root = project("ann3", {
+			"a.py":
+				"import weirdlib\ndef pure_fn():\n    return 1\ndef source():\n    weirdlib.run()\ndef caller():\n    source()\n",
+		});
+		const r0 = await scanProject(root);
+		// 无标注：全部 PURE 为 static（机器证明），台账零
+		expect(r0.stats.provenance).toEqual({ annotated: 0, derived: 0 });
+		for (const v of r0.verdicts)
+			if (v.purity === Purity.PURE) expect(v.provenance).toBe("static");
+		const src = r0.verdicts.find((v) => v.chunk.name === "source")!;
+		const r1 = await scanProject(root, {
+			annotations: new Map([[src.chunk.id, "PURE"]]),
+		});
+		const b = by(r1);
+		// 标注目标本身 = 人工证明；下游因标注释放 = 依赖证明；无关纯函数 = 机器证明
+		expect(b.get("a.py::source")!.provenance).toBe("annotated");
+		expect(b.get("a.py::caller")!.provenance).toBe("derived");
+		expect(b.get("a.py::pure_fn")!.provenance).toBe("static");
+		expect(r1.stats.provenance).toEqual({ annotated: 1, derived: 1 });
+		expect(r1.stats.pure).toBe(4); // module 伪块 + pure_fn + source + caller（台账自洽：static = pure − annotated − derived）
+	});
+
+	it("IMPURE 标注不产生 PURE 证明（provenance 保持 static）", async () => {
+		const root = project("ann4", {
+			"a.py": "import weirdlib\ndef source():\n    weirdlib.run()\n",
+		});
+		const r0 = await scanProject(root);
+		const src = r0.verdicts.find((v) => v.chunk.name === "source")!;
+		const r1 = await scanProject(root, {
+			annotations: new Map([[src.chunk.id, "IMPURE"]]),
+		});
+		const v = r1.verdicts.find((x) => x.chunk.name === "source")!;
+		expect(v.purity).toBe(Purity.IMPURE);
+		expect(v.provenance).toBe("static"); // 非 PURE 无证明义务语义
+		expect(r1.stats.provenance).toEqual({ annotated: 0, derived: 0 });
+	});
+
 	it("IMPURE 标注加直接效应并传播", async () => {
 		const root = project("ann2", {
 			"a.py":

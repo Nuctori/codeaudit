@@ -43,6 +43,7 @@ function v(
 		chainPath: [],
 		throwsTypes: [],
 		stateDeps: opts.stateDeps ?? [],
+		provenance: "static",
 	};
 }
 

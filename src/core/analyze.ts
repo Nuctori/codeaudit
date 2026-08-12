@@ -171,6 +171,7 @@ export function analyze(chunks: readonly Chunk[]): AnalyzeOutput {
       chainPath: a.chainPath,
       throwsTypes: a.throwsTypes,
       stateDeps: stateDeps.get(c.key) ?? [],
+      provenance: "static", // 默认机器证明；标注来源由 scan.ts 打标（annotated/derived）
     };
   });
 

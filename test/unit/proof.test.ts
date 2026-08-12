@@ -33,6 +33,7 @@ function v(
 		chainPath: [],
 		throwsTypes: [],
 		stateDeps: [],
+		provenance: "static",
 	};
 }
 
