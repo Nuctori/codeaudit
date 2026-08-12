@@ -74,10 +74,10 @@ describe("iter-15 probe: CJS export chunk boundary (extractor.cjsExportName @1ed
     // bare-name call inside file and from-import both pick bySimple[0] (first in AST order)
     const caller = r.verdicts.find((v) => v.chunk.name === "caller")!;
     const firstFoo = foos[0]!;
-    // 裸名调用：同名顶层重定义 → ?（歧义诚实，公理：不静默选一）——不解析到任一 foo
-    expect(caller.chunk.calls.size).toBe(1);
-    expect(caller.chunk.calls.has("?")).toBe(true);
-    expect(caller.chunk.calls.has(firstFoo.chunk.key)).toBe(false);
+    // 迭代37 P1-3 并集边：同名顶层重定义 → 全候选建边（不再记 ?；两个 foo 均纯 → caller PURE）
+    expect(caller.chunk.calls.size).toBe(2);
+    expect(caller.chunk.calls.has("?")).toBe(false);
+    for (const f of foos) expect(caller.chunk.calls.has(f.chunk.key)).toBe(true);
     const use = r.verdicts.find((v) => v.chunk.name === "use")!;
     // from-import 解析：imported="foo" → bySimple 2 候选 → resolveSymbol 取 bySimple[0]（AST 序，
     // 与 verdicts 序无关）——断言解析到任一 foo（不固定序）

@@ -19,6 +19,8 @@ interface FileIndex {
   readonly pack: LangPack;
   /** 文件内限定名 -> chunk key："Svc.save"、"handle"。 */
   readonly byQualified: Map<string, string>;
+  /** 文件内限定名 -> 全部候选 chunk keys（多定义/重载全集——迭代37 P1-3 并集边）。 */
+  readonly byQualifiedAll: Map<string, string[]>;
   /** 限定名冲突（同名重载/多态）→ 解析时记未知，不静默选一。 */
   readonly ambiguous: ReadonlySet<string>;
   /** 裸名 -> chunk keys（可能多个：方法名与顶层函数同名）。 */
@@ -75,6 +77,7 @@ export function link(
   for (const facts of allFacts) {
     const pack = packs.get(facts.lang)!;
     const byQualified = new Map<string, string>();
+    const byQualifiedAll = new Map<string, string[]>(); // 迭代37 P1-3：全候选（并集边消费）
     const ambiguous = new Set<string>();
     const bySimple = new Map<string, string[]>();
     const chunkByKey = new Map<string, RawChunk>();
@@ -92,6 +95,9 @@ export function link(
       const existing = byQualified.get(qualified);
       if (existing !== undefined) ambiguous.add(qualified);
       else byQualified.set(qualified, key);
+      const all = byQualifiedAll.get(qualified) ?? [];
+      all.push(key);
+      byQualifiedAll.set(qualified, all);
       const arr = bySimple.get(rc.name) ?? [];
       arr.push(key);
       bySimple.set(rc.name, arr);
@@ -120,7 +126,7 @@ export function link(
 
     const moduleAssigned = new Set(facts.chunks.find((c) => c.name === "<module>")?.assigned ?? []);
 
-    files.set(facts.file, { facts, pack, byQualified, ambiguous, bySimple, importMap, wildcards, chunkByKey, moduleAssigned });
+    files.set(facts.file, { facts, pack, byQualified, byQualifiedAll, ambiguous, bySimple, importMap, wildcards, chunkByKey, moduleAssigned });
   }
 
   // 全局类名索引（迭代19 C# 跨文件类调用）：类 chunk 名 → (file, key, lang) 列表——
@@ -257,6 +263,10 @@ export function link(
                 if (!fi.ambiguous.has(q)) {
                   const hit = fi.byQualified.get(q);
                   if (hit) { calls.add(hit); continue; }
+                } else {
+                  // 迭代37 P1-3 并集边：成员形回调撞名（重载）→ 全候选不静默跳过
+                  const cands = fi.byQualifiedAll.get(q);
+                  if (cands) for (const k of cands) calls.add(k);
                 }
                 continue;
               }
@@ -444,10 +454,7 @@ interface Sink {
         const tf = files.get(target);
         if (tf) {
           const q = `${name}.${call.attr}`;
-          if (!tf.ambiguous.has(q)) {
-            const hit = tf.byQualified.get(q);
-            if (hit) { sink.addEdge(hit); return true; }
-          }
+          if (addUnionEdges(tf, q, sink)) return true;
           // 模块级值绑定：export const db = new Pool() → 绑定名解析到类 → 类成员真边
           const boundCls = Object.hasOwn(tf.facts.moduleBindings, name) ? tf.facts.moduleBindings[name] : undefined;
           if (boundCls) {
@@ -511,6 +518,22 @@ function resolveImport(
   return false;
 }
 
+/** 迭代37 P1-3 重载并集边（数学命题 3/4）：同限定名多定义（重载/重复定义）→ 对**全候选**建边。
+ *  效应 = ∪ 闭包：S1（PURE ⟺ ∀i eff=∅）、S2（∪ ⊇ 真分派）、S3（min 链 ≤ 真分派链）可证保持；
+ *  禁止任选/单候选定选（命题 1：无支配信息时任意选可假纯——C# int/string 同 arity 重载不可消歧）。
+ *  返回是否建了边（false = 无候选，调用方落 ? 诚实）。 */
+function addUnionEdges(tf: FileIndex, q: string, sink: Sink): boolean {
+  if (!tf.ambiguous.has(q)) {
+    const hit = tf.byQualified.get(q);
+    if (hit) { sink.addEdge(hit); return true; }
+    return false;
+  }
+  const cands = tf.byQualifiedAll.get(q);
+  if (!cands || cands.length === 0) return false;
+  for (const k of cands) sink.addEdge(k);
+  return true;
+}
+
 function resolveCall(
   call: RawCall,
   caller: RawChunk,
@@ -546,12 +569,15 @@ function resolveCall(
     // 项目类构造（优先于 pureCtor——防假纯）：边到 ctor chunk
     if (!caller.assigned.includes(t) && !fi.moduleAssigned.has(t)) {
       const cls = globalClasses.get(t);
-      if (cls && cls.length === 1 && cls[0]!.lang === pack.name) {
-        const tf = files.get(cls[0]!.file);
-        if (tf && !tf.ambiguous.has(`${t}.${t}`)) {
-          const hit = tf.byQualified.get(`${t}.${t}`);
-          if (hit) { sink.addEdge(hit); sink.hitTable(`ctor:${t}`); return; }
+      if (cls) {
+        // 迭代37 P1-3：跨文件同名类 + 成员重载 → 全候选并集边（G5：不得任选）
+        const same = cls.filter((c) => c.lang === pack.name);
+        let any = false;
+        for (const c of same) {
+          const tf = files.get(c.file);
+          if (tf && addUnionEdges(tf, `${t}.${t}`, sink)) any = true;
         }
+        if (any) { sink.hitTable(`ctor:${t}`); return; }
       }
     }
     if (pack.pureCtor && pack.pureCtor.has(t)) { sink.hitTable(`ctor:${t}:p`); return; }
@@ -605,10 +631,7 @@ function resolveCall(
   if (call.obj !== null && pack.selfNames.includes(call.obj) && !call.attr.includes(".")) {
     if (caller.ownerClass) {
       const q = `${caller.ownerClass}.${call.attr}`;
-      if (!fi.ambiguous.has(q)) {
-        const key = fi.byQualified.get(q);
-        if (key) { sink.addEdge(key); return; }
-      }
+      if (addUnionEdges(fi, q, sink)) return;
     }
     sink.addUnknownCall(call);
     sink.markUnknown(); // 继承/混入/冲突：诚实标记
@@ -623,18 +646,15 @@ function resolveCall(
       const top = local.filter((k) => fi.chunkByKey.get(k)!.ownerClass === null);
       if (top.length === 1) { sink.addEdge(top[0]!); return; }
       if (top.length > 1) {
-        sink.addUnknownCall(call);
-        sink.markUnknown(); // 同名顶层重定义：不静默选一
+        // 迭代37 P1-3 并集边：同名顶层重定义 → 全候选（S1/S2/S3 可证安全）
+        for (const k of top) sink.addEdge(k);
         return;
       }
     }
     if (pack.implicitThis && caller.ownerClass) {
       // C# 隐式 this（迭代19）：类内裸名调用 = 本类方法（Game.Start 调 LoadGame() 无 this. 前缀）
       const q = `${caller.ownerClass}.${call.attr}`;
-      if (!fi.ambiguous.has(q)) {
-        const key = fi.byQualified.get(q);
-        if (key) { sink.addEdge(key); return; }
-      }
+      if (addUnionEdges(fi, q, sink)) return;
     }
     // 仅方法候选：裸名调用不指向方法 → 落到后续分支（import/效应表/未知）
   }
@@ -740,18 +760,17 @@ function resolveCall(
     const ptype = caller.paramTypes?.[call.obj ?? ""];
     if (ptype !== undefined && !caller.assigned.includes(call.obj ?? "")) {
       const pcls = globalClasses.get(ptype);
-      const isProject = pcls && pcls.length === 1 && pcls[0]!.lang === pack.name;
-      if (isProject) {
-        // 迭代36 High 修复续：参数类型是项目类 → 按**类型名**解析到项目类实例方法（全局类解析查的是
-        // 变量名 obj，此处须用类型名 ptype）——`xs.Add`（xs 参数类型 List）→ 项目 List.Add 的 io 传导
-        const tf = files.get(pcls[0]!.file);
-        if (tf && !caller.assigned.includes(ptype) && !fi.moduleAssigned.has(ptype)) {
-          const q = `${ptype}.${call.attr}`;
-          if (!tf.ambiguous.has(q)) {
-            const hit = tf.byQualified.get(q);
-            if (hit) { sink.addEdge(hit); sink.hitTable(`type:${ptype}.${call.attr}`); return; }
-          }
+      const isProject = pcls && pcls.length > 0 && pcls.some((c) => c.lang === pack.name);
+      if (isProject && !caller.assigned.includes(ptype) && !fi.moduleAssigned.has(ptype)) {
+        // 迭代37 P1-3：参数类型为项目类 → 同语言候选类全并集边
+        const same = pcls!.filter((c) => c.lang === pack.name);
+        const q = `${ptype}.${call.attr}`;
+        let any = false;
+        for (const c of same) {
+          const tf = files.get(c.file);
+          if (tf && addUnionEdges(tf, q, sink)) any = true;
         }
+        if (any) { sink.hitTable(`type:${ptype}.${call.attr}`); return; }
       } else {
         const rule = pack.builtinTypeEffects[ptype]?.[call.attr];
         if (rule === "hof") { sink.addArgEdges(call.argFns, call.attr); sink.hitTable(`type:${ptype}.${call.attr}`); return; }
@@ -759,21 +778,46 @@ function resolveCall(
       }
       // 表外方法 / 项目类歧义 → 落 ? 或继续走全局类解析（诚实）
     }
+    // 迭代37 P1-2：局部单赋值构造绑定（var xs = new List<int>() → xs.Add）——最小语言类型层
+    // 第一传递函数。G4 守卫：提取侧已保证单赋值构造；此处防重绑遮蔽（assigned）与参数注入（params 走 A1）。
+    // 消费：项目类（globalClasses 只含 kind=class → 函数名 RHS 不命中 → ? 诚实）→ 类成员并集边；
+    // 内建类型（List/Dictionary/string…）→ builtinTypeEffects 查表（纯信箱）。miss 仍落 ?。
+    const lb = caller.localBindings?.[call.obj ?? ""];
+    // 守卫：提取侧已保证单赋值构造（多赋值/重绑不绑）+ 参数排除（params）；此处防参数注入
+    // （paramTypes 双保险）。不用 assigned/moduleAssigned——局部声明（var xs = ...）本身就在
+    // assigned 且 moduleAssigned 含整树赋值（assignedNames(root) 遍历函数体），会误杀全部局部变量；
+    // 局部声明遮蔽模块级同名（C# var / Python 赋值即局部 / TS 声明），绑定可靠。
+    if (lb !== undefined && !Object.hasOwn(caller.paramTypes ?? {}, call.obj ?? "")) {
+      const lbCls = globalClasses.get(lb);
+      if (lbCls && lbCls.some((c) => c.lang === pack.name)) {
+        const same = lbCls.filter((c) => c.lang === pack.name);
+        const q = `${lb}.${call.attr}`;
+        let any = false;
+        for (const c of same) {
+          const tf = files.get(c.file);
+          if (tf && addUnionEdges(tf, q, sink)) any = true;
+        }
+        if (any) { sink.hitTable(`lb:${lb}.${call.attr}`); return; }
+      }
+      const rule = pack.builtinTypeEffects[lb]?.[call.attr];
+      if (rule === "hof") { sink.addArgEdges(call.argFns, call.attr); sink.hitTable(`lb:${lb}.${call.attr}`); return; }
+      if (rule === "pure") { sink.hitTable(`lb:${lb}.${call.attr}`); return; }
+    }
     // 全局类名解析（迭代19 C# 跨文件类调用）——**优先于效应表（迭代21 正确化）**：
     // 项目内类 NetCall 撞效应表条目 NetCall: "net"——项目类优先（真实实现），表条目是通用库名。
     // 遮蔽守卫：调用方局部赋值或模块级重绑（conn = make_evil() 遮蔽 import）→ 不解析
     // 语言隔离（迭代19 复审 F1）：只解析同语言类——跨语言同名类不串味
     const cls = globalClasses.get(call.obj);
-    if (cls && cls.length === 1 && cls[0]!.lang === pack.name &&
-        !caller.assigned.includes(call.obj) && !fi.moduleAssigned.has(call.obj)) {
-      const tf = files.get(cls[0]!.file);
-      if (tf) {
-        const q = `${call.obj}.${call.attr}`;
-        if (!tf.ambiguous.has(q)) {
-          const hit = tf.byQualified.get(q);
-          if (hit) { sink.addEdge(hit); return; }
-        }
+    if (cls && !caller.assigned.includes(call.obj) && !fi.moduleAssigned.has(call.obj)) {
+      // 迭代37 P1-3：跨文件同名类 + 成员重载 → 全候选并集边（G5：含跨文件多命中）
+      const same = cls.filter((c) => c.lang === pack.name);
+      const q = `${call.obj}.${call.attr}`;
+      let any = false;
+      for (const c of same) {
+        const tf = files.get(c.file);
+        if (tf && addUnionEdges(tf, q, sink)) any = true;
       }
+      if (any) return;
     }
     // hasOwn 守卫：impureGlobals 普通对象字面量，继承键（constructor 等）→ undefined（纪律与 B1 同源）
     const rule = Object.hasOwn(pack.impureGlobals, call.obj) ? pack.impureGlobals[call.obj] : undefined;

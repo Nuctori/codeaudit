@@ -848,4 +848,69 @@ describe("C# 语言包（迭代19）", () => {
 		expect(use!.effects.has("io")).toBe(true);
 		expect(use!.purity).toBe(2); // IMPURE——项目 List.Add io 传导（假纯闭合）
 	});
+
+	it("迭代37 P1-3：C# 方法重载歧义 → 并集边（TP2 恢复：PrepareRequest 732 站断链）", async () => {
+		const root = project("overload-union", {
+			"C.cs": [
+				"public class ApiClientHelper {",
+				"    public static int PrepareRequest(int x) { return System.IO.File.ReadAllText(\"a\"); }",
+				"    public static int PrepareRequest(string s) { return s.Length; }",
+				"    public static int Call() { return PrepareRequest(1); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const call = by(r).get("C.cs::ApiClientHelper.Call") as { purity: number; effects: Set<string> } | undefined;
+		expect(call).toBeDefined();
+		// 两重载并集边：{io} ∪ {} = {io} → IMPURE（原 ambiguous 记 UNKNOWN 断链——TP2 修复）
+		expect(call!.effects.has("io")).toBe(true);
+		expect(call!.purity).toBe(2); // IMPURE——重载并集保守且确定
+	});
+
+	it("迭代37 P1-2：局部单赋值构造绑定（var xs = new List<int>() → xs.Add 纯信箱 PURE）", async () => {
+		const root = project("lb-list", {
+			"C.cs": [
+				"public class C {",
+				"    public int Count() { var xs = new List<int>(); xs.Add(1); return xs.Count; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const c = by(r).get("C.cs::C.Count") as { purity: number } | undefined;
+		expect(c).toBeDefined();
+		// var xs = new List<int>() → xs:"List" → xs.Add 查 builtinTypeEffects.List.Add = pure → PURE
+		expect(c!.purity).toBe(0); // PURE——集合纯信箱（修复前 xs.Add 落 ? → UNKNOWN）
+	});
+
+	it("迭代37 P1-2：项目类构造绑定 → 构造体 io 传导（不假纯）", async () => {
+		const root = project("lb-project", {
+			"Db.cs": "public class MyDb { public void Connect() { System.Console.WriteLine(\"x\"); } }",
+			"C.cs": [
+				"public class C {",
+				"    public void Run() { var db = new MyDb(); db.Connect(); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const run = by(r).get("C.cs::C.Run") as { purity: number; effects: Set<string> } | undefined;
+		expect(run).toBeDefined();
+		// db:"MyDb" → 全局类解析 MyDb.Connect（写 Console io）→ IMPURE（修复前 db.Connect 落 ? → UNKNOWN）
+		expect(run!.effects.has("io")).toBe(true);
+		expect(run!.purity).toBe(2);
+	});
+
+	it("迭代37 P1-2：守卫——重绑/多赋值不绑（xs.Add 仍 ? 诚实）", async () => {
+		const root = project("lb-guard", {
+			"C.cs": [
+				"public class C {",
+				"    public void Run(List<int> other) { var xs = new List<int>(); xs = other; xs.Add(1); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const run = by(r).get("C.cs::C.Run") as { purity: number } | undefined;
+		expect(run).toBeDefined();
+		// xs 重绑（count=2）→ 不绑；参数 other 注入 → xs.Add 动态分派 ? → UNKNOWN 诚实（方向安全）
+		expect(run!.purity).toBe(1); // UNKNOWN——守卫守住（宁 UNKNOWN 不 PURE）
+	});
 });

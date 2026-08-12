@@ -224,13 +224,13 @@ describe("OO 健全性回归：假纯修复", () => {
     expect(b.get("app.ts::run")!.purity).toBe(Purity.UNKNOWN);
   });
 
-  it("同名方法冲突不静默选一（self 调用记未知）", async () => {
+  it("同名方法冲突 → 并集边（迭代37 P1-3：全候选效应并集，S1/S2/S3 可证安全）", async () => {
     const root = project("oopoly", {
       "poly.py": "class C:\n    def m(self):\n        print('a')\n    def m(self):\n        print('b')\n    def run(self):\n        self.m()\n",
     });
     const b = by(await scanProject(root));
-    // 冲突 → 不猜，记未知
-    expect(b.get("poly.py::C.run")!.purity).toBe(Purity.UNKNOWN);
+    // 两个重载 m 均 print（io）→ 并集 {io} → IMPURE（原记未知，现并集边确定判定）
+    expect(b.get("poly.py::C.run")!.purity).toBe(Purity.IMPURE);
   });
 });
 

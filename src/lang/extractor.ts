@@ -55,6 +55,7 @@ export class Extractor {
           mc.declared = this.declaredNames(node);
           mc.params = this.paramNames(node);
           mc.paramTypes = this.paramTypesOf(node); // 迭代35 A1：参数显式类型绑定
+          mc.localBindings = this.localBindingsOf(node, mc.params); // 迭代37 P1-2：局部单赋值构造绑定
           chunks.push(mc as RawChunk);
           stack.push(mc);
           pushed = true;
@@ -148,6 +149,72 @@ export class Extractor {
       }
     }
     return bindings;
+  }
+
+  /** 迭代37 P1-2：函数内局部单赋值构造绑定（C6——最小语言类型层第一个传递函数）。
+   *  数学 G4 守卫：恰一次赋值 ∧ RHS 是构造调用形态（C# object_creation_expression /
+   *  TS new_expression / Python|TS 类调用 x = C()）∧ 非参数 ∧ 非嵌套函数体。
+   *  多赋值/非构造赋值 → 不绑（保守：类型多变/不可证）。函数名 RHS（x = make()）→ 绑函数名，
+   *  消费端 globalClasses 只含 kind=class → 函数名不命中 → ? 诚实（kind=class 校验在消费侧）。
+   *  嵌套 chunk（方法/局部函数/lambda/类）的赋值归它们自己，本函数跳过（防跨作用域错绑假纯）。 */
+  private localBindingsOf(node: SyntaxNode, params: readonly string[]): Record<string, string> | undefined {
+    const counts: Record<string, { count: number; cls: string }> = {};
+    // 嵌套函数状节点（不处理其内部赋值）：chunkNodes + 常见嵌套函数/类形态
+    const nested = new Set([...this.pack.chunkNodes, "lambda_expression", "anonymous_method_expression",
+      "function_definition", "function_declaration", "arrow_function", "method_definition",
+      "class_definition", "class_declaration"]);
+    const visit = (n: SyntaxNode): void => {
+      if (n !== node && nested.has(n.type)) return; // 嵌套 chunk 的绑定归它们
+      if (n.type === "variable_declarator" || n.type === "assignment" || n.type === "assignment_expression") {
+        const left = n.childForFieldName("left") ?? n.childForFieldName("name") ?? n.children[0] ?? null;
+        let value = n.childForFieldName("right") ?? n.childForFieldName("value")
+          ?? n.children[n.children.length - 1] ?? null;
+        // C# variable_declarator 的 value 字段是 equals_value_clause 包装（"=" 表达式）——解包
+        if (value !== null && value.type === "equals_value_clause") {
+          value = value.childForFieldName("value") ?? value.children[value.children.length - 1] ?? null;
+        }
+        if (left !== null && value !== null &&
+            (left.type === "identifier" || left.type === "property_identifier") &&
+            !params.includes(left.text)) { // 参数重绑不绑（def f(x): x = C()——调用方注入类型）
+          const name = left.text;
+          const cls = this.ctorClsOf(value);
+          const b = counts[name] ?? { count: 0, cls: "" };
+          b.count++;
+          if (cls !== null) b.cls = cls;
+          counts[name] = b;
+        }
+      }
+      for (const c of n.children) visit(c);
+    };
+    visit(node);
+    const out: Record<string, string> = {};
+    for (const [name, b] of Object.entries(counts)) {
+      if (b.count === 1 && b.cls !== "") out[name] = b.cls;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+
+  /** 构造调用形态 RHS → 类型名（C# new X() / TS new X() / Python|TS 类调用 X()）；非构造 → null。 */
+  private ctorClsOf(value: SyntaxNode): string | null {
+    if (value.type === "object_creation_expression") {
+      // C#：new X(...) / new X<T>(...) → type 字段（ctorTypeName 已处理泛型剥除）
+      const t = value.childForFieldName("type");
+      return t !== null ? ctorTypeName(t) : null;
+    }
+    if (value.type === "new_expression") {
+      // TS/JS：new X(...)
+      const ctor = value.childForFieldName("constructor") ?? value.children[1];
+      if (ctor && (ctor.type === "identifier" || ctor.type === "property_identifier")) return ctor.text;
+      return null;
+    }
+    if (value.type === "call" || value.type === "call_expression") {
+      // Python/TS 类调用：x = C()（函数名 RHS 也绑——消费端 kind=class 校验兜底 ?）
+      const fn = value.childForFieldName("function") ?? value.children[0];
+      if (fn && (fn.type === "identifier" || fn.type === "property_identifier") && fn.text !== "require") {
+        return fn.text;
+      }
+    }
+    return null;
   }
 
   /** 状态写位置提取（迭代8 视角2）：self.x= / this.x= / global、nonlocal 声明 → 位置列表（空 = 非写）。 */
@@ -739,7 +806,8 @@ interface MutableChunk {
   params: string[];
   /** 迭代35 A1：参数显式类型（参数名 → 类型名，Dictionary<string,int> d → d:"Dictionary"）——变量 receiver 查 builtinTypeEffects。 */
   paramTypes: Record<string, string>;
-  /** 状态写位置（self.x / user.status / global 名）；非空 → state 效应。 */
+  /** 迭代37 P1-2：局部单赋值构造绑定（var xs = new List<int>() → xs:"List"）。 */
+  localBindings?: Record<string, string>;
   stateWrites: string[];
   /** 读侧状态位置（self.x / user.status / ⊤）——stateDeps 传播原料。 */
   stateReads: string[];

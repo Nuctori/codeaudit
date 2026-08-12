@@ -66,6 +66,9 @@ export interface RawChunk {
   readonly ownerClass: string | null;
   /** 迭代35 A1：参数显式类型（参数名 → 类型名，Dictionary<string,int> d → d:"Dictionary"）——变量 receiver 查 builtinTypeEffects。 */
   readonly paramTypes?: Readonly<Record<string, string>>;
+  /** 迭代37 P1-2：函数内局部单赋值构造绑定（var xs = new List<int>() → xs:"List"）——消费端 G4 守卫
+   *  （单赋值 ∧ ¬assigned ∧ ¬param；RHS 构造调用形态；多赋值/非构造不绑）。 */
+  readonly localBindings?: Readonly<Record<string, string>>;
 }
 
 export interface RawFileFacts {
