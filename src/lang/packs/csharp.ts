@@ -245,6 +245,28 @@ const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
 		// 数组方法（LINQ 扩展是动态——链上方法不在此表）
 		Length: "pure",
 	},
+	// 序列/集合 monad 操作（迭代31：与 builtinMethodReturns 的 IEnumerable/List/Dictionary 键对齐——
+	// 变量绑定（A1 待办）启用后 xs.Select 解析到 IEnumerable 时分支 0 判定表必须覆盖，否则链解析了
+	// 却判空落 ? 浪费判别力。hof = 纯算子但回调须保留（LINQ 上下文 linqHof 兜底））。
+	IEnumerable: {
+		Select: "hof", SelectMany: "hof", Where: "hof", OrderBy: "hof", OrderByDescending: "hof",
+		ThenBy: "hof", ThenByDescending: "hof", GroupBy: "hof", Aggregate: "hof", Zip: "hof",
+		Join: "hof", GroupJoin: "hof", ToDictionary: "hof", ToLookup: "hof",
+		SkipWhile: "hof", TakeWhile: "hof", ForEach: "hof",
+		Skip: "pure", Take: "pure", Distinct: "pure", Reverse: "pure", Concat: "pure",
+		Union: "pure", Intersect: "pure", Except: "pure", Cast: "pure", OfType: "pure",
+		DefaultIfEmpty: "pure", Append: "pure", Prepend: "pure",
+		ToList: "pure", ToArray: "pure", ToHashSet: "pure",
+	},
+	List: {
+		Add: "pure", Remove: "pure", RemoveAt: "pure", Clear: "pure", Contains: "pure",
+		IndexOf: "pure", Insert: "pure", Sort: "pure", ToArray: "pure", ToList: "pure",
+		Count: "pure",
+	},
+	Dictionary: {
+		Add: "pure", Remove: "pure", ContainsKey: "pure", ContainsValue: "pure",
+		TryGetValue: "pure", Keys: "pure", Values: "pure", Count: "pure", ToList: "pure",
+	},
 };
 
 const builtinMethodReturns: Record<string, Record<string, string>> = {
