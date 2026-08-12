@@ -518,3 +518,13 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 - **merge 方向安全**：键只增不删 → override 不可能误删内置表；数组并集 → 扩展现有键（frameworkIo this）不重列内置前缀（重列 = 抄写漂移 = 漏前缀 = 假纯根源）；短路 → 无 override 返回原 pack 引用（零行为变化的静态保证）
 - **复审（verify 节点）**：4 项主查实证（merge 追加不删内置/生效路径真实接线/无 override 逐位不变/282 独立复跑）；n1 重复注释已删（index.ts:19）；**n2 已修**——`"set"` 形态校验空操作 + mergeSet 对 JSON 对象形态原生 TypeError，加固为 Set/数组/对象键三形态 + 补 3 断言；n3 记录不修（校验时机偏晚非正确性）；无 blocker
 - **下轮待办**：① CLI `--effect-table <json>`（loadEffectOverrides 已就绪，需新建 spawn 测试基础设施 ~1h）；② 语言事实义务转移风险（用户误标 io→纯 = 假纯方向不安全——缓解：校验挡形状错别字 + README 文档义务 + --table-usage corpus-inactive 可见未命中条目）；③ 无删除能力（override 只能追加，删内置表需改库——设计裁决，防误删）
+
+## 迭代 29（--effect-table CLI：F16 补全）
+
+- **迭代 28 待办①闭环**（CLI `--effect-table <json>`——F16 命令行补全；`loadEffectOverrides`/`validateEffectOverride`/`applyEffectOverrides` 迭代 28 已就绪，本轮只接线）：cli.ts 6 处（import `loadEffectOverrides` + `EffectTables` 类型、`CliArgs.effectTable: string | null`、parseArgs 分支、main 读文件块、scanProject opts 传 `effectOverrides`、printHelp 一行）
+- **校验分工**（audit §2.1 兑现）：读文件/JSON 语法/顶层非对象 → `loadEffectOverrides` 抛（消息含路径）→ cli catch → exit 2（与 `--annotations` 同款先例）；形状校验（未知语言/提取侧表/非法效应类）→ scan.ts L233 `validateEffectOverride` → throw → main().catch → exitCode 2（**零额外代码**，天然达成）
+- **测试 +3**（robustness 维度 28 CLI 对抗，复用既有 run() spawn helper——iter28 record 声称"需新建 spawn 基础设施"**已证过时**，维度 28 已有 8 个 spawn 先例）：① 注入生效正例（MySdk:net → IMPURE{net} vs 无 override UNKNOWN，同 fixture 判别力 + 复跑前重建 dist 防陈旧假绿）；② 读文件失败 exit 2（不存在路径 + 非法 JSON 两断言）；③ 校验失败 exit 2（非法效应类 IO → scan.ts 兜底 throw → exitCode 2 + "effectOverrides 非法"）
+- **CLI 示例**：`node dist/cli.js scan ./src --effect-table overrides.json`（与库 API effectOverrides 同构 JSON：`{ "csharp": { "impureGlobals": { "MySdk": "net" }, "pureGlobals": ["MathUtility"] } }`）
+- **测试 285/285 全绿**（28 文件）+ tsc 0 + README 门禁 OK 285（check-readme-tests.cjs）；CHANGELOG [Unreleased] 加迭代 29 条目
+- **复审（verify 节点）**：链路完整真实（parseArgs → main 读文件 exit 2 → scanProject opts → scan.ts 校验 throw → link.ts impureGlobals 命中 addEffect net → IMPURE）；CLI 测试有判别力（真实进程 + 同 fixture 注入前后对照）；向后兼容（无 flag → undefined → scan.ts 短路零变化）；285/285 独立复跑。无 blocker
+- **下轮待办**：① 语言事实义务转移风险（用户误标 io→纯 = 假纯——缓解已就绪：校验挡形状 + README 文档义务 + --table-usage corpus-inactive）；② 无删除能力（override 只能追加——设计裁决防误删）；③ 提取侧表白名单拒绝/未知语言错误路径未在 CLI 层断言（库层已有校验实现，CLI 层低价值可待）；④ 延续记录：F10 缓存分片、F18 英文文档、标注文件归档（基线不可复现）

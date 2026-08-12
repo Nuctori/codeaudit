@@ -21,7 +21,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 282 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 285 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -33,6 +33,7 @@ node dist/cli.js scan ./src --state             # 状态耦合图（写方按读
 node dist/cli.js scan ./src --unknowns unknowns.json   # 导出未知符号供 AI 标注
 node dist/cli.js scan ./src --strict                   # 存在 IMPURE 时退出码 1（CI 门禁）
 node dist/cli.js scan ./src --changed a.ts --gate      # 合入门禁：回归风险 grade ≥ high 时退出码 1
+node dist/cli.js scan ./src --effect-table overrides.json   # 效应表注入（不改库代码；{ 语言: { 表: 值 } }，读文件/校验失败 exit 2）
 ```
 
 编程式 API：
@@ -61,6 +62,7 @@ const injected = await scanProject("./src", {
     python: { frameworkIo: { client: ["post", "get"] } },      // 扩展现有键不重列内置前缀
   },
 });
+// CLI 同构（迭代29）：--effect-table overrides.json（JSON 形状同上；读文件/校验失败 exit 2，与 --annotations 同款）
 ```
 
 导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `riskOfChange` / `forwardClosure` / `gradeOf` / `gateExit` / `fitBaseRate` / `priorFor` / `emptyCorpus` / `updateCorpus` / `mergeCorpus` / `summarize` / `siteShapeInfo` / `isCorpus` / `graphMetrics` / `proofCompleteness` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` / `compareReports` / `applyEffectOverrides` / `validateEffectOverride` / `loadEffectOverrides` + `defaultPacks` + 类型（`BaseRateModel`/`CorpusFile`/`CorpusSite`/`Prior`/`ChangeImpact`/`ImpactedChunk`/`ChangeRisk`/`ProofCompleteness`/`GraphMetrics`/`VerdictDelta`/`Verdict`/`Chunk`/`ScanReport`/`ScanStats`/`LangPack`/`Purity`/`EffectTables`）。
@@ -157,7 +159,7 @@ src/
 
 ## 测试
 
-282 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
+285 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。

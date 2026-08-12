@@ -2,6 +2,7 @@
 import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { scanProject } from "./index";
+import { loadEffectOverrides, type EffectTables } from "./lang/effectOverride";
 import { riskOfChange, gateExit } from "./core/risk";
 import { graphMetrics } from "./core/topology";
 import { stateCouplingOf } from "./core/state";
@@ -16,6 +17,8 @@ interface CliArgs {
   unknowns: string | null;
   annotations: string | null;
   corpus: string | null;
+  /** 效应表注入（--effect-table；迭代29 F16 CLI 补全——JSON { 语言: { 表名: 值 } }）。 */
+  effectTable: string | null;
   noCache: boolean;
   strict: boolean;
   /** 合入门禁（--gate；与 --changed 联用：grade ≥ high → exit 1）。 */
@@ -34,7 +37,7 @@ interface CliArgs {
 
 function parseArgs(argv: string[]): CliArgs {
   const args: CliArgs = {
-    dir: ".", format: "text", top: null, unknowns: null, annotations: null, corpus: null,
+    dir: ".", format: "text", top: null, unknowns: null, annotations: null, corpus: null, effectTable: null,
     noCache: false, strict: false, gate: false, state: false, changed: null, topology: false, sources: false, tableUsage: false,
   };
   const rest = argv.slice(2);
@@ -49,6 +52,7 @@ function parseArgs(argv: string[]): CliArgs {
     }
     else if (a === "--unknowns") args.unknowns = rest[++i]!;
     else if (a === "--annotations") args.annotations = rest[++i]!;
+    else if (a === "--effect-table") args.effectTable = rest[++i]!;
     else if (a === "--corpus") args.corpus = rest[++i]!;
     else if (a === "--no-cache") args.noCache = true;
     else if (a === "--strict") args.strict = true;
@@ -82,6 +86,7 @@ function printHelp(): void {
   --top N              只显示前 N 条治理项（非纯；text 与 json 同语义；--sources 共用此上限）
   --unknowns <file>    导出未解析符号清单（按影响面排序，含 id 锚点，供 AI 标注）
   --annotations <file> 回读 AI 标注（[{id, verdict:"PURE"|"IMPURE"}]，按 chunk.id 匹配，减少未知）
+  --effect-table <json> 效应表注入（{ 语言: { 表名: 值 } }；键只增不删、数组并集；读文件/校验失败 exit 2）
   --corpus <file>      标注语料文件（默认 .codeaudit/corpus.json；累积先验供 suggested_prompt）
   --no-cache           禁用增量缓存
   --topology           拓扑健康度：密度/环/深度/自环 + 人类解读（json 模式顶层加 topology 字段）
@@ -165,11 +170,22 @@ async function main(): Promise<void> {
       process.exit(2);
     }
   }
+  let effectOverrides: Readonly<Record<string, Partial<EffectTables>>> | undefined;
+  if (args.effectTable) {
+    try {
+      effectOverrides = loadEffectOverrides(args.effectTable) as Readonly<Record<string, Partial<EffectTables>>>;
+      console.error(`effect table -> ${args.effectTable}`);
+    } catch {
+      console.error("codeaudit: 无法读取效应表文件 " + args.effectTable);
+      process.exit(2);
+    }
+  }
 
   const report = await scanProject(root, {
     useCache: !args.noCache,
     cacheDir: resolve(root, ".codeaudit"),
     annotations,
+    effectOverrides,
   });
 
   // 回归风险分析（--changed）：L×C 模型，六因子从扫描数据推导

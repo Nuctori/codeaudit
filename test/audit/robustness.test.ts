@@ -169,6 +169,45 @@ describe("维度28: CLI 对抗", () => {
       expect(r.out).not.toContain("未知选项");
     }
   });
+
+  it("--effect-table 注入生效：MySdk:net → IMPURE；无 override → UNKNOWN（迭代29）", () => {
+    const root = project("cli-effect-table", {
+      "netcall.cs": "public class Consumer {\n    public void Run() { MySdk.Send(); }\n}",
+    });
+    const overrideFile = join(root, "overrides.json");
+    writeFileSync(overrideFile, JSON.stringify({ csharp: { impureGlobals: { MySdk: "net" } } }));
+
+    const base = run(["scan", root, "--no-cache"]);
+    expect(base.code).toBe(0);
+    expect(base.out).toContain("UNKNOWN"); // MySdk 不可解析 → ?
+
+    const injected = run(["scan", root, "--no-cache", "--effect-table", overrideFile]);
+    expect(injected.code).toBe(0);
+    expect(injected.out).toContain("IMPURE"); // 注入 → net 效应 → IMPURE
+    expect(injected.out).toContain("net"); // 效应类 net
+  });
+
+  it("--effect-table 读文件失败 → exit 2（不存在路径 / 非法 JSON）（迭代29）", () => {
+    const root = project("cli-effect-table-bad", { "a.py": "def f():\n    return 1\n" });
+    const missing = run(["scan", root, "--no-cache", "--effect-table", join(root, "nope.json")]);
+    expect(missing.code).toBe(2);
+    expect(missing.out).toContain("无法读取效应表文件");
+
+    const badJson = join(root, "bad.json");
+    writeFileSync(badJson, "{ not json");
+    const r = run(["scan", root, "--no-cache", "--effect-table", badJson]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain("无法读取效应表文件");
+  });
+
+  it("--effect-table 校验失败 → exit 2（非法效应类，scan.ts 兜底）（迭代29）", () => {
+    const root = project("cli-effect-table-invalid", { "a.py": "def f():\n    return 1\n" });
+    const overrideFile = join(root, "overrides.json");
+    writeFileSync(overrideFile, JSON.stringify({ csharp: { impureGlobals: { X: "IO" } } }));
+    const r = run(["scan", root, "--no-cache", "--effect-table", overrideFile]);
+    expect(r.code).toBe(2);
+    expect(r.out).toContain("effectOverrides 非法");
+  });
 });
 
 describe("维度29: 全 fixture 确定性", () => {
