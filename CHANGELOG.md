@@ -1,5 +1,22 @@
 # Changelog
 
+## [Unreleased] — 迭代 31-32（LINQ monad 审计 + S1 链修复 + S3 假纯堵洞 + frameworkPure 成员级白名单）
+
+### 新增
+
+- frameworkPure 成员级白名单（compromise-audit C1 结构性收紧）：前缀级 → 两级结构（Record<ns, Record<type, pure|hof|Record<member, ...>>>）——13 整类型键 pure + Linq 整类 hof + Text 3 子键 + Array 异质嵌套；linqHof 表删除（Linq:hof 1 键 + unconditional 门取代）；未列键落 ? 诚实
+- builtinTypeEffects 补 IEnumerable/List/Dictionary monad 判定表（与 builtinMethodReturns 对齐——A1 变量绑定前置）
+- builtinMethodReturns 扩展（string 链方法 + array/List/Dictionary/IEnumerable 返回类型——S1 链解析表）
+
+### 修复
+
+- S1：receiverTypeOf 支持 invocation_expression（C# 链式调用第二环起恢复——21,488 bare 站点受益）
+- S3：hofAlwaysArgs 空表假纯洞（Select(xs, Console.WriteLine) → PURE 假纯）→ linqHof 分离 + unconditional 门
+- HIGH-1：addArgEdges UNKNOWN 门认 linqHof（差集 15 算子命名回调不再被吞）
+- MEDIUM-2：Join/GroupJoin 移出全局 HOF 表（String.Join 值实参不误伤）
+- 记账不变量：addArgEdges 兜底走 markUnknown 通道（calls[?] === unknownSites>0 恢复）
+- Text 死键（迭代 32 复审 Blocking）：StringBuilder/Encoding/RegularExpressions 嵌套进 Text 键 + UTF8Encoding 补键
+
 ## [0.3.1] — 2026-08-12（迭代 30：frameworkPure System 回退 + HOF 假纯修复）
 
 ### 修复

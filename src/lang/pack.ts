@@ -120,11 +120,12 @@ export interface LangPack {
   readonly builtinMethodReturns: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** 框架命名空间（如 egg 的 ctx）：对象名 → 成员前缀列表，命中视为 io 边界（ctx.model.* / ctx.service.*）。 */
   readonly frameworkIo: Readonly<Record<string, readonly string[]>>;
-  /** 框架纯命名空间（frameworkIo 镜像：对象名 → 成员前缀列表，命中视为纯；严格白名单语义，漏条落 ? 非假纯）。迭代30。 */
-  readonly frameworkPure?: Readonly<Record<string, readonly string[]>>;
-  /** LINQ/HOF 算子完整集（迭代31 S3）：frameworkPure 纯前缀命中时回调保留用——与全局 hofCallsArgs
-   *  分离（全局表避免 Max/Min/Count 与 Math.Max/string.Contains 撞名误伤纯静态方法）。 */
-  readonly linqHof?: ReadonlySet<string>;
+  /** 框架纯命名空间（frameworkIo 镜像，迭代32 成员级）：对象名 → 类型首段 → "pure"|"hof"，
+   *  或异质类型的嵌套成员表 Record<member, "pure"|"hof">；段前缀匹配命中视为纯
+   *  （hof = 回调义务保留）；未列键落 ?（严格白名单，漏条方向恒 ? 非假纯）。 */
+  readonly frameworkPure?: Readonly<
+    Record<string, Readonly<Record<string, "pure" | "hof" | Readonly<Record<string, "pure" | "hof">>>>>
+  >;
   /** 隐式 this（C#：类内裸名方法调用 = this 方法；TS/Python 需显式 this/self）。迭代19。 */
   readonly implicitThis: boolean;
 

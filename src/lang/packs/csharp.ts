@@ -392,14 +392,48 @@ const frameworkIo: Record<string, readonly string[]> = {
   ],
 };
 
-/** System 纯子命名空间白名单（迭代30，全限定 System.* obj="System" 回退）。
- *  严格白名单：语料（iter30 1869 站点逐段聚合）+ .NET 领域双重确证才可入列；漏条落 ? 非假纯。
- *  不列入：Reflection（IntrospectionExtensions/CustomAttributeExtensions 纯读取但
- *  Assembly.LoadFrom=fs、MethodInfo.Invoke=动态——iter23 裁定 UNKNOWN 诚实，不整体放纯）、
- *  Runtime（FormatterServices 序列化底层）、Activator（反射 new≈new 本身判 ?）、
- *  DateTimeOffset（UtcNow=clock）。与 frameworkIo.System 9 条不相交（Text 已在 iter23 移出 io 侧）。 */
-const frameworkPure: Record<string, readonly string[]> = {
-  System: ["Uri", "Linq", "Convert", "Enum", "Text", "Array", "Math", "TimeSpan", "Guid", "Collections"],
+/** System 纯子命名空间成员级白名单（迭代32，compromise-audit C1 结构性收紧）。
+ *  结构 Record<ns, Record<type, "pure"|"hof" | Record<member, "pure"|"hof">>>：
+ *  type 键 = attr 去掉 obj 段后的第一段（类型/子命名空间名），段前缀匹配（rest===key || rest.startsWith(key+".")）。
+ *  整类型键（pure/hof）= 该类型同质（无副作用/委托形参 → pure；委托重载无条件调用 → hof）。
+ *  异质类型（Array）用嵌套成员表：type 键值 = Record<member, tag>，按剩余段匹配。
+ *  语义：pure = 无副作用成员、无委托形参；hof = 成员接收委托且无条件调用（回调义务保留）。
+ *  未列键 → 落 ?（诚实，fall-through 到分支 4 missTable → UNKNOWN——iter30 已验证方向安全）。
+ *  准入：iter30 语料逐段聚合（Uri 882/Linq 461/Convert 238/Enum 97/Text 55/Array 14/Math 5/
+ *  TimeSpan 3/Guid 3）+ .NET 领域双重确证；漏条方向恒 ? 非假纯。
+ *  不列入：Reflection（Assembly.LoadFrom=fs、MethodInfo.Invoke=动态）、Runtime、Activator、
+ *  DateTimeOffset（UtcNow=clock）、Linq.Expressions（编译执行）——iter23/iter30 裁定 UNKNOWN 诚实。
+ *  回调不变量（link.ts 内建）：hof 命中且 argFns 非空 → addArgEdges(unconditional=true) →
+ *  未解析记 UNKNOWN——"纯前缀吞回调"假纯结构通道关闭（iter30/iter31 三活洞根因）。
+ *  pure 成员忽略 argFns（值实参被 argFnsOf 收集是常态——纯成员无委托形参，语言事实排除假纯）。 */
+const frameworkPure: Record<string, Record<string, "pure" | "hof" | Record<string, "pure" | "hof">>> = {
+  System: {
+    // 整类 pure（同质子树：无 io、无委托形参）
+    Uri: "pure", // 语料 882 站全 EscapeDataString；BCL 全静态方法无委托
+    Convert: "pure", // 语料 238 站；ToXxx/ChangeType/IsDBNull 纯计算
+    Enum: "pure", // 语料 97 站；Parse/GetName/IsDefined/GetValues 静态元数据读
+    Math: "pure", // 语料 5 站；Max/Min/Abs/Sqrt/Pow/Round 全纯
+    TimeSpan: "pure", // 语料 3 站；FromSeconds/Parse/Compare 纯
+    Guid: "pure", // 语料 3 站；Parse/NewGuid/ToString 纯（NewGuid=随机源先例同 pureGlobals.Guid）
+    Collections: "pure", // System.Collections.Generic.List<int>.Add 静态式；无委托形参（实例方法不在此通道）
+    // Linq 整类 hof（1 键取代 linqHof 29 算子表）：委托重载（Select/Where/OrderBy/ForEach…）
+    // 无条件调用回调；无委托成员（Range/Skip/Take）无回调不触发门——整类与逐成员正确性等价且更小
+    Linq: "hof",
+    // Text 子命名空间（迭代32 复审修正：必须嵌套在 Text 键下——匹配按 rest 首段 "Text" 查，
+    // 顶层散键 StringBuilder/Encoding 会导致 System.Text.* 整子树 miss 落 ?，55 站翻纯→?）
+    Text: {
+      StringBuilder: "pure", // Append/AppendLine/ToString 纯计算（对象内缓冲）
+      Encoding: "pure", // UTF8/UTF8Encoding/GetBytes/GetString 纯计算（含 UTF8Encoding 类型——语料 WriteApkConf.Write）
+      RegularExpressions: "pure", // Regex.IsMatch/Match/Replace 纯计算
+    },
+    // Array 异质（唯一）：6 个委托形参成员 hof + 其余 pure——嵌套成员表按剩余段匹配
+    Array: {
+      Find: "hof", FindAll: "hof", Exists: "hof", TrueForAll: "hof", ForEach: "hof", ConvertAll: "hof",
+      Sort: "pure", Reverse: "pure", Copy: "pure", Clear: "pure", Resize: "pure",
+      IndexOf: "pure", LastIndexOf: "pure", Contains: "pure", BinarySearch: "pure",
+      Empty: "pure", Clone: "pure",
+    },
+  },
 };
 
 /** C# chunk 节点：类/方法/构造/局部函数。属性访问器第一版不建（自动属性无逻辑）。 */
@@ -437,22 +471,11 @@ const assignmentTargets = [
 	"assignment_expression",
 	"variable_declarator",
 ];
-/** LINQ 算子完整集（迭代31 S3 修复）：frameworkPure 的 Enumerable 前缀命中时回调保留用——
- *  与全局 hofCallsArgs/hofAlwaysArgs 分离（后者须避免 Max/Min/Sum/Count/First/Any/All/Contains
- *  等与 Math.Max/string.Contains/array.Count 纯静态方法撞名——全局表含它们会让 Math.Max(a, score)
- *  的 score 被 argFns 误收 → 假 UNKNOWN）。LINQ 上下文（obj 命中 Linq 前缀）下这些名字恒是算子。 */
-const linqHof = new Set<string>([
-	"ForEach", "Select", "SelectMany", "Where", "OrderBy", "OrderByDescending",
-	"ThenBy", "ThenByDescending", "GroupBy", "Aggregate", "Zip", "Join", "GroupJoin",
-	"ToDictionary", "ToLookup", "SkipWhile", "TakeWhile",
-	"Count", "Any", "All", "First", "FirstOrDefault", "Last", "LastOrDefault",
-	"Single", "SingleOrDefault", "Sum", "Min", "Max", "Average", "Contains",
-]);
-
 /** 全局 HOF（不含 LINQ 撞名算子——Math.Max/string.Contains/String.Join 等纯静态方法不得被当 HOF）。
- *  迭代30 起 LINQ 静态运算符的回调保留改由 frameworkPure + linqHof 负责（link.ts L578）。
+ *  迭代32 起 LINQ 静态运算符的回调义务由 frameworkPure 成员级 hof 标记 + addArgEdges(unconditional)
+ *  承担（linqHof 表已删除——Linq: "hof" 1 键取代 29 算子表）。
  *  迭代31 MEDIUM-2：Join/GroupJoin 移出——String.Join(",", parts) 走 pureGlobals.String 门误伤
- *  （argFnsOf 收 parts → 未解析 → ?）；LINQ 上下文由 linqHof（含 Join）覆盖。 */
+ *  （argFnsOf 收 parts → 未解析 → ?）；LINQ 上下文由 frameworkPure.Linq 覆盖。 */
 const hofCallsArgs = new Set<string>([
 	"ForEach", "Select", "Where", "OrderBy", "OrderByDescending", "ThenBy", "SelectMany",
 	"GroupBy", "Zip", "SkipWhile", "TakeWhile", "ToDictionary", "ToLookup", "Aggregate",
@@ -522,9 +545,6 @@ export const csharpPack: LangPack = {
 	pureGlobals,
 	hofCallsArgs,
 	hofAlwaysArgs,
-	/** LINQ 算子完整集（迭代31 S3）：frameworkPure 纯前缀命中时回调保留用——与全局 HOF 分离
-	 *  （全局表避免 Max/Min/Count/First 与 Math.Max/string.Contains 撞名误伤）。 */
-	linqHof,
 	assignmentTargets,
 	literalReceivers,
 	builtinTypeEffects,

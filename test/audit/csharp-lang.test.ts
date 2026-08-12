@@ -595,4 +595,83 @@ describe("C# 语言包（迭代19）", () => {
 		expect(calc!.effects.has("io")).toBe(false);
 		expect(calc!.purity).toBe(0); // PURE——Math.Max 纯 + 读状态
 	});
+
+	it("迭代32 T1：frameworkPure 成员级未列成员落 ? 诚实（Runtime.CompilerServices → UNKNOWN 非 PURE）", async () => {
+		const root = project("fp-unlisted", {
+			"C.cs": [
+				"public class C {",
+				"    public void Run() { System.Runtime.CompilerServices.RuntimeHelpers.EnsureSufficientExecutionStack(); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const run = by(r).get("C.cs::C.Run") as { purity: number; effects: Set<string> } | undefined;
+		expect(run).toBeDefined();
+		// 成员级白名单（迭代32）：Runtime/CompilerServices 未列 → fall-through → UNKNOWN=1 诚实
+		// （修复前前缀级 System 白名单不含 Runtime 段，同为 UNKNOWN——本用例守卫"成员级不越界放纯"）
+		expect(run!.effects.has("io")).toBe(false);
+		expect(run!.purity).toBe(1); // UNKNOWN——诚实未知，非假纯
+	});
+
+	it("迭代32 T2：Array 逐成员拆分——Find 回调未解析 → UNKNOWN；Sort 纯 → PURE", async () => {
+		const root = project("fp-array-split", {
+			"C.cs": [
+				"public class C {",
+				"    static bool Pred(int x) { return x > 0; }",
+				"    public int Find() { return System.Array.Find(new int[] { 1 }, Pred); }",
+				"    public void SortIt(int[] xs) { System.Array.Sort(xs); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const find = by(r).get("C.cs::C.Find") as { purity: number } | undefined;
+		const sort = by(r).get("C.cs::C.SortIt") as { purity: number } | undefined;
+		expect(find).toBeDefined();
+		expect(sort).toBeDefined();
+		// Array.Find = hof 成员（委托形参）→ Pred 经 bySimple 解析成边 → IMPURE 或 PURE 依 Pred；
+		// Pred 纯 → Find 纯。核心断言：Find 不走"纯成员忽略回调"路径（其 tag=hof），
+		// Sort = pure 成员（无委托）→ PURE
+		expect(sort!.purity).toBe(0); // PURE——Sort 纯（无回调义务）
+		expect(find!.purity).not.toBe(2); // 回调 Pred 纯 → 非 IMPURE
+	});
+
+	it("迭代32 T3：Enumerable 整类 hof 回调义务保留（Select + 本地回调 → PURE；+ 框架回调 → UNKNOWN）", async () => {
+		const root = project("fp-enum-hof", {
+			"C.cs": [
+				"public class C {",
+				"    static int Twice(int x) { return x * 2; }",
+				"    public void Sel() { System.Linq.Enumerable.Select(new int[] { 1 }, Twice); }",
+				"    public void SelFw() { System.Linq.Enumerable.Select(new int[] { 1 }, System.Console.WriteLine); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const sel = by(r).get("C.cs::C.Sel") as { purity: number } | undefined;
+		const selFw = by(r).get("C.cs::C.SelFw") as { purity: number } | undefined;
+		expect(sel).toBeDefined();
+		expect(selFw).toBeDefined();
+		// Enumerable = hof 整类（迭代32：1 键取代 linqHof 29 算子）——Twice 解析成边且纯 → PURE；
+		// Console.WriteLine 未解析 → unconditional 门 → UNKNOWN（非假纯）
+		expect(sel!.purity).toBe(0); // PURE——回调 Twice 纯
+		expect(selFw!.purity).not.toBe(0); // 不容忍 PURE——框架回调 io 未确证
+		expect(selFw!.purity).toBe(1); // UNKNOWN
+	});
+
+	it("迭代32 T4：Text 子命名空间嵌套（复审 Blocking 修复——System.Text.Encoding.UTF8 纯计算 → PURE）", async () => {
+		const root = project("fp-text", {
+			"C.cs": [
+				"public class C {",
+				'    public byte[] Enc() { return System.Text.Encoding.UTF8.GetBytes("hello"); }',
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const enc = by(r).get("C.cs::C.Enc") as { purity: number; effects: Set<string> } | undefined;
+		expect(enc).toBeDefined();
+		// 迭代32 复审 Blocking：初版把 StringBuilder/Encoding/RegularExpressions 放 System 顶层散键，
+		// 但匹配按 rest 首段 "Text" 查 → System.Text.* 整子树 miss 落 ?（55 站翻纯→? 实证）。
+		// 修复后嵌套 Text: { Encoding: pure } → UTF8.GetBytes 纯计算 → PURE
+		expect(enc!.effects.has("io")).toBe(false);
+		expect(enc!.purity).toBe(0); // PURE——UTF8 编码纯计算
+	});
 });

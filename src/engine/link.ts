@@ -241,7 +241,7 @@ export function link(
           hitTable: (k) => bump(tableHit, k),
           missTable: (k) => bump(tableMiss, k),
           addUnknownCall: (call) => unknownCalls.push({ attr: call.attr, obj: call.obj, root: rootOf(call) }),
-          addArgEdges: (names, hof) => {
+          addArgEdges: (names, hof, unconditional = false) => {
             for (const n of names) {
               // 成员形回调：this.log / self.render → 当前类的同名方法（HOF 成员形假纯修复）
               const dotIdx = n.indexOf(".");
@@ -266,13 +266,11 @@ export function link(
               // 无条件调用实参的 HOF（map/filter/forEach…）：实参未解析 → 记未知（防假纯，
               // 如 const f = writeFileSync; [1].map(f)）；条件调用（sorted key=/Array.from cb）
               // 的实参未解析 → 跳过（无法区分 max(xs) 与 map(ext_fn)，记未知会误伤噪音）
-              // 迭代31 HIGH-1：门同时认 linqHof——frameworkPure 分支传入的 LINQ 算子（Count/Any/First/
-              // Last/Sum/Min/Max…）在 Enumerable 上下文恒无条件调用回调，未解析必须记 UNKNOWN 防假纯
-              // （此前只查 hofAlwaysArgs，差集 15 个算子命名回调被吞 = 活假纯洞）。
+              // 迭代32：unconditional=true（frameworkPure 成员级 hof/纯命中且 argFns 非空）时
+              // 无条件记 ?——linqHof 表删除后该语义由本参数承担（iter31 HIGH-1 差集洞结构性关闭）。
               // 迭代31 记账修复：走完整记账（unknownSites++ + unknownCalls）——与 markUnknown 一致，
-              // 恢复 scan.ts L272 不变量 calls.has("?") === (unknownSites > 0)（此前只 calls.add(?)，
-              // 标注工作流/语料/missingSiteRate 不可见这些站点）。
-              if (fi.pack.hofAlwaysArgs.has(hof) || (fi.pack.linqHof && fi.pack.linqHof.has(hof))) {
+              // 恢复 scan.ts L272 不变量 calls.has("?") === (unknownSites > 0)。
+              if (unconditional || fi.pack.hofAlwaysArgs.has(hof)) {
                 calls.add(UNKNOWN_TARGET);
                 unknownSites++;
                 unknownCalls.push({ attr: call.attr, obj: call.obj, root: rootOf(call) });
@@ -331,7 +329,7 @@ interface Sink {
   /** 效应表槽位咨询未中（miss——module 类 1:1 对应未知站点，补表候选）。 */
   missTable(slot: string): void;
   addUnknownCall(call: RawCall): void;
-  addArgEdges(names: readonly string[], hof: string): void;
+  addArgEdges(names: readonly string[], hof: string, unconditional?: boolean): void;
   effectFromModule(module: string, member: string | null): boolean;
 }
 
@@ -572,23 +570,34 @@ function resolveCall(
         }
       }
     }
-    // 迭代30：frameworkPure 纯前缀镜像（白名单——漏条落 ? 非假纯，与 frameworkIo 的 io 判定对称）。
-    // 顺序：io 先行（既有 loop），纯回退在后——两表交叠时 io 胜（保守），9 条 io 前缀行为零变化。
-    const purePrefixes = pack.frameworkPure && Object.hasOwn(pack.frameworkPure, call.obj)
+    // 迭代32：frameworkPure 成员级白名单（Record<ns, Record<type, "pure"|"hof" | Record<member, tag>>>，
+    // 未列落 ?）。匹配分两级：① type 键 = rest 首段（Array/Linq/Uri…）命中；② 若 type 值是嵌套
+    // 成员表（异质类型如 Array），按剩余段查成员取 tag。回调义务仅 hof 承担（tag==="hof" 且 argFns
+    // 非空 → addArgEdges(unconditional=true) → 未解析记 UNKNOWN 防假纯）；pure 成员忽略 argFns
+    // （值实参被 argFnsOf 收集是常态——纯成员无委托形参，语言事实排除假纯）。
+    // linqHof 表已删除（迭代32）——"LINQ 算子无条件调用回调"语义由 hof 标记 + unconditional 承担。
+    const pureNs = pack.frameworkPure && Object.hasOwn(pack.frameworkPure, call.obj)
       ? pack.frameworkPure[call.obj] : undefined;
-    if (purePrefixes) {
-      for (const p of purePrefixes) {
-        if (call.attr === p || call.attr.startsWith(p + ".")) {
-          // HOF 回调效应（迭代30 复审发现）：Linq.Enumerable.ForEach(xs, Save) 的纯前缀命中不得丢回调边——
-          // 否则回调的 io 效应被吞（假纯，公理 3 方向最重）。
-          // call.attr 是完整点连（Linq.Enumerable.ForEach）——取末段匹配。
-          // 迭代31 S3：查 linqHof（LINQ 限定表）而非全局 hofCallsArgs——全局表避免 Max/Min/Count/First
-          // 与 Math.Max/string.Contains 撞名误伤纯静态方法；linqHof 兜底回退全局表（无 linqHof 的 pack）。
-          const last = call.attr.slice(call.attr.lastIndexOf(".") + 1);
-          if ((pack.linqHof && pack.linqHof.has(last)) || (!pack.linqHof && pack.hofCallsArgs.has(last))) {
-            sink.addArgEdges(call.argFns, last);
-          }
-          sink.hitTable(`pure:${call.obj}.${p}`); // 迭代21 B 风格：纯侧独立槽位
+    if (pureNs) {
+      const rest = call.attr; // obj 已切走首段，rest = 完整剩余点连
+      const firstDot = rest.indexOf(".");
+      const typeKey = firstDot === -1 ? rest : rest.slice(0, firstDot);
+      const typeVal = Object.hasOwn(pureNs, typeKey) ? pureNs[typeKey] : undefined;
+      if (typeVal !== undefined) {
+        let tag: "pure" | "hof" | undefined;
+        if (typeof typeVal === "string") {
+          tag = typeVal; // 整类型键（Uri/Linq/Convert…）
+        } else if (firstDot !== -1) {
+          const memberRest = rest.slice(firstDot + 1);
+          const mDot = memberRest.indexOf(".");
+          const memberKey = mDot === -1 ? memberRest : memberRest.slice(0, mDot);
+          const m = typeVal[memberKey];
+          if (typeof m === "string") tag = m; // 嵌套成员表（Array 异质）
+        }
+        if (tag !== undefined) {
+          const last = rest.slice(rest.lastIndexOf(".") + 1);
+          if (tag === "hof" && call.argFns.length > 0) sink.addArgEdges(call.argFns, last, true); // unconditional
+          sink.hitTable(`pure:${call.obj}.${typeKey}`); // 迭代21 B 风格：纯侧独立槽位（类型级）
           return;
         }
       }

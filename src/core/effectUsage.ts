@@ -71,9 +71,10 @@ export function classifyUsage(
 		for (const k of Object.keys(pack.impureBuiltins))
 			keySets.push(["impureBuiltins", k]);
 		for (const k of pack.pureBuiltins) keySets.push(["pureBuiltins", k]);
-		// frameworkPure 纯前缀表（迭代30）：纯侧命中槽位 pure:<obj>.<prefix>——纳入枚举使使用率报告可见命中
-		for (const [obj, prefixes] of Object.entries(pack.frameworkPure ?? {}))
-			for (const p of prefixes) keySets.push(["frameworkPure", `${obj}.${p}`]);
+		// frameworkPure 成员级白名单（迭代32）：纯侧命中槽位 pure:<obj>.<member>——纳入枚举使使用率报告可见命中
+		for (const [obj, memberMap] of Object.entries(pack.frameworkPure ?? {}))
+			for (const [member] of Object.entries(memberMap))
+				keySets.push(["frameworkPure", `${obj}.${member}`]);
 
 		let hits = 0;
 		let corpusInactive = 0;
