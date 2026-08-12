@@ -144,6 +144,10 @@ export interface LangPack {
    *  member ∈ 清单 → io 边界。语义要求：引擎在 assigned 守卫**之前**查此表（主体是变量 receiver）。
    *  白名单 miss → 落回后续分支 → UNKNOWN 保持（方向安全）。 */
   readonly frameworkAttrPrefix?: Readonly<Record<string, readonly string[]>>;
+  /** 赋值即局部定义（Python：函数内裸名赋值 = 局部声明，非外部状态写）。迭代37 P0-2。 */
+  readonly assignmentScopesLocals: boolean;
+  /** 类方法内裸字段写 = this 字段（C#：self.x；TS 同形写是外层写 x）。迭代37 P0-2。 */
+  readonly bareNameMeansThisInMethod: boolean;
   /** 隐式 this（C#：类内裸名方法调用 = this 方法；TS/Python 需显式 this/self）。迭代19。 */
   readonly implicitThis: boolean;
 
