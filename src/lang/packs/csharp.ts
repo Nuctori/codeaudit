@@ -177,6 +177,11 @@ const pureGlobals = new Set<string>([
 	"TaskStatus",
 	"BindingFlags",
 	"AttributeTargets",
+	// 迭代44-r3（标注运营实证）：DOTween 枚举——Ease.Linear 18 条读取落 ?（枚举成员编译期常量，
+	// 与 System 枚举同族论证）；第三方枚举语义相同（成员无副作用）。语料实证频次驱动，不预测性扩表。
+	"Ease",
+	"LoopType",
+	"PathType",
 	// 内建值类型静态方法（int.Parse/TryParse 等——纯计算；迭代19 C#）
 	"int",
 	"long",
