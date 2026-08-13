@@ -326,6 +326,114 @@ const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
 		Count: "pure",
 		ToList: "pure",
 	},
+	// 迭代52 P2：System.Type 反射元数据读判纯（typeof(X).GetMethod 等——元数据读无用户代码；
+	// Invoke/GetValue/SetValue 动态执行不列入 → ? 诚实）。与 builtinMethodReturns["Type"] 成对。
+	Type: {
+		GetMethod: "pure",
+		GetMethods: "pure",
+		GetProperty: "pure",
+		GetProperties: "pure",
+		GetField: "pure",
+		GetFields: "pure",
+		GetConstructor: "pure",
+		GetConstructors: "pure",
+		GetTypeInfo: "pure",
+		GetElementType: "pure",
+		GetGenericArguments: "pure",
+		IsAssignableFrom: "pure",
+		IsSubclassOf: "pure",
+		IsInstanceOfType: "pure",
+		IsEnum: "pure",
+		IsAbstract: "pure",
+		IsInterface: "pure",
+		ToString: "pure",
+		Name: "pure",
+		FullName: "pure",
+		Namespace: "pure",
+	},
+	MethodInfo: {
+		Name: "pure",
+		DeclaringType: "pure",
+		ReturnType: "pure",
+		IsStatic: "pure",
+		IsPublic: "pure",
+		ToString: "pure",
+	},
+	PropertyInfo: {
+		Name: "pure",
+		PropertyType: "pure",
+		CanRead: "pure",
+		CanWrite: "pure",
+		ToString: "pure",
+	},
+	FieldInfo: {
+		Name: "pure",
+		FieldType: "pure",
+		IsStatic: "pure",
+		IsPublic: "pure",
+		ToString: "pure",
+	},
+	TypeInfo: {
+		GetDeclaredMethod: "pure",
+		GetDeclaredMethods: "pure",
+		GetDeclaredProperty: "pure",
+		GetDeclaredField: "pure",
+		AsType: "pure",
+	},
+	// 迭代52 P1（数学家注入实测 -1927 站）：StringBuilder/Queue/Stack/HashSet/Uri——InitDeity
+	// API.g.cs 生成代码高频（urlBuilder_.Append 等）。S1 红线：变异方法必须**成对**进 builtinMutators
+	//（参数共享 StringBuilder 不补 mutator → 容器变异判纯 = 假纯 A6 S1 违约）。
+	StringBuilder: {
+		Append: "pure",
+		AppendLine: "pure",
+		AppendFormat: "pure",
+		Insert: "pure",
+		Remove: "pure",
+		Replace: "pure",
+		Clear: "pure",
+		ToString: "pure",
+		Length: "pure",
+	},
+	Queue: {
+		Enqueue: "pure",
+		Dequeue: "pure",
+		Peek: "pure",
+		Clear: "pure",
+		Count: "pure",
+		Contains: "pure",
+		ToArray: "pure",
+	},
+	Stack: {
+		Push: "pure",
+		Pop: "pure",
+		Peek: "pure",
+		Clear: "pure",
+		Count: "pure",
+		Contains: "pure",
+		ToArray: "pure",
+	},
+	HashSet: {
+		Add: "pure",
+		Remove: "pure",
+		Clear: "pure",
+		Contains: "pure",
+		Count: "pure",
+		UnionWith: "pure",
+		IntersectWith: "pure",
+		ExceptWith: "pure",
+		SymmetricExceptWith: "pure",
+		ToArray: "pure",
+	},
+	Uri: {
+		Append: "pure",
+		ToString: "pure",
+		GetLeftPart: "pure",
+		AbsoluteUri: "pure",
+		Host: "pure",
+		PathAndQuery: "pure",
+		Query: "pure",
+		Scheme: "pure",
+	},
 };
 
 /** 迭代38 B：参数共享容器方法变异 → state 效应（与参数下标写 d[0]=1 同语义统一，iter36 §b-7）。
@@ -333,6 +441,11 @@ const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
 const builtinMutators: Record<string, ReadonlySet<string>> = {
 	List: new Set(["Add", "Remove", "RemoveAt", "Clear", "Insert", "Sort"]),
 	Dictionary: new Set(["Add", "Remove", "Clear"]),
+	// 迭代52 P1：S1 红线成对——StringBuilder/Queue/Stack/HashSet 变异方法（与 builtinTypeEffects 同步）
+	StringBuilder: new Set(["Append", "AppendLine", "AppendFormat", "Insert", "Remove", "Replace", "Clear"]),
+	Queue: new Set(["Enqueue", "Dequeue", "Clear"]),
+	Stack: new Set(["Push", "Pop", "Clear"]),
+	HashSet: new Set(["Add", "Remove", "Clear", "UnionWith", "IntersectWith", "ExceptWith", "SymmetricExceptWith"]),
 };
 
 const builtinMethodReturns: Record<string, Record<string, string>> = {
@@ -425,6 +538,63 @@ const builtinMethodReturns: Record<string, Record<string, string>> = {
 		ElementAt: "number",
 		ElementAtOrDefault: "number",
 		Aggregate: "number",
+	},
+	// 迭代52 P2（数学家 F 类）：System.Type 反射元数据读（typeof(X).GetMethod/GetProperty/GetField/
+	// GetTypeInfo/IsAssignableFrom…——元数据读纯，无用户代码执行；Invoke 是动态执行 → 不列入）。
+	Type: {
+		GetMethod: "MethodInfo",
+		GetMethods: "MethodInfo",
+		GetProperty: "PropertyInfo",
+		GetProperties: "PropertyInfo",
+		GetField: "FieldInfo",
+		GetFields: "FieldInfo",
+		GetConstructor: "ConstructorInfo",
+		GetConstructors: "ConstructorInfo",
+		GetTypeInfo: "TypeInfo",
+		GetElementType: "Type",
+		GetGenericArguments: "array",
+		IsAssignableFrom: "boolean",
+		IsSubclassOf: "boolean",
+		IsInstanceOfType: "boolean",
+		IsEnum: "boolean",
+		IsAbstract: "boolean",
+		IsInterface: "boolean",
+		ToString: "string",
+		Name: "string",
+		FullName: "string",
+		Namespace: "string",
+		Assembly: "object",
+	},
+	// 迭代52 P2：反射成员元数据读（GetMethod 等返回的 MethodInfo/PropertyInfo/FieldInfo——元数据
+	// 读纯；Invoke/GetValue/SetValue 动态执行 → 不列入，落 ? 诚实）。
+	MethodInfo: {
+		Name: "string",
+		DeclaringType: "Type",
+		ReturnType: "Type",
+		IsStatic: "boolean",
+		IsPublic: "boolean",
+		ToString: "string",
+	},
+	PropertyInfo: {
+		Name: "string",
+		PropertyType: "Type",
+		CanRead: "boolean",
+		CanWrite: "boolean",
+		ToString: "string",
+	},
+	FieldInfo: {
+		Name: "string",
+		FieldType: "Type",
+		IsStatic: "boolean",
+		IsPublic: "boolean",
+		ToString: "string",
+	},
+	TypeInfo: {
+		GetDeclaredMethod: "MethodInfo",
+		GetDeclaredMethods: "MethodInfo",
+		GetDeclaredProperty: "PropertyInfo",
+		GetDeclaredField: "FieldInfo",
+		AsType: "Type",
 	},
 };
 
@@ -881,6 +1051,7 @@ export const csharpPack: LangPack = {
 	interfaceHeuristicMinBases: 2, // 迭代40 P0-3 B03：base_list ≥2（基类+接口）→ 全方法隐含 virtual
 	ctorTypeFields: { object_creation_expression: "type" }, // 迭代40 P0-3 H02：new X() 类型名字段
 	ctorMarkNodes: ["object_creation_expression"], // 迭代40 P0-3 H02：仅 C# 产 ctor 标记（TS 走裸名+ctor-merge）
+	typeOfNodes: ["type_of_expression"], // 迭代52 P2：typeof(X) 链根（反射元数据读，纯）
 	virtualModifiers: ["virtual", "override", "abstract"], // 迭代40 P0-3 H03：virtual 族修饰符
 	sealedModifiers: ["sealed"], // 迭代40 P0-3 H03：sealed 修饰符（不可再覆写）
 	// 迭代40 P0-3 批3：形状数据化

@@ -1437,6 +1437,20 @@ export class Extractor {
 			};
 		const flat = flattenCallTarget(fn, this.pack);
 		if (flat === null) {
+			if (process.env.DBG_UNRESOLVED) {
+				// 记录 obj 类型分布（区分：调用结果链[可解] vs 变量[不可解]）
+				const objNode =
+					fn.childForFieldName?.("object") ??
+					(fn.children && fn.children[0]) ??
+					null;
+				const objType = objNode?.type ?? "none";
+				const dbgKey = `${fn.type}|${objType}|${fn.text.slice(0, 50)}`;
+				const g = globalThis as unknown as {
+					__dbgUnresolved?: Map<string, number>;
+				};
+				const m = (g.__dbgUnresolved ??= new Map<string, number>());
+				m.set(dbgKey, (m.get(dbgKey) ?? 0) + 1);
+			}
 			// 接收者事实：字面量 / 链式（"x".strip().upper() 的 upper 接收者是 strip 的返回类型）/ 构造器
 			// 迭代39 P2-1：成员节点走投影表
 			if (shapesOf(this.pack, "memberNodes").includes(fn.type)) {
@@ -1560,6 +1574,10 @@ export class Extractor {
 	private receiverTypeOf(obj: SyntaxNode): string | null {
 		const lit = literalReceiverType(obj, this.pack);
 		if (lit !== null) return lit;
+		// 迭代52 P2（数学家 F 类实证 236 站）：C# typeof(X) = type_of_expression——返回 System.Type
+		// 实例（反射元数据读，纯）。作为链根：typeof(X).GetMethod(...) → builtinMethodReturns["Type"]。
+		// 节点名走 pack 数据（typeOfNodes 顶层字段）——P2-1 纪律。
+		if ((this.pack.typeOfNodes ?? EMPTY_SHAPES).includes(obj.type)) return "Type";
 		// 迭代39 P2-1 + 迭代40 P0-3 H02：构造器接收者节点走投影表 + 类型名字段数据
 		if (shapesOf(this.pack, "ctorCallNodes").includes(obj.type)) {
 			const typeField = this.pack.ctorTypeFields?.[obj.type];
@@ -1852,6 +1870,19 @@ function flattenCallTarget(node: SyntaxNode, pack: LangPack): string | null {
 		node.type === "predefined_type"
 	) {
 		return node.text;
+	}
+	// 迭代52 P3（Jeff 实证 ~400 站）：C# base_expression（base.X 静态分派到最近基类实现）——
+	// selfNames 已含 "base"（csharp.ts），link 分支 1 已接；只缺 flatten 白名单映射。
+	// C# 规范：base 非虚分派（与子类覆写无关）——S1 安全；外部基类（MonoBehaviour）保持 ?。
+	if (node.type === "base_expression") return "base";
+	// 迭代52 P5（数学家节点实证）：C# null 抑制 `m!` = postfix_unary_expression [identifier, !]——
+	// `!` 仅编译器提示无运行时语义，剥壳递归内层；`++`/`--` 同节点类型必须守卫（不剥）。
+	if (node.type === "postfix_unary_expression") {
+		const op = node.children.find((c) => c.type === "!" || c.text === "!");
+		if (op && node.children.length >= 2) {
+			return flattenCallTarget(node.children[0]!, pack);
+		}
+		return null;
 	}
 	// 迭代44 候选3（双评审）：两漏网形态可拍平——generic_name（`Foo<int>(1)` 调用目标，
 	// 剥壳先例 ctorTypeName L1836）与 alias_qualified_name（`global::System.X`——剥 global

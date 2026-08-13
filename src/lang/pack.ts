@@ -313,6 +313,8 @@ export interface LangPack {
 	/** 产 ctor 标记的节点（走 link resolveCtorCall 专用通道）。C# object_creation_expression
 	 *  （类名不裸名可见 → 需专用通道）；TS new_expression 走裸名 + ctor-merge（填空）。H02。 */
 	readonly ctorMarkNodes?: readonly string[];
+	/** 迭代52 P2：typeof(X) 节点（type_of_expression）——反射链根（返回 System.Type，元数据读纯）。 */
+	readonly typeOfNodes?: readonly string[];
 	/** virtual 族修饰符 token（C# virtual/override/abstract；其他语言不填 → 无 virtual 族）。
 	 *  H03。 */
 	readonly virtualModifiers?: readonly string[];
