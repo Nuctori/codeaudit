@@ -768,10 +768,28 @@ async function main(): Promise<void> {
 			);
 		}
 		// 迭代44-r4：--topology/--modules/--deps 模式抑制默认清单（健康度/聚合视图不被 IMPURE 列表淹没）
+		// 迭代48：默认治理清单按量纲内优先级排序——传播面（直接调用者数 in-degree，O(E) 单遍）
+		// ——「先改哪个」= 被最多人直接调用的非纯 chunk 优先；量纲不混合（与 --complexity/--sources
+		// 等视图各自独立排序，各回答各的量纲问题）。平手 chain 降序（传染更深优先）。
 		let shown =
 			args.topology || args.modules || args.deps !== null || args.complexity
 				? []
 				: report.verdicts.filter((v) => v.purity !== Purity.PURE);
+		const inDeg = new Map<string, number>(); // 迭代48：量纲内传播面排序键（直接调用者数）
+		for (const v of report.verdicts) {
+			for (const t of v.chunk.calls) {
+				if (t === UNKNOWN_TARGET) continue;
+				inDeg.set(t, (inDeg.get(t) ?? 0) + 1);
+			}
+		}
+		if (shown.length > 1) {
+			shown = [...shown].sort((a, b) => {
+				const da = inDeg.get(a.chunk.key) ?? 0;
+				const db = inDeg.get(b.chunk.key) ?? 0;
+				if (db !== da) return db - da;
+				return (b.chain ?? 0) - (a.chain ?? 0);
+			});
+		}
 		if (args.top !== null) shown = shown.slice(0, args.top);
 		let lastGroup = "";
 		for (const v of shown) {
@@ -783,6 +801,7 @@ async function main(): Promise<void> {
 			}
 			console.log(
 				`  chain=${fmtChain(v)}  ${fmtEffects(v).padEnd(10)} ` +
+					`callers=${String(inDeg.get(v.chunk.key) ?? 0).padStart(3)}  ` +
 					`${v.chunk.name.padEnd(28)} ${v.chunk.file}:${v.chunk.line}`,
 			);
 			// 传染路径（可解释性）：效应源 → ... → 本 chunk

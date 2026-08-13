@@ -172,6 +172,23 @@ describe("维度28: CLI 对抗", () => {
     expect(r.out).toMatch(/桥|割点/);
   });
 
+  it("默认治理清单按量纲内传播面排序（迭代48：callers 降序——被最多调用者引用的非纯 chunk 优先）", () => {
+    // hub 被 a/b 两个调用者引用（io 效应）→ 应排 leaf 之前；leaf 单调用者
+    const root = project("cli-priority-order", {
+      "lib.py": "import os\ndef hub():\n    os.system('x')\ndef leaf():\n    os.getcwd()\n",
+      "a.py": "from lib import hub\ndef a():\n    return hub()\n",
+      "b.py": "from lib import hub\ndef b():\n    return hub()\n",
+    });
+    const r = run(["scan", root, "--no-cache", "--top"]);
+    expect(r.code).toBe(0);
+    const hubIdx = r.out.indexOf("hub");
+    const leafIdx = r.out.indexOf("leaf");
+    expect(hubIdx).toBeGreaterThan(-1);
+    expect(leafIdx).toBeGreaterThan(-1);
+    expect(hubIdx).toBeLessThan(leafIdx); // hub（2 调用者）先于 leaf（1 调用者）
+    expect(r.out).toContain("callers=");
+  });
+
   it("全部布尔旗标可解析（迭代23 回归护栏：新旗标不得顶掉兄弟分支——--gate/--topology/--sources/--state/--table-usage 逐一冒烟）", () => {
     const root = project("cli-all-flags", { "a.py": "def f():\n    return 1\n" });
     const flags = ["--strict", "--topology", "--sources", "--state", "--table-usage"];
