@@ -1417,4 +1417,33 @@ describe("C# 语言包（迭代19）", () => {
 		// 拆分后：静态访问只并 static-init 单元 → 实例初始化器不执行 → Use PURE（精确）
 		expect(use!.purity).toBe(0);
 	});
+
+	it("迭代43 诊断修复：attribute 参数 + using 声明不产生调用点（B5 通道排除）", async () => {
+		const root = project("attr-using43", {
+			"A.cs": [
+				"using System;",
+				"using Newtonsoft.Json;",
+				"using UnityEngine;",
+				"using UnityEngine.Scripting;",
+				"public class C {",
+				"    [Preserve]",
+				'    [JsonProperty(Required = Required.Default, NullValueHandling = NullValueHandling.Ignore)]',
+				"    public int X { get; set; }",
+				"    public void M() {",
+				"        var t = typeof(System.String);",
+				'        System.Console.WriteLine("a");',
+				"    }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		expect(r.stats.parseErrors).toBe(0);
+		// 修复前：using Newtonsoft.Json 的 qualified_name + attribute 参数（Required.Default）
+		// 被 B5 identifier/member_access 通道误建调用点 → module UNKNOWN（诊断实证：API.g.cs +745）
+		const mod = by(r).get("A.cs::<module>") as { purity: number } | undefined;
+		expect(mod).toBeDefined();
+		expect(mod!.purity).toBe(0); // using/attribute 编译期声明无调用
+		const m = by(r).get("A.cs::C.M") as { purity: number } | undefined;
+		expect(m!.purity).toBe(2); // System.Console.WriteLine 仍正常解析（不受排除影响）
+	});
 });

@@ -671,6 +671,14 @@ const propertyReadSkipParents = [
 	"variable_declaration",
 	"event_field_declaration", // 迭代43 B：事件字段初始化器 RHS（public event Action OnX = HandleX;）
 	// 的 identifier 经 equals_value_clause 直父被误判 prop 读 → 意外获得 handler 边（双计噪音）
+	"attribute_list", // 迭代43 诊断：attribute 参数是编译期常量（枚举/typeof/字符串）——
+	"attribute", // 无运行时属性读取；缺失时 [JsonProperty(Required = Required.Default)]
+	"attribute_argument_list", // 的枚举参数被 B5 通道误建 prop 边 → 生成代码 unknown 暴涨
+	"attribute_argument",
+	"name_equals",
+	"using_directive", // 迭代43 诊断：using 声明的 qualified_name（using Newtonsoft.Json;）被
+	"qualified_name", // B5 identifier 通道误当调用 → module chunk unknown 噪音；类型位置无运行时读取
+	"global_keyword", // global:: 限定符（typeof(global::System.X)）
 	"field_declaration",
 	"property_declaration",
 	"method_declaration",
