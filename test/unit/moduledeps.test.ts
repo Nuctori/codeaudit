@@ -1,5 +1,5 @@
 import { describe, it, expect, afterAll } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanProject } from "../../src/index";
@@ -8,6 +8,8 @@ import { outDepsOf, inDepsOf } from "../../src/core/filedeps";
 
 describe("迭代44-r4：模块聚合 + 文件依赖（重构决策视图）", () => {
 	const dir = mkdtempSync(join(tmpdir(), "cq-mod-"));
+	mkdirSync(join(dir, "Mod"), { recursive: true });
+	mkdirSync(join(dir, "Other"), { recursive: true });
 	writeFileSync(
 		join(dir, "Mod/A.cs"),
 		[

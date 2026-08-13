@@ -1,11 +1,12 @@
 // 迭代45 O-C5/O-C6 机检测试：heritageSkipNodes / propertyReadSkipParents 与 grammar 节点集对拍
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { csharpPack } from "../../src/lang/packs/csharp";
+import { scanProject } from "../../src/index";
 
-/** 从 tree-sitter-c_sharp.wasm 提取 directive 节点类型（grammar 事实源）。
- *  死条目检查同理可扩（表条目 ∈ grammar 节点集）——先覆盖事故类（directive 族）。 */
+/** 从 tree-sitter-c_sharp.wasm 提取 directive 节点类型（grammar 事实源）。 */
 function grammarDirectiveNodes(): string[] {
 	const wasmPath = join(
 		__dirname,
@@ -44,11 +45,11 @@ describe("O-C5/O-C6 节点清单完备性机检（迭代45）", () => {
 		expect(missing).toEqual([]); // 漏节点 → 语言级降级（全库多态 unknown，-37% 级）
 	});
 
-	it("heritageSkipNodes 与 propertyReadSkipParents 两表指令覆盖一致（region/endregion 不对称修复）", () => {
+	it("heritageSkipNodes 与 propertyReadSkipParents 两表指令覆盖一致", () => {
 		const skip = new Set(csharpPack.heritageSkipNodes ?? []);
 		const prop = new Set(csharpPack.propertyReadSkipParents ?? []);
 		const dirs = grammarDirectiveNodes().filter(
-			(d) => !d.startsWith("_preproc"), // 匿名辅助节点非语法节点
+			(d) => !d.startsWith("_preproc") && !d.endsWith("_repeat"), // 匿名/repeat 辅助节点非语法节点
 		);
 		for (const d of dirs) {
 			// 任一表漏覆盖 = 该节点在某通道被误收（读侧噪音或 heritage 误判）
@@ -60,15 +61,10 @@ describe("O-C5/O-C6 节点清单完备性机检（迭代45）", () => {
 	});
 
 	it("别名限定基类（global::Ns.Base）不再触发动态 heritage（O-C5 alias_qualified_name 修复）", async () => {
-		// 通过扫描断言：alias_qualified_name 基类不导致 hasDynamicExtends（用 dynheritage 既有机制验证）
-		const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
-		const { tmpdir } = await import("node:os");
-		const { join: pjoin } = await import("node:path");
-		const { scanProject } = await import("../../src/index");
-		const dir = mkdtempSync(pjoin(tmpdir(), "cq-oc5-"));
+		const dir = mkdtempSync(join(tmpdir(), "cq-oc5-"));
 		try {
 			writeFileSync(
-				pjoin(dir, "C.cs"),
+				join(dir, "C.cs"),
 				[
 					"namespace Ns { public class Base { public int F() { return 1; } } }",
 					"class Derived : global::Ns.Base { public int G() { return F(); } }",
