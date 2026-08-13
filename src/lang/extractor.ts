@@ -1636,6 +1636,35 @@ export class Extractor {
 				(this.pack.paramListNodeTypes ?? EMPTY_SHAPES).includes(n.type)
 			) {
 				for (const c of n.children) pushParam(c); // 参数名遮蔽外层绑定
+			} else if ((this.pack.foreachNodes ?? EMPTY_SHAPES).includes(n.type)) {
+				// 迭代44：foreach 变量（in token 前的裸 identifier——C# for_each_statement）→ assigned。
+				// 候选 1 短路依赖 assigned——foreach 变量此前不在收集 → 变量读落 ?（InitDeity i·bare 实证）。
+				const kids = n.children;
+				const inIdx = kids.findIndex(
+					(c) => c!.type === this.pack.foreachInToken,
+				);
+				for (let i = 0; i < kids.length && (inIdx < 0 || i < inIdx); i++) {
+					const c = kids[i]!;
+					if (
+						c.type === "identifier" ||
+						c.type === "property_identifier"
+					) {
+						out.push(c.text);
+						break;
+					}
+				}
+			} else if (shapesOf(this.pack, "catchNodes").includes(n.type)) {
+				// 迭代44：catch 变量（catch_declaration 的唯一 identifier——C# 类型化 catch）→ assigned
+				//（e·bare 实证同族；stateReadPos ⑤ 规则已抑制读侧，此处补 assigned 让候选 1 短路覆盖）
+				for (const c of n.children) {
+					if (
+						c.type === "identifier" ||
+						c.type === "property_identifier"
+					) {
+						out.push(c.text);
+						break;
+					}
+				}
 			}
 			for (const c of n.children) walk(c);
 		};
