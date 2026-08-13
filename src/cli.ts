@@ -473,7 +473,9 @@ async function main(): Promise<void> {
 				title: `codeaudit 技术债报告 — ${root}`,
 			});
 			writeFileSync(args.html, html);
-			console.error(`HTML -> ${args.html}（${(html.length / 1024).toFixed(0)} KB）`);
+			console.error(
+				`HTML -> ${args.html}（${(html.length / 1024).toFixed(0)} KB）`,
+			);
 		} catch (e) {
 			throw new Error(`--html 写入失败：${(e as Error).message}`);
 		}
@@ -554,18 +556,28 @@ async function main(): Promise<void> {
 		if (args.topology) {
 			// 拓扑摘要（--topology text 模式；迭代14 视角 3）+ 可解释性解读（迭代15）+ 可规约性/骨架（迭代46）
 			const t = graphMetrics(report.verdicts);
+			const brTopo = bridgesOf(report.verdicts);
+			// 迭代50-r3 修正（用户判据）：density 在稀疏图上恒小无判别力（28060 节点 100 万边也 <0.05）——
+			// 结构形态判据 = 桥比例（桥边/总边）：树=100% 边是唯一通道；低桥比例 = 多数边有替代路径 = 网状。
+			const bridgeRatio =
+				t.knownEdges > 0 ? brTopo.bridges.length / t.knownEdges : 1;
 			console.log(
-				`拓扑：${t.nodes} nodes / ${t.knownEdges} edges / 密度 ${t.density.toFixed(3)} / ` +
+				`拓扑：${t.nodes} nodes / ${t.knownEdges} edges / 密度 ${t.density.toFixed(4)} / ` +
+					`桥比例 ${(bridgeRatio * 100).toFixed(0)}% / ` +
 					`自环 ${t.selfLoopCount} / 环 ${t.cyclicComponents} / 深度 ${t.dagDepth} / ` +
 					`未知边 ${t.unknownEdges}`,
 			);
-			if (t.density < 0.05)
+			if (bridgeRatio > 0.7)
 				console.log(
-					`  ➜ 已知边内近树、耦合低（密度 ${t.density.toFixed(3)}，完全图=1；${t.unknownEdges} 条未知边未计入）`,
+					`  ➜ 近树结构（${(bridgeRatio * 100).toFixed(0)}% 边是唯一通道——模块间松耦合，改动局部化）`,
 				);
-			else if (t.density > 0.5)
+			else if (bridgeRatio < 0.3)
 				console.log(
-					`  ➜ 高耦合调用图——改动易波及大面积调用者（${t.unknownEdges} 条未知边未计入）`,
+					`  ➜ 网状结构（仅 ${(bridgeRatio * 100).toFixed(0)}% 边是唯一通道——多数边有替代路径，环化度高；${t.unknownEdges} 条未知边未计入）`,
+				);
+			else
+				console.log(
+					`  ➜ 混合结构（桥比例 ${(bridgeRatio * 100).toFixed(0)}%——部分模块松耦合、部分网状）`,
 				);
 			if (t.selfLoopCount > 0)
 				console.log(

@@ -18,6 +18,12 @@ export function renderTechdebtHtml(
 	stats: { files: number; cycles: number },
 	opts: { title?: string; sub?: string } = {},
 ): string {
+	const esc = (s: string): string =>
+		String(s)
+			.replace(/&/g, "&amp;")
+			.replace(/</g, "&lt;")
+			.replace(/>/g, "&gt;")
+			.replace(/"/g, "&quot;");
 	const g = graphMetrics(verdicts);
 	const sk = dependencySkeleton(verdicts);
 	const br = bridgesOf(verdicts);
@@ -96,6 +102,74 @@ export function renderTechdebtHtml(
 	entangled.sort((a, b) => b.entries - a.entries);
 	const nameOf = (k: string): string => byKey.get(k)?.chunk.name ?? k;
 
+	// —— 真实传播深度（用户修正判据：chain 是"最近效应源最短距离"（源密集时恒小），
+	// 真实治理优先级 = 效应源传染到最远调用者的深度——沿调用边反向最长路径，凝聚 DAG DP）——
+	const succ: Set<number>[] = comps.map(() => new Set());
+	const pred: Set<number>[] = comps.map(() => new Set());
+	comps.forEach((s, k) => {
+		for (const i of s)
+			for (const t of edgeSet.get(i)!) {
+				const tc = compOf.get(t)!;
+				if (tc !== k) {
+					succ[k]!.add(tc);
+					pred[tc]!.add(k);
+				}
+			}
+	});
+	// 效应源分量 = direct 效应 或 audit ? 源（与 analyze 同口径：公理3 未知倒向不纯）
+	const isSource = new Array<boolean>(comps.length).fill(false);
+	for (const v of verdicts) {
+		const k = compOf.get(v.chunk.key)!;
+		if ((v.chunk.direct?.size ?? 0) > 0 || v.chunk.calls.has(UNKNOWN_TARGET))
+			isSource[k] = true;
+	}
+	// depth[c] = c 到最近可到达效应源的最长传播深度（-1 = 不可达/纯）；via[c] = 深度来源（路径重构）
+	const depth = new Array<number>(comps.length).fill(-1);
+	const via = new Array<number>(comps.length).fill(-1);
+	comps.forEach((_, k) => {
+		if (isSource[k]) depth[k] = 0;
+	});
+	for (let k = comps.length - 1; k >= 0; k--) {
+		if (isSource[k]) continue;
+		let best = -1;
+		let bestP = -1;
+		for (const p of pred[k]!) {
+			if (depth[p]! >= 0 && 1 + depth[p]! > best) {
+				best = 1 + depth[p]!;
+				bestP = p;
+			}
+		}
+		depth[k] = best;
+		via[k] = bestP;
+	}
+	// 最长传播链：按深度降序取 top；路径 = 源 → ... → 本 chunk（沿 via 回溯）
+	const deepChainRows = verdicts
+		.filter((v) => (depth[compOf.get(v.chunk.key)!] ?? -1) >= 0)
+		.sort(
+			(a, b) =>
+				(depth[compOf.get(b.chunk.key)!] ?? -1) -
+				(depth[compOf.get(a.chunk.key)!] ?? -1),
+		)
+		.slice(0, 15)
+		.map((v) => {
+			const chainKeys: string[] = [];
+			let cur = compOf.get(v.chunk.key)!;
+			const guard = new Set<number>();
+			while (cur >= 0 && via[cur]! >= 0 && !guard.has(cur)) {
+				guard.add(cur);
+				chainKeys.unshift(comps[cur]![0]!);
+				cur = via[cur]!;
+			}
+			if (cur >= 0 && !guard.has(cur)) chainKeys.unshift(comps[cur]![0]!);
+			const path = chainKeys.map((k) => nameOf(k)).join(" → ");
+			const d = depth[compOf.get(v.chunk.key)!] ?? 0;
+			return `<div class="bar-row"><div class="bar-label" style="width:34%">${esc(v.chunk.name)} <span style="color:var(--dim)">· ${esc(v.chunk.file.split("/").pop() ?? "")}</span></div>
+  <div class="bar-track" style="background:transparent"><div class="chain-path">${esc(path)}</div></div>
+  <div class="bar-val">${d} 跳</div></div>`;
+		})
+		.join("");
+	const maxPropDepth = Math.max(...verdicts.map((v) => depth[compOf.get(v.chunk.key)!] ?? -1));
+
 	// —— 桥清单（模块边界：唯一通道 from→to 分量代表）——
 	const bridgeRows = br.bridges
 		.map((e) => ({
@@ -131,30 +205,6 @@ export function renderTechdebtHtml(
 		0,
 	);
 	const redundant = Math.max(knownTotal - sk.length, 0);
-
-	const esc = (s: string): string =>
-		String(s)
-			.replace(/&/g, "&amp;")
-			.replace(/</g, "&lt;")
-			.replace(/>/g, "&gt;")
-			.replace(/"/g, "&quot;");
-
-	// —— 长传播链（用户判据：治理最优先 = 效应从源头传播最深的链，非纯模块可能只是边缘叶子）——
-	// chain = 效应跳数（audit 悲观下界）；chainPath = 效应源 → ... → 本 chunk 的证据路径。
-	// 长链 = 效应传染深远 = 改动链上任何一环影响面大——治理优先级高于孤立非纯叶子。
-	const deepChainRows = verdicts
-		.filter((v) => v.purity !== 0 && Number.isFinite(v.chain) && (v.chain ?? 0) > 0)
-		.sort((a, b) => (b.chain ?? 0) - (a.chain ?? 0))
-		.slice(0, 15)
-		.map((v) => {
-			const path = (v.chainPath ?? [])
-				.map((k) => nameOf(k))
-				.join(" → ");
-			return `<div class="bar-row"><div class="bar-label" style="width:34%">${esc(v.chunk.name)} <span style="color:var(--dim)">· ${esc(v.chunk.file.split("/").pop() ?? "")}</span></div>
-  <div class="bar-track" style="background:transparent"><div class="chain-path">${esc(path)}</div></div>
-  <div class="bar-val">${v.chain} 跳</div></div>`;
-		})
-		.join("");
 
 	const bar = (
 		label: string,
@@ -258,7 +308,7 @@ ${card("PURE", pure, `${((pure / n) * 100).toFixed(1)}%`, "var(--pure)")}
 ${card("IMPURE", impure, `${((impure / n) * 100).toFixed(1)}% 有确定副作用`, "var(--imp)")}
 ${card("UNKNOWN", unknown, `${((unknown / n) * 100).toFixed(1)}% 无法判定`, "var(--unk)")}
 ${card("图完整度", `${(100 * (1 - g.evidence.missingSiteRate)).toFixed(1)}%`, `未知站点 ${g.unknownEdges}`, "var(--acc)")}
-${card("密度", g.density.toFixed(4), "完全图=1，近树≈0", "var(--acc)")}
+${card("结构形态", (() => { const r = g.knownEdges > 0 ? br.bridges.length / g.knownEdges : 1; return r > 0.7 ? "近树" : r < 0.3 ? "网状" : "混合"; })(), `桥比例 ${(g.knownEdges > 0 ? ((br.bridges.length / g.knownEdges) * 100).toFixed(0) : "100")}%（唯一通道占比——树=100%，低=多替代路径）`, "var(--acc)")}
 ${card("深度", g.dagDepth, "凝聚 DAG 最长路径", "var(--acc)")}
 ${card("自递归", g.selfLoopCount, "自我调用 chunk", "var(--acc)")}
 </div>
@@ -287,7 +337,7 @@ ${mods
 	.join("")}
 <div class="legend"><span><i class="dot" style="background:var(--pure)"></i>PURE</span><span><i class="dot" style="background:var(--unk)"></i>UNKNOWN</span><span><i class="dot" style="background:var(--imp)"></i>IMPURE</span></div>
 </div>
-<h2>长传播链 top 15（治理最优先——效应从源头传染最深，改链上任何一环波及深远；非纯叶子在边缘不优先）</h2>
+<h2>长传播链 top 15（治理最优先——效应源传染到最远调用者的深度，项目最大 ${maxPropDepth} 跳；chain 只是"最近源距离"非传播深度）</h2>
 <div class="panel">
 ${deepChainRows.length === 0 ? '<div class="sub">无非纯传播链</div>' : deepChainRows}
 </div>
