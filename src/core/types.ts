@@ -46,7 +46,8 @@ export interface Chunk {
 	readonly endLine: number;
 	/** 最大嵌套深度（空函数 = 0）。 */
 	readonly nesting: number;
-	/** 圈复杂度（迭代44-r4：MCCabe 近似——控制流分支 + 1 基准；重构复杂函数识别）。 */
+	/** 圈复杂度（迭代44-r4：MCCabe 近似——控制流分支 + 1 基准；重构复杂函数识别）。
+	 *  类 chunk 的值为 Σ 方法复杂度（尺寸代理，非函数级语义——聚合消费排除 kind=class）。 */
 	readonly complexity?: number;
 	/** chunk 类别（class/function/module——迭代44-r4：--complexity 排除类级噪音）。 */
 	readonly kind?: "class" | "function" | "module";

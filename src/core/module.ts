@@ -51,7 +51,9 @@ export function moduleSummary(
 		effects.set(mod, ef);
 		const c = v.chain === Infinity ? 0 : (v.chain ?? 0);
 		maxChain.set(mod, Math.max(maxChain.get(mod) ?? 0, c));
-		const cx = v.chunk.complexity ?? 0;
+		// 迭代47（数学评审）：模块级 max = 函数级 max——类 chunk 的 Σ 是尺寸代理（方法之和，
+		// 与方法数共线），与函数级 C 混取 max 属量纲混排；与 --complexity 口径对齐（cli.ts）
+		const cx = v.chunk.kind === "class" ? 0 : (v.chunk.complexity ?? 0);
 		maxComplexity.set(mod, Math.max(maxComplexity.get(mod) ?? 0, cx));
 		const fs = files.get(mod) ?? new Set<string>();
 		fs.add(v.chunk.file);

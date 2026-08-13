@@ -926,7 +926,8 @@ export const csharpPack: LangPack = {
 		"extern_alias_directive",
 		"extern_alias_directive",
 	],
-	complexityNodes: [ // 迭代44-r4：MCCabe 分支节点（C# 控制流形态）
+	complexityNodes: [
+		// 迭代44-r4：MCCabe 分支节点（C# 控制流形态）
 		"if_statement",
 		"switch_statement",
 		"case_pattern_switch_label",

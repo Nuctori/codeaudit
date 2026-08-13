@@ -519,7 +519,9 @@ async function main(): Promise<void> {
 	} else {
 		const s = report.stats;
 		// 迭代44-r4 权重调整：核心汇总先行（STATS），视图其次，明细清单最后
-		console.log(`STATS: pure ${s.pure}, impure ${s.impure}, unknown ${s.unknown}`);
+		console.log(
+			`STATS: pure ${s.pure}, impure ${s.impure}, unknown ${s.unknown}`,
+		);
 		if (args.topology) {
 			// 拓扑摘要（--topology text 模式；迭代14 视角 3）+ 可解释性解读（迭代15）
 			const t = graphMetrics(report.verdicts);
@@ -628,18 +630,15 @@ async function main(): Promise<void> {
 			// MCCabe 是函数级度量；类级 = 方法之和属噪音）
 			const complex = report.verdicts
 				.filter(
-					(v) =>
-						v.chunk.kind !== "class" && (v.chunk.complexity ?? 0) > 5,
+					(v) => v.chunk.kind !== "class" && (v.chunk.complexity ?? 0) > 5,
 				)
-				.sort(
-					(a, b) => (b.chunk.complexity ?? 0) - (a.chunk.complexity ?? 0),
-				);
+				.sort((a, b) => (b.chunk.complexity ?? 0) - (a.chunk.complexity ?? 0));
 			console.log(
 				`\n圈复杂度 top（>5；共 ${complex.length} 个；top ${args.top ?? 15}）：`,
 			);
 			for (const v of complex.slice(0, args.top ?? 15))
 				console.log(
-					`  C=${String(v.chunk.complexity).padStart(3)}  ${v.chunk.name.padEnd(40)} ${v.chunk.file}:${v.chunk.line}`,
+					`  C=${String(v.chunk.complexity).padStart(3)}  n=${String(v.chunk.nesting).padStart(2)}  ${v.chunk.name.padEnd(40)} ${v.chunk.file}:${v.chunk.line}`,
 				);
 		}
 		if (args.deps) {

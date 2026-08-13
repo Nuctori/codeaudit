@@ -22,7 +22,9 @@ export interface SkeletonEdge {
 }
 
 /** 分量 → 代表性 chunk key（该分量内第一个 chunk）。 */
-export function componentReps(verdicts: readonly Verdict[]): Map<number, string> {
+export function componentReps(
+	verdicts: readonly Verdict[],
+): Map<number, string> {
 	const edgeSet = new Map<string, ReadonlySet<string>>();
 	const byKey = new Map(verdicts.map((v) => [v.chunk.key, v]));
 	for (const v of verdicts) {
@@ -45,9 +47,11 @@ export function componentReps(verdicts: readonly Verdict[]): Map<number, string>
 }
 
 /** 凝聚 DAG：分量 → 直接后继分量集（跨分量边，自环排除）。 */
-function condensedDag(
-	verdicts: readonly Verdict[],
-): { compOf: Map<string, number>; succComp: number[][]; comps: string[][] } {
+function condensedDag(verdicts: readonly Verdict[]): {
+	compOf: Map<string, number>;
+	succComp: number[][];
+	comps: string[][];
+} {
 	const byKey = new Map(verdicts.map((v) => [v.chunk.key, v]));
 	const edgeSet = new Map<string, ReadonlySet<string>>();
 	for (const v of verdicts) {
