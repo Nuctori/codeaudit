@@ -396,6 +396,18 @@ async function main(): Promise<void> {
 						(report.stats.annotationRejected.length > 5 ? `…` : ""),
 				);
 			}
+			// 迭代44-r3（标注运营痛点1）：id 未匹配回显——内容已变/工具修复后 chunk 消失/拼写错误，
+			// 此前静默忽略（标注者不知道白做了）。
+			if ((report.stats.annotationUnmatched?.length ?? 0) > 0) {
+				console.error(
+					`codeaudit: ${report.stats.annotationUnmatched.length} 条标注未匹配（id 在本次扫描 chunks 中无对应——内容已变/工具修复/拼写错误，标注无效）：` +
+						report.stats.annotationUnmatched
+							.slice(0, 5)
+							.map((u) => `${u.file ?? "(无file)"}::${u.id.slice(0, 12)}`)
+							.join("；") +
+						(report.stats.annotationUnmatched.length > 5 ? `…` : ""),
+				);
+			}
 			const after = summarize(corpus);
 			if (after.total > before.total) {
 				try {

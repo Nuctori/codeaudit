@@ -392,6 +392,25 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 				)
 			: null;
 	const annotatedKeys = new Set<string>(); // PURE 标注生效的 chunk key（证明台账：annotated）
+	// 迭代44-r3（标注运营痛点1）：id 未匹配回显——标注条目在 chunks 中无对应（内容已变/工具修复后
+	// chunk 消失/拼写错误）此前静默忽略——标注者不知道白做了。三类回显：生效（台账）/ 被拒
+	//（annotationRejected）/ 未匹配（本统计）。
+	const annotationUnmatched: { id: string; file?: string }[] = [];
+	if (ann && ann.size > 0) {
+		const ids = new Set<string>();
+		const fileIds = new Set<string>();
+		for (const c of chunks2) {
+			ids.add(c.id);
+			fileIds.add(`${c.file}\u0000${c.id}`);
+		}
+		for (const k of ann.keys()) {
+			const sep = k.indexOf("\u0000");
+			const file = sep >= 0 ? k.slice(0, sep) : undefined;
+			const id = sep >= 0 ? k.slice(sep + 1) : k;
+			const matched = file !== undefined ? fileIds.has(k) : ids.has(id);
+			if (!matched) annotationUnmatched.push({ id, file });
+		}
+	}
 	const analyzedChunks =
 		ann && ann.size > 0
 			? chunks2.map((c) => {
@@ -476,6 +495,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 			impure,
 			unknown,
 			annotationRejected,
+			annotationUnmatched,
 			effectTableUsage,
 			unknownRate: verdicts2.length === 0 ? 0 : uncertain / verdicts2.length,
 			cycles: cycleCount,

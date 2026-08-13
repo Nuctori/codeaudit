@@ -112,6 +112,12 @@ export interface ScanStats {
 		file: string;
 		reason: string;
 	}[];
+	/** 未匹配标注（迭代44-r3 标注运营痛点1）：id 在 chunks 中无对应（内容已变/工具修复后 chunk
+	 *  消失/拼写错误）——此前静默忽略，标注者不知道白做了。 */
+	readonly annotationUnmatched: readonly {
+		id: string;
+		file?: string;
+	}[];
 	/** 效应表使用率（迭代21 数学解 B——additive，旧消费者忽略）。 */
 	readonly effectTableUsage?: readonly EffectTableUsage[];
 	/** chain 不确定的 chunk 占比（0..1），工具对代码库的"无知程度"。 */
