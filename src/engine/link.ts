@@ -1219,6 +1219,11 @@ function resolveObjDispatch(
 			if (tf && addUnionEdges(tf, q, sink)) any = true;
 		}
 		// 迭代42 候选7：类型加载效应闭合——静态成员访问（C.Get()/C.X）触发类型加载，
+		// 闭包内 class chunk 的原始调用（静态/实例字段初始化器）并入调用闭包，
+		// 与 L5 ctor 合并同构（S2 过近似方向安全）。纯静态工具类（闭包零原始调用）不加边——零变化。
+		// 实证（iter42/02-jeff-review P1）：C.Get() 判 PURE 而类型加载执行 File.ReadAllText（活假纯洞）。
+		// 范围：静态字段初始化器已闭合；C# 静态构造器体是独立 constructor chunk（不进 class chunk）
+		// ——静态访问路径仍漏报，延后 iter43-r2 候选2（static-init 独立建模 + 此位置改指）。
 		// 闭包内 class chunk 的原始调用（静态/实例字段初始化器 + 静态构造器体）并入调用闭包，
 		// 与 L5 ctor 合并同构（S2 过近似方向安全）。纯静态工具类（闭包零原始调用）不加边——零变化。
 		// 实证（iter42/02-jeff-review P1）：C.Get() 判 PURE 而类型加载执行 File.ReadAllText（活假纯洞）。
@@ -1236,6 +1241,10 @@ function resolveObjDispatch(
 				}
 			}
 		}
+		// 审计 note（iter42）：any=false（成员 miss，如 C.UnknownMethod()）但 loadEdges>0 时同样
+		// return true——原本落 ?（audit 当不纯 / dev 当纯），现在结算为确定类型加载效应。
+		// 区间坍缩论证：类型加载是 C 被访问时的确定事件（非可能性），dev 计入它正确；
+		// 成员未知的 ? 被吞只损失 chainCertain/标注信号，判定方向保持（audit 不变，dev 上界抬高 = 模型修正）。
 		if (any || loadEdges > 0) return true;
 		// 迭代40 B5/M6：项目类成员 miss + 属性读取 → 纯（C# 静态语义 propMissIsPure / TS-JS
 		// memberNames 字段清单；partial 类已由 same 全文件并集覆盖）

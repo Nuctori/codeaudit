@@ -51,8 +51,8 @@ A6 的 S1 是**模型相对**的（"实际效应定义在模型真值上"）。�
 | M3 | **项目外状态写者** | 测试夹具/框架注入写项目状态 | 假纯可能 | 同上（README 已知限制） | 无静态解 |
 | M4 | **Python **new** / monkey-patch**（B12） | `C()` 被 monkey-patch 返回任意对象；`C.m = ...` 运行时换方法 | 假纯可能 | 动态语言语义，静态不可见 | 文档化接受 |
 | M5 | **C# 条件访问属性读取**（`obj?.Prop`） | conditional_access 形态未建 prop 边，getter io 不传染 | 假纯可能 | **已修（迭代40 M5）**：propertyReadNodes 加 conditional_access_expression（`a?.b()` 的 conditional 是 invocation 的 function → 现有 parent 排除覆盖） | — |
+| M6 | **TS/JS/Python 属性读取** | `obj.prop` 读取（TS getter 已建 chunk 但读取不建边；Python property 动态） | 假纯可能 | **已修（迭代40 M6，TS/JS）**：member_expression 建 prop 边 + memberNames 字段清单 + selfPropReadIsPure（JS 语义 this.attr 非 getter 读取无副作用）+ __objectLiteral（对象字面量类型属性恒纯）+ TS paramNodes 补全（A1 预存盲区）。Python 保持（`__getattr__` 动态，静态不可判定） | Python：文档化接受（动态属性协议） |
 | M7 | **C# enum 成员读取**（`Color.Red`） | enum 不在 classNodes → 读取落 ? | 安全-未知（非假纯） | 方向安全，判别力损失小 | **已修（迭代42 候选3）**：enum_declaration 入 chunkNodes + classNodes 双表 → 顶层 enum 成员读取判纯（编译期常量，C# 静态语义）；嵌套 enum 仍 `?`（globalClasses 裸名索引） |
-| M7 | **C# enum 成员读取**（`Color.Red`） | enum 不在 classNodes → 读取落 ? | 安全-未知（非假纯） | 方向安全，判别力损失小 | enum_declaration 入 classNodes |
 
 **契约**：M1-M6 任一升级修复后移出清单；新发现的模型外通道必须入清单（防"方向安全"标签掩盖漏报）。
 
@@ -196,7 +196,7 @@ A6 的 S1 是**模型相对**的（"实际效应定义在模型真值上"）。�
 ## 总体评估
 
 - **形式正确性**：核心（SCC/效应格/A6/A7/内容寻址/前缀回退/语言隔离）全部有证明或复审闭环；A1-A7 已修复并测试。
-- **工程妥协**：方向分类后**不再整体声称方向安全**——B 表逐条标注；假纯可能通道（B4/B8/B12）全部入 M_out 清单并声明触发条件与接受理由。
+- **工程妥协**：方向分类后**不再整体声称方向安全**——B 表逐条标注；假纯可能通道（B8/B12）全部入 M_out 清单并声明触发条件与接受理由。
 - **M_out 契约**：模型外通道 = S1 现实违反边界；任一升级修复后移出清单；新通道必须入清单（防标签掩盖）。
 - **无特例语言无关**：E/Φ 分解达成（引擎零语言常量、pack 全量消化差异）；残余差异均为**数据/行为注入**而非引擎分流（docs/iter37/01-math-review.md §8 + 03-synthesis.md §1.3）。
 - **偿还顺序**：B15（性能实测）→ C1（resolveCall 拆分）→ C2 → C5 → C3。
