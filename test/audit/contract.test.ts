@@ -155,6 +155,31 @@ describe("维度32: unknowns 导出（AI 标注闭环）", () => {
     // 幂等：同一标注重放不重复计数
     execFileSync("node", [CLI, "scan", root, "--no-cache", "--annotations", ann, "--corpus", corpus], { encoding: "utf8" });
     const cf2 = JSON.parse(readFileSync(corpus, "utf8"));
-    expect(cf2.method.get).toEqual({ pure: 1, impure: 0 });
-  });
+		expect(cf2.method.get).toEqual({ pure: 1, impure: 0 });
+	});
+
+	it("unknowns 导出含 code 字段（工作台——chunk 行区间源码，迭代44-r3）", async () => {
+		const root = project("unknowns-code", {
+			"a.py": [
+				"import weirdlib",
+				"def f():",
+				"    weirdlib.get()",
+				"    return 1",
+				"",
+			].join("\n"),
+		});
+		const u = join(root, "u.json");
+		execFileSync(
+			"node",
+			[CLI, "scan", root, "--no-cache", "--unknowns", u],
+			{ encoding: "utf8" },
+		);
+		const l = JSON.parse(readFileSync(u, "utf8"));
+		expect(l.length).toBeGreaterThan(0);
+		const e = l[0]!;
+		// code 字段 = chunk 行区间源码片段（标注者无需打开文件）
+		expect(typeof e.code).toBe("string");
+		expect(e.code).toContain("weirdlib.get()");
+		expect(e.code).toContain("def f():");
+	});
 });

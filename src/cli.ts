@@ -182,7 +182,7 @@ function trimRootPath(msg: string): string {
 	return msg.slice(0, i) + "." + msg.slice(i + cliRoot.length);
 }
 
-	/** 语料先验提示（建议置信度，非纯度判定；n 不足/分歧大时不提示）。0.65/0.35 与 PRIOR_THRESHOLD 同源。 */
+/** 语料先验提示（建议置信度，非纯度判定；n 不足/分歧大时不提示）。0.65/0.35 与 PRIOR_THRESHOLD 同源。 */
 function priorHint(corpus: CorpusFile, sites: Chunk["unknownCalls"]): string {
 	const hints: string[] = [];
 	for (const site of sites) {
@@ -203,7 +203,6 @@ function priorHint(corpus: CorpusFile, sites: Chunk["unknownCalls"]): string {
 				" —— 语料先验为建议置信度，非纯度判定，请以函数体为准"
 		: "";
 }
-
 
 /**
  * 迭代36 §b-2 落地：--state 序列化长度工程上界。500 写方硬上限是实测调参值非数学上界
@@ -494,7 +493,8 @@ async function main(): Promise<void> {
 		console.log(
 			JSON.stringify(
 				payload3,
-				(_k, v) => (v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v),
+				(_k, v) =>
+					v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v,
 				2,
 			),
 		);
