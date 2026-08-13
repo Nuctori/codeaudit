@@ -1183,14 +1183,7 @@ function resolveObjDispatch(
 				r === "none" &&
 				call.prop &&
 				(pack.propMissIsPure ||
-					memberNameExists(
-						lb,
-						call.attr,
-						pack,
-						files,
-						globalClasses,
-						superMap,
-					))
+					memberNameExists(lb, call.attr, pack, files, globalClasses, superMap))
 			) {
 				sink.hitTable(`lb:${lb}.${call.attr}`);
 				return true;
@@ -1225,7 +1218,25 @@ function resolveObjDispatch(
 			const tf = files.get(c.file);
 			if (tf && addUnionEdges(tf, q, sink)) any = true;
 		}
-		if (any) return true;
+		// 迭代42 候选7：类型加载效应闭合——静态成员访问（C.Get()/C.X）触发类型加载，
+		// 闭包内 class chunk 的原始调用（静态/实例字段初始化器 + 静态构造器体）并入调用闭包，
+		// 与 L5 ctor 合并同构（S2 过近似方向安全）。纯静态工具类（闭包零原始调用）不加边——零变化。
+		// 实证（iter42/02-jeff-review P1）：C.Get() 判 PURE 而类型加载执行 File.ReadAllText（活假纯洞）。
+		let loadEdges = 0;
+		for (const c of ancestorClosureOf(call.obj, pack, superMap)) {
+			const entries = globalClasses.get(c);
+			if (!entries) continue;
+			for (const e of entries) {
+				if (e.lang !== pack.name) continue;
+				const tf = files.get(e.file);
+				const rc = tf?.chunkByKey.get(e.key);
+				if (rc && rc.calls.length > 0) {
+					sink.addEdge(e.key);
+					loadEdges++;
+				}
+			}
+		}
+		if (any || loadEdges > 0) return true;
 		// 迭代40 B5/M6：项目类成员 miss + 属性读取 → 纯（C# 静态语义 propMissIsPure / TS-JS
 		// memberNames 字段清单；partial 类已由 same 全文件并集覆盖）
 		if (
@@ -1269,7 +1280,11 @@ function resolveObjDispatch(
 			return true;
 		}
 	}
-	if (pack.pureGlobals.has(call.obj)) {
+	if (
+		!caller.assigned.includes(call.obj) &&
+		!fi.moduleAssigned.has(call.obj) &&
+		pack.pureGlobals.has(call.obj)
+	) {
 		if (pack.hofCallsArgs.has(call.attr))
 			sink.addArgEdges(call.argFns, call.attr); // Array.from(xs, cb)
 		sink.hitTable(`global:${call.obj}`); // 迭代21 B
@@ -1611,7 +1626,11 @@ function resolveCall(
 			sink.hitTable(`builtin:${call.attr}`); // 迭代21 B
 			return;
 		}
-		if (pack.pureBuiltins.has(call.attr)) {
+		if (
+			!caller.assigned.includes(call.attr) &&
+			!fi.moduleAssigned.has(call.attr) &&
+			pack.pureBuiltins.has(call.attr)
+		) {
 			// HOF（map/filter/sorted…）会调用函数实参：回调效应必须保留，否则假纯
 			if (pack.hofAlwaysArgs.has(call.attr) || pack.hofCallsArgs.has(call.attr))
 				sink.addArgEdges(call.argFns, call.attr);

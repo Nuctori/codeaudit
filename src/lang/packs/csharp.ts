@@ -634,6 +634,7 @@ const chunkNodes = [
 	"class_declaration",
 	"struct_declaration",
 	"interface_declaration",
+	"enum_declaration", // 迭代42 候选3：enum 成员读取判纯锚点（编译期常量，无用户代码）
 	"method_declaration",
 	"constructor_declaration",
 	"local_function_statement",
@@ -644,13 +645,18 @@ const classNodes = [
 	"class_declaration",
 	"struct_declaration",
 	"interface_declaration",
+	"enum_declaration", // 迭代42 候选3：双表（chunkNodes + classNodes）——只加 classNodes 不产 chunk，globalClasses 索引不到
 ];
 const callNodes = ["invocation_expression", "object_creation_expression"];
 // 迭代40 B5 + M5：属性读取形态（obj.Prop 读值 / 裸名属性读 / obj?.Prop 条件读）→ 调用点（prop 标记）。
 // member_access_expression = obj.Prop；identifier = 隐式 this 裸名读（C# 类内裸名属性/字段——
 // 局部变量/参数读取 miss 判纯，双向安全）；conditional_access_expression = obj?.Prop（M5：
 // flattenCallTarget 已支持 conditional 解包——member_binding 内标识符拍平为 obj.Prop）。
-const propertyReadNodes = ["member_access_expression", "identifier", "conditional_access_expression"];
+const propertyReadNodes = [
+	"member_access_expression",
+	"identifier",
+	"conditional_access_expression",
+];
 // 属性读取形态排除（parent 形态——调用目标链/赋值左值/++/-- 已有各自通道）
 const propertyReadSkipMorphs = [
 	"member_access_expression", // 链中段（a.b.c 的 a.b——末段处理）

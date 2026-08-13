@@ -2,7 +2,7 @@
 
 > 重基线于迭代 40（2026-08-13）：B5（C# 属性访问器假纯洞）闭合——property chunk + 属性读取 prop 边；
 > B 表重审引入**方向分类**（方向安全 ≠ 假纯通道，iter31 定义对齐）；M_out 模型外通道清单形式化。
-> 现基线：339/339 测试（vitest 串行）+ tsc 干净 + 真实扫描冒烟通过。
+> 现基线：355/355 测试（vitest 串行）+ tsc 干净 + 真实扫描冒烟通过（迭代42：候选7 静态访问类型加载闭合 + 候选3 enum 判纯 + B4/M1 方向改标）。
 > 分类：**A. 形式正确性修复（已修）** / **B. 工程妥协（有意，方向分类）** / **C. 无主债（应还）** / **D. 外部债（非本仓库可修）**
 >
 > **方向分类字段**（迭代40 引入，对齐 iter31 操作定义）：
@@ -32,13 +32,13 @@
 | B1 | **效应表 70+ 类基数无校准** | 每类人工裁决（Debug io/PlayerPrefs state 明确；Path fs/Screen io/Transform state 保守） | 过度判定 → 假 IMPURE（LOW 阈值分布偏移） | 安全-过近似 | **部分缓解**：P1-1 注入白名单补 frameworkPure/pureCtor——新 API 可注入免改包代码（校准仍是人工数据债） |
 | B2 | **frameworkIo["this"] 20 组件 + gameObject/transform 隐式 this** | this.gameObject.SetActive → io（固定 io 非细分） | 组件链一律 io，无法区分读/写 | 安全-过近似 | 保留（数据裁决） |
 | B3 | **LINQ 链全 ?**（xs.Where(...).Select(...)） | 变量 receiver 动态 → 诚实 ? | 集合内存操作判 unknown（可标注 PURE） | 安全-未知 | 保留（iter31 S1 链修复部分缓解——builtinMethodReturns 链式接收者解析） |
-| B4 | **事件订阅不建模**（+= / AddListener） | 回调方法独立判定，订阅方不建边 | 事件触发时执行 io 回调 → 订阅方判纯 | **假纯可能** | 保留（语言语义建模，第一版级）——入 M_out；触发不确定性是唯一缓冲，无触发率量化 |
+| B4 | **事件订阅不建模**（+= / AddListener） | 回调方法独立判定，订阅方不建边 | **现状实证（iter42 数学评审 F2）：已意外闭合**——`+=` 是 state 写（订阅方恒非 PURE）、触发端全落 `?`（诚实）→ 无假纯通道，真实残余 = 判别力损失 + 效应归因缺失 | 安全-未知 ∪ 安全-过近似（改标，原「假纯可能」不可实例化） | 保留（事件订阅边建模 → iter43 候选1，已评审修正设计：可见性守卫 + 形态守卫） |
 | B6 | **隐式 this 与局部变量竞态**：裸名 gameObject 若局部变量遮蔽 → 仍判 io | 遮蔽守卫只查 assigned | 极小 | 安全-过近似 | 保留（P0-2 数据化不改变语义） |
 | B7 | **C# virtual 精度**：多态守卫不区分 virtual/非 virtual | 非 virtual 静态分派本可精确；? 是健全降级 | 基类 self 调用噪音 | 安全-未知 | 已修（迭代39 L4：virtualMembers 提取，非 virtual 免守卫） |
 | B8 | **项目外子类不可见**（库/插件扩展你的类） | 多态并集漏项目外覆写 | 项目外覆写 → 假纯 | **假纯可能** | 入 M_out——与项目外写者同族，无静态解 |
 | B12 | **Python **new** 逃逸**（C() 可 return 任意对象） | lb/trustedCtor 对 Python 的残余 | 构造返回任意对象 → 类型不可信 | **假纯可能** | 入 M_out（同 monkey-patch 族，文档化接受） |
 | B13 | **C# 单接口基类实现的方法隐含 virtual**（base_list 单子无法区分接口与外部类） | 类侧残余罕见 | 接口方法静态分派误判 | 安全-过近似 | 保留（接口清单数据可消，IDisposable 等） |
-| B14 | **静态初始化器并入 new C()**（类型加载时执行非实例化） | L5 过近似 | 构造多报静态初始化器效应 | 安全-过近似 | 保留（静态初始化器独立建模可消） |
+| B14 | **静态初始化器并入 new C()**（类型加载时执行非实例化） | L5 过近似 | 构造多报静态初始化器效应（new C() 路径）；**静态访问路径（C.Get()/C.X）漏报类型加载效应——活假纯洞（iter42 候选7 实证，已修）** | 安全-过近似（new C()）＋ 假纯可能（静态访问路径，**已修**） | 新 C() 路径保留（静态初始化器独立建模 → iter43 候选2）；静态访问路径已闭合（iter42：全局类分支加类型加载闭包边，与 L5 同构） |
 
 ## M_out：模型外通道清单（S1 现实相对性边界，迭代40 形式化）
 
@@ -46,12 +46,12 @@ A6 的 S1 是**模型相对**的（"实际效应定义在模型真值上"）。�
 
 | # | 通道 | 触发条件 | 方向 | 接受理由 | 升级路径 |
 | --- | --- | --- | --- | --- | --- |
-| M1 | **事件订阅不建模**（B4） | 订阅方持有事件，事件触发执行 io 回调 | 假纯可能 | 触发不确定性（回调可能永不执行）；事件驱动建模是第一版级语言语义 | 事件订阅边（订阅方 → 回调方法，方向 S2） |
+| M1 | **事件订阅不建模**（B4） | 订阅方持有事件，事件触发执行 io 回调 | 假纯可能（改标：现状已意外闭合，见 B4） | 触发不确定性（回调可能永不执行）；事件驱动建模是第一版级语言语义 | 事件订阅边（订阅方 → 回调方法，方向 S2）——iter43 候选1 修正版：private 可见性守卫 + 形态守卫 + `+=` 双语义保留 |
 | M2 | **项目外子类覆写**（B8） | 库/插件 extends 项目类并覆写方法 | 假纯可能 | 项目外代码不可静态可见（与 M3 同族） | 无静态解；文档化 + 触发率实测 |
 | M3 | **项目外状态写者** | 测试夹具/框架注入写项目状态 | 假纯可能 | 同上（README 已知限制） | 无静态解 |
 | M4 | **Python **new** / monkey-patch**（B12） | `C()` 被 monkey-patch 返回任意对象；`C.m = ...` 运行时换方法 | 假纯可能 | 动态语言语义，静态不可见 | 文档化接受 |
 | M5 | **C# 条件访问属性读取**（`obj?.Prop`） | conditional_access 形态未建 prop 边，getter io 不传染 | 假纯可能 | **已修（迭代40 M5）**：propertyReadNodes 加 conditional_access_expression（`a?.b()` 的 conditional 是 invocation 的 function → 现有 parent 排除覆盖） | — |
-| M6 | **TS/JS/Python 属性读取** | `obj.prop` 读取（TS getter 已建 chunk 但读取不建边；Python property 动态） | 假纯可能 | **已修（迭代40 M6，TS/JS）**：member_expression 建 prop 边 + memberNames 字段清单 + selfPropReadIsPure（JS 语义 this.attr 非 getter 读取无副作用）+ __objectLiteral（对象字面量类型属性恒纯）+ TS paramNodes 补全（A1 预存盲区）。Python 保持（__getattr__ 动态，静态不可判定） | Python：文档化接受（动态属性协议） |
+| M7 | **C# enum 成员读取**（`Color.Red`） | enum 不在 classNodes → 读取落 ? | 安全-未知（非假纯） | 方向安全，判别力损失小 | **已修（迭代42 候选3）**：enum_declaration 入 chunkNodes + classNodes 双表 → 顶层 enum 成员读取判纯（编译期常量，C# 静态语义）；嵌套 enum 仍 `?`（globalClasses 裸名索引） |
 | M7 | **C# enum 成员读取**（`Color.Red`） | enum 不在 classNodes → 读取落 ? | 安全-未知（非假纯） | 方向安全，判别力损失小 | enum_declaration 入 classNodes |
 
 **契约**：M1-M6 任一升级修复后移出清单；新发现的模型外通道必须入清单（防"方向安全"标签掩盖漏报）。
@@ -181,7 +181,17 @@ A6 的 S1 是**模型相对**的（"实际效应定义在模型真值上"）。�
 
 **修复过程实证**：P0-3 引入 3 处回归（Python typed_parameter 进 assigned → ptype 分支误挡 → RawChunk 补 params 字段豁免；TS formal_parameters 字段/节点两维度混淆 → 拆双表；python.ts for_statement 两次编辑被吞 → nesting 回归）——全部由 341 测试网兜住；vitest maxWorkers=2（CLI 并发 spawn 内存峰值，迭代21 forks 先例同族）。
 
-## 总体评估
+## 迭代 42 清空项（本轮闭合——工程妥协形式化评审落地）
+
+| 项 | 类型 | 闭合方式 |
+| --- | --- | --- |
+| **静态访问路径类型加载漏报（活假纯洞，02-jeff-review P1 实证）** | 假纯（S1 现实违反）：`C.Get()`/`C.X` 判 PURE 而类型加载执行 `File.ReadAllText` | 候选7：全局类分支（link.ts）加类型加载闭包边——`ancestorClosureOf` 闭包内 class chunk 原始调用并集（与 L5 同构，S2 过近似方向安全）；纯静态工具类（闭包零原始调用）零变化 |
+| **M7 enum 读取落 ?** | 安全-未知（判别力） | 候选3：enum_declaration 入 chunkNodes + classNodes 双表（只加 classNodes 不产 chunk，globalClasses 索引不到——数学评审 §3 修正）；顶层 enum 成员读取判纯 |
+| **B4/M1 方向分类过时** | 文档正确性 | 数学评审 F2 实证：`+=` 是 state 写 + 触发端落 `?` → 「假纯可能」不可实例化 → 改标「安全-未知 ∪ 安全-过近似」；B14 改双路径分类（new C() 过近似 / 静态访问路径已修） |
+
+**验收**：355/355（+3：enum 判纯 / 候选7 三态 / 对照零变化）+ tsc 0 + 自扫描 invariantViolations=0 + README 测试数同步（343→355，C4 门禁绿）+ essence 8/8。
+
+**评审流程**：docs/iter42/（00-plan → 01-math-review → 02-jeff-review → 03-synthesis）；延后项：候选1 事件订阅（iter43-r1，修正版：private 可见性守卫 + 形态守卫 + `+=` 双语义）、候选2 static-init 独立 chunk（iter43-r2，side table 方案）、候选 4/5/6 defer（无读者 / Λ 不变死数据 / Σ_ext 无挂接点）。
 
 ## 总体评估
 

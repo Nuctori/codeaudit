@@ -1121,9 +1121,9 @@ describe("C# 语言包（迭代19）", () => {
 			"C.cs": [
 				"using System;",
 				"public class Config {",
-				"    public int Value { get { Console.WriteLine(\"io\"); return 1; } }",
+				'    public int Value { get { Console.WriteLine("io"); return 1; } }',
 				"    public int Auto { get; set; } = 42;",
-				"    public int Get() { Console.WriteLine(\"m\"); return 1; }",
+				'    public int Get() { Console.WriteLine("m"); return 1; }',
 				"}",
 				"public class User {",
 				"    public int Read(Config c) { return c?.Value ?? 0; }",
@@ -1149,5 +1149,79 @@ describe("C# 语言包（迭代19）", () => {
 		expect(read!.effects.has("io")).toBe(true);
 		expect(auto!.purity).toBe(0); // c?.Auto 自动属性空 chunk → 纯
 		expect(call!.purity).toBe(2); // c?.Get() 是调用（conditional 是 invocation 的 function）→ 方法 io 传染
+	});
+
+	it("迭代42 候选3：enum 成员读取判纯（编译期常量，无用户代码）", async () => {
+		const root = project("enum42", {
+			"E.cs": [
+				"public enum GameState { Menu, Playing }",
+				"public class Use {",
+				"    public int GetState() { return (int)GameState.Menu; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		expect(r.stats.parseErrors).toBe(0);
+		const v = by(r).get("E.cs::Use.GetState") as { purity: number } | undefined;
+		expect(v).toBeDefined();
+		// 修复前：GameState.Menu 落 markDynamic → UNKNOWN；修复后：enum chunk 进 globalClasses
+		// → prop miss + propMissIsPure 判纯（C# 静态语义：enum 成员无用户代码）
+		expect(v!.purity).toBe(0);
+	});
+
+	it("迭代42 候选7：静态成员访问触发类型加载——静态初始化器 io 传染（活假纯洞闭合）", async () => {
+		const root = project("staticload42", {
+			"P.cs": [
+				"using System.IO;",
+				"public class P {",
+				'    public static int X = File.ReadAllText("a").Length;',
+				"    public static int Get() { return X; }",
+				"}",
+				"public class User {",
+				"    public int Use() { return P.Get(); }",
+				"    public int ReadX() { return P.X; }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		expect(r.stats.parseErrors).toBe(0);
+		const use = by(r).get("P.cs::User.Use") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		const readx = by(r).get("P.cs::User.ReadX") as
+			| { purity: number }
+			| undefined;
+		expect(use).toBeDefined();
+		expect(readx).toBeDefined();
+		// 修复前：Use/ReadX 判 PURE=0（类型加载执行 File.ReadAllText 漏报——S1 违反）；
+		// 修复后：类型加载闭包并入 → fs 效应传播
+		expect(use!.purity).toBe(2);
+		expect(use!.effects.has("fs")).toBe(true);
+		expect(readx!.purity).toBe(2); // prop 读路径同闭合
+	});
+
+	it("迭代42 候选7 对照：无字段初始化器的纯静态类零变化 + 裸名初始化器诚实 UNKNOWN", async () => {
+		const root = project("staticpure42", {
+			"M.cs": [
+				"public class M {",
+				"    public static int Twice(int x) { return x * 2; }",
+				"}",
+				"public class P2 {",
+				"    public static int Y = Compute(1);",
+				"    public static int Get() { return Y; }",
+				"}",
+				"public class User {",
+				"    public int Use() { return M.Twice(21); }",
+				"    public int Use2() { return P2.Get(); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const use = by(r).get("M.cs::User.Use") as { purity: number } | undefined;
+		const use2 = by(r).get("M.cs::User.Use2") as { purity: number } | undefined;
+		expect(use).toBeDefined();
+		expect(use2).toBeDefined();
+		expect(use!.purity).toBe(0); // 闭包零原始调用 → 不加边 → 零变化
+		expect(use2!.purity).toBe(1); // 裸名 Compute(1) 未解析 → 类型加载闭包含 ? → UNKNOWN（诚实非 PURE）
 	});
 });

@@ -1,5 +1,38 @@
 # Changelog
 
+## [Unreleased] — 迭代 42（工程妥协形式化评审落地：静态访问类型加载闭合 + enum 判纯）
+
+### 新增
+
+- 静态成员访问类型加载效应闭合（候选7，活假纯洞）：全局类分支（link.ts）加类型加载闭包边——`C.Get()`/`C.X` 触发类型加载，闭包内 class chunk 原始调用（静态/实例字段初始化器）并集，与 L5 ctor 合并同构（S2 过近似方向安全）；纯静态工具类（闭包零原始调用）零变化
+- C# enum 成员读取判纯（候选3，M7 闭合）：enum_declaration 入 chunkNodes + classNodes 双表（只加 classNodes 不产 chunk，globalClasses 索引不到）——顶层 enum 成员读取按 C# 静态语义判纯（编译期常量）；嵌套 enum 仍 `?`
+- 评审流程 docs/iter42/：范畴论数学家（01-math-review）+ Jeff Dean（02-jeff-review）双评审——F2 实证 B4/M1「假纯可能」不可实例化（`+=` 是 state 写 + 触发端落 `?`）→ 方向分类改标；B14 改双路径分类；候选 4/5/6 defer 论证（无读者 / Λ 不变死数据 / Σ_ext 无挂接点）
+- C# 测试 +3（enum 判纯 / 候选7 三态 / 对照零变化）
+
+### 修复
+
+- 静态访问路径漏报类型加载 io（实证：`P.Get()`/`P.X` 判 PURE 而类型加载执行 `File.ReadAllText`——S1 现实违反）→ IMPURE fs；裸名初始化器（Compute(1)）→ 诚实 UNKNOWN
+- README 343→355 测试数同步（C4 门禁绿）
+
+### 已知残余
+
+- 事件订阅边建模（iter43-r1，修正版：private 可见性守卫 + 形态守卫 + `+=` 双语义保留）；static-init 独立 chunk（iter43-r2，side table 方案）；接口清单/效应细分/Σ_ext 维持 defer
+
+## [Unreleased] — 迭代 41（表一致性断言 + 阴影守卫 + S4 引理化）
+
+### 新增
+
+- validatePackConsistency（M1/M2s/M3s/M4s/M5/M6 表级互斥断言）：互斥性从约定变机器校验；effectOverrides 合并点 warn（用户数据可制造死条目）；测试 5 用例
+- S4 引理化（docs/iter41/01-proof.md）：调用点形态有限枚举 + 全总性结构归纳 + 控制流排他 + 判别字段穷举静态表
+- 阴影守卫回归测试 3 用例（函数内/模块级遮蔽/未遮蔽对照）
+
+### 修复
+
+- 阴影守卫不对称假纯洞（评审发现 blocker）：pureBuiltins/pureGlobals 查询加 assigned + moduleAssigned 守卫（`const Math = evil()` 此前假 PURE）
+- pureCtor 删 3 死条目（GUILayout/Texture2D/SystemInfo）；hofAlwaysArgs 12 名并入 hofCallsArgs（子集契约）
+- B1 事故：M6 修数据误删 map → `[1].map(未解析回调)` 假 PURE——加回 + 回归测试
+- README 350 测试
+
 ## [Unreleased] — 迭代 40（B5 属性访问器假纯洞闭合 + P0-3 引擎零语言常量全数据化）
 
 ### 新增
@@ -30,7 +63,7 @@
 
 ### 已知残余（M_out）
 
-- 事件订阅（B4）/ 项目外子类覆写（B8）/ 项目外状态写者 / Python __new__（B12）→ 假纯可能通道，触发条件与接受理由见 docs/technical-debt.md M_out 清单
+- 事件订阅（B4）/ 项目外子类覆写（B8）/ 项目外状态写者 / Python **new**（B12）→ 假纯可能通道，触发条件与接受理由见 docs/technical-debt.md M_out 清单
 - C# `obj?.Prop` 条件访问读取、TS/JS/Python 属性读取 → 迭代40 范围外（M5/M6，升级路径已列）
 - B15（C# 裸名 identifier 全量建边性能）待大库实测；H20 SKIP_DIRS 为工程默认配置（非语言知识）
 
