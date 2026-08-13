@@ -7,8 +7,8 @@ import type { Chunk } from "./types";
 export function sourceSnippet(root: string, chunk: Chunk): string {
 	try {
 		const lines = readFileSync(join(root, chunk.file), "utf8").split("\n");
-		const start = Math.max(0, chunk.line - 1);
 		const end = Math.min(lines.length, chunk.endLine);
+		const start = Math.min(Math.max(0, chunk.line - 1), Math.max(0, end - 1));
 		return lines.slice(start, end).join("\n").slice(0, 2000);
 	} catch {
 		return "";
