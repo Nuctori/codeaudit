@@ -17,13 +17,22 @@ describe("迭代44-r3：标注未匹配回显", () => {
 				"}",
 			].join("\n"),
 		);
-		const ann: Array<{ id: string; file?: string; verdict: "PURE" | "IMPURE" }> = [
+		const ann: Array<{
+			id: string;
+			file?: string;
+			verdict: "PURE" | "IMPURE";
+		}> = [
 			{ id: "deadbeefdeadbeef", file: "A.cs", verdict: "PURE" }, // 不存在的 id
 			{ id: "ffffffffffffffff", verdict: "IMPURE" }, // 裸 id 不存在
 		];
 		const r = await scanProject(dir, {
 			useCache: false,
-			annotations: new Map(ann.map((a) => [`${a.file ?? ""}${a.file ? "\u0000" : ""}${a.id}`, a.verdict])),
+			annotations: new Map(
+				ann.map((a) => [
+					`${a.file ?? ""}${a.file ? "\u0000" : ""}${a.id}`,
+					a.verdict,
+				]),
+			),
 		});
 		// 修复前：未匹配静默忽略；修复后：stats.annotationUnmatched 报告
 		expect(r.stats.annotationUnmatched.length).toBe(2);

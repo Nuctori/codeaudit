@@ -118,6 +118,9 @@ export interface ScanStats {
 		id: string;
 		file?: string;
 	}[];
+	/** IMPURE 标注生效数（迭代44-r3 台账痛点）：标注 IMPURE 且 chunk 原本无 io → 加 io 生效。
+	 *  此前台账只数 PURE（annotated）——IMPURE 标注的判定变化不可见。 */
+	readonly impureApplied: number;
 	/** 效应表使用率（迭代21 数学解 B——additive，旧消费者忽略）。 */
 	readonly effectTableUsage?: readonly EffectTableUsage[];
 	/** chain 不确定的 chunk 占比（0..1），工具对代码库的"无知程度"。 */

@@ -1,2 +1,0 @@
-const ts=require("typescript");const fs=require("fs");const src=fs.readFileSync("src/engine/scan.ts","utf8");const sf=ts.createSourceFile("x.ts",src,ts.ScriptTarget.Latest,true);const seen=new Set();function errs(n){if(!n)return;for(const e of n.parseDiagnostics||[]){const k=e.start;if(!seen.has(k)){seen.add(k);const line=src.slice(0,e.start).split("
-").length;console.log("ERR line",line,e.messageText);}}ts.forEachChild(n,errs);}errs(sf);console.log("errors:",seen.size);

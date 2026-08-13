@@ -392,6 +392,9 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 				)
 			: null;
 	const annotatedKeys = new Set<string>(); // PURE 标注生效的 chunk key（证明台账：annotated）
+	let impureApplied = 0; // 迭代44-r3（台账痛点）：IMPURE 标注生效计数——此前台账只数 PURE
+	//（annotated）——IMPURE 标注（加 io）的判定变化不可见，标注者无法验证 ~1500 条 IMPURE 标注的实效。
+	//（annotated）——IMPURE 标注（加 io）的判定变化不可见，标注者无法验证 ~1500 条 IMPURE 标注的实效。
 	// 迭代44-r3（标注运营痛点1）：id 未匹配回显——标注条目在 chunks 中无对应（内容已变/工具修复后
 	// chunk 消失/拼写错误）此前静默忽略——标注者不知道白做了。三类回显：生效（台账）/ 被拒
 	//（annotationRejected）/ 未匹配（本统计）。
@@ -407,7 +410,10 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 			const sep = k.indexOf("\u0000");
 			const file = sep >= 0 ? k.slice(0, sep) : undefined;
 			const id = sep >= 0 ? k.slice(sep + 1) : k;
-			const matched = file !== undefined ? fileIds.has(k) : ids.has(id);
+			const matched =
+				file !== undefined ? fileIds.has(k) || ids.has(id) : ids.has(id);
+			// 审计边界修正（D-157）：file 锚定键 miss 但裸 id 在其他文件存在时，标注可能经
+			// 回读 fallback（ann.get(c.id)）在别处生效——不算 unmatched（避免同标注既生效又报告矛盾）。
 			if (!matched) annotationUnmatched.push({ id, file });
 		}
 	}
@@ -419,6 +425,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 					if (v === undefined) return c;
 					if (v === "IMPURE") {
 						if (c.direct.has("io")) return c;
+						impureApplied++; // 标注 IMPURE 且 chunk 原本无 io——加 io 生效
 						return { ...c, direct: new Set([...c.direct, "io" as Effect]) };
 					}
 					// H1 守卫（迭代3 #1，迭代4 F2 放宽）：parseError chunk 的 `?` 是内容信任标记（body 可能被
@@ -503,6 +510,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 			staleEdges,
 			invariantViolations,
 			provenance: { annotated, derived },
+			impureApplied,
 		},
 	};
 }

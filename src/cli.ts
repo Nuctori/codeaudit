@@ -601,7 +601,10 @@ async function main(): Promise<void> {
 		if (s.provenance.annotated + s.provenance.derived > 0) {
 			console.log(
 				`  证明台账：${s.pure - s.provenance.annotated - s.provenance.derived} 静态证明 / ${s.provenance.annotated} 标注 / ${s.provenance.derived} 释放` +
-					`（static=机器证明 A6-inner；annotated=标注生效；derived=依赖标注传播）`,
+					`（static=机器证明 A6-inner；annotated=标注生效；derived=依赖标注传播）` +
+					(s.impureApplied > 0
+						? `；${s.impureApplied} IMPURE 标注生效（加 io）`
+						: ""),
 			);
 		}
 		// 调用图完整度（发散 F21）：未知站点占比——用户投入标注前先知道"图的完整度"
