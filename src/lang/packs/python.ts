@@ -507,6 +507,14 @@ export const pythonPack: LangPack = {
 	lambdaAssignNodes: ["assignment"], // H16
 	paramListNodeTypes: ["parameters"], // H18：参数列表节点类型（assignedNames walk）
 	paramListField: "parameters", // H18：参数列表字段名（paramNames/paramTypesOf）
+	complexityNodes: [ // 迭代44-r4：MCCabe 分支节点（Python 控制流形态——含 except/三元）
+		"if_statement",
+		"for_statement",
+		"while_statement",
+		"conditional_expression", // 三元
+		"except_clause",
+	],
+	complexityOps: ["and", "or"], // Python 关键字短路逻辑
 	keywordArgNodes: ["keyword_argument"], // P0-3 漏网：Python 关键字实参
 	catchMultiTypeNodes: ["tuple"], // P0-3 漏网：except (A,B) 多类型
 	nestedFnBoundaryNodes: ["function_definition", "class_definition", "lambda"], // H19

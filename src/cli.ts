@@ -47,6 +47,8 @@ interface CliArgs {
 	strict: boolean;
 	/** 合入门禁（--gate；与 --changed 联用：grade ≥ high → exit 1）。 */
 	modules: boolean;
+	/** 圈复杂度 top（--complexity；迭代44-r4：重构复杂函数识别）。 */
+	complexity: boolean;
 	/** 文件依赖（--deps <file>；迭代44-r4：拆分决策——入/出边文件清单）。 */
 	deps: string | null;
 	/** 重构前后对比（--compare <before.json>；迭代44-r4：复用 compareReports 库 API）。 */
@@ -82,6 +84,7 @@ function parseArgs(argv: string[]): CliArgs {
 		sources: false,
 		tableUsage: false,
 		modules: false,
+		complexity: false,
 		deps: null,
 		compare: null,
 	};
@@ -106,6 +109,7 @@ function parseArgs(argv: string[]): CliArgs {
 		else if (a === "--state") args.state = true;
 		else if (a === "--table-usage") args.tableUsage = true;
 		else if (a === "--modules") args.modules = true;
+		else if (a === "--complexity") args.complexity = true;
 		else if (a === "--deps") args.deps = rest[++i]!;
 		else if (a === "--compare") args.compare = rest[++i]!;
 		else if (a === "--changed")
@@ -514,6 +518,8 @@ async function main(): Promise<void> {
 		);
 	} else {
 		const s = report.stats;
+		// 迭代44-r4 权重调整：核心汇总先行（STATS），视图其次，明细清单最后
+		console.log(`STATS: pure ${s.pure}, impure ${s.impure}, unknown ${s.unknown}`);
 		if (args.topology) {
 			// 拓扑摘要（--topology text 模式；迭代14 视角 3）+ 可解释性解读（迭代15）
 			const t = graphMetrics(report.verdicts);
@@ -608,16 +614,33 @@ async function main(): Promise<void> {
 			}
 		}
 		if (args.modules) {
-		}
-		if (args.modules) {
 			// 迭代44-r4：模块级聚合（重构范围决策视图）——目录前缀聚合 purity/效应面/链深
 			const mods = moduleSummary(report.verdicts);
 			console.log(`\n模块聚合（按 chunk 数降序；top ${args.top ?? 15}）：`);
 			for (const m of mods.slice(0, args.top ?? 15)) {
 				console.log(
-					`  ${String(m.chunks).padStart(5)} chunks  P=${m.pure} U=${m.unknown} I=${m.impure}  ${(m.unknownRate * 100).toFixed(1)}%?  chain=${m.maxChain}  [${m.effects.join(",") || "-"}]  ${m.module}`,
+					`  ${String(m.chunks).padStart(5)} chunks  P=${m.pure} U=${m.unknown} I=${m.impure}  ${(m.unknownRate * 100).toFixed(1)}%?  C=${String(m.maxComplexity).padStart(3)}  chain=${m.maxChain}  [${m.effects.join(",") || "-"}]  ${m.module}`,
 				);
 			}
+		}
+		if (args.complexity) {
+			// 迭代44-r4：圈复杂度 top（重构复杂函数识别）——函数/方法级（排除类 chunk——
+			// MCCabe 是函数级度量；类级 = 方法之和属噪音）
+			const complex = report.verdicts
+				.filter(
+					(v) =>
+						v.chunk.kind !== "class" && (v.chunk.complexity ?? 0) > 5,
+				)
+				.sort(
+					(a, b) => (b.chunk.complexity ?? 0) - (a.chunk.complexity ?? 0),
+				);
+			console.log(
+				`\n圈复杂度 top（>5；共 ${complex.length} 个；top ${args.top ?? 15}）：`,
+			);
+			for (const v of complex.slice(0, args.top ?? 15))
+				console.log(
+					`  C=${String(v.chunk.complexity).padStart(3)}  ${v.chunk.name.padEnd(40)} ${v.chunk.file}:${v.chunk.line}`,
+				);
 		}
 		if (args.deps) {
 			// 迭代44-r4：文件依赖（拆分决策）——入/出边文件清单
@@ -729,9 +752,6 @@ async function main(): Promise<void> {
 				console.log(`      传染: ${v.chainPath.join(" → ")}`);
 			}
 		}
-		console.log(
-			`\nSTATS: pure ${s.pure}, impure ${s.impure}, unknown ${s.unknown}`,
-		);
 		// 效应表使用率摘要（迭代21 数学解 B——additive 一行，详情看 json stats.effectTableUsage）
 		if (s.effectTableUsage) {
 			for (const p of s.effectTableUsage) {

@@ -454,6 +454,19 @@ export const typescriptPack: LangPack = {
 	throwArgFields: { throw_statement: "argument" }, // H09：throw 实参字段
 	paramListNodeTypes: ["formal_parameters"], // H18：参数列表节点类型（assignedNames walk）
 	paramListField: "parameters", // H18：参数列表字段名（paramNames/paramTypesOf）
+	complexityNodes: [ // 迭代44-r4：MCCabe 分支节点（TS/JS 控制流形态）
+		"if_statement",
+		"for_statement",
+		"for_in_statement",
+		"for_of_statement",
+		"while_statement",
+		"do_statement",
+		"switch_statement",
+		"case_statement",
+		"conditional_expression", // 三元
+		"catch_clause",
+	],
+	complexityOps: ["&&", "||", "??"],
 	selfPropReadIsPure: true, // 迭代40 M6：this.attr 非 getter 读取无副作用（JS 语义；getter 已建 chunk）
 	objectLiteralTypeNodes: ["object_type"], // 迭代40 M6：`{name?: string}` 参数类型 → 属性读取恒纯
 	paramNameSlots: {

@@ -13,6 +13,8 @@ export interface ModuleSummary {
 	readonly effects: readonly string[];
 	/** 最长效应链（该模块内 chunk 的 max chain——副作用藏多深）。 */
 	readonly maxChain: number;
+	/** 最大圈复杂度（该模块内函数/方法级 chunk 的 max——重构复杂面）。 */
+	readonly maxComplexity: number;
 	/** 未知率（0..1）。 */
 	readonly unknownRate: number;
 }
@@ -28,6 +30,7 @@ export function moduleSummary(
 	const unknown = new Map<string, number>();
 	const effects = new Map<string, Set<string>>();
 	const maxChain = new Map<string, number>();
+	const maxComplexity = new Map<string, number>();
 
 	const bump = (m: Map<string, number>, mod: string): void => {
 		m.set(mod, (m.get(mod) ?? 0) + 1);
@@ -48,6 +51,8 @@ export function moduleSummary(
 		effects.set(mod, ef);
 		const c = v.chain === Infinity ? 0 : (v.chain ?? 0);
 		maxChain.set(mod, Math.max(maxChain.get(mod) ?? 0, c));
+		const cx = v.chunk.complexity ?? 0;
+		maxComplexity.set(mod, Math.max(maxComplexity.get(mod) ?? 0, cx));
 		const fs = files.get(mod) ?? new Set<string>();
 		fs.add(v.chunk.file);
 		files.set(mod, fs);
@@ -67,6 +72,7 @@ export function moduleSummary(
 			unknown: u,
 			effects: [...(effects.get(mod) ?? [])].sort((a, b) => a.localeCompare(b)),
 			maxChain: maxChain.get(mod) ?? 0,
+			maxComplexity: maxComplexity.get(mod) ?? 0,
 			unknownRate: n === 0 ? 0 : u / n,
 		});
 	}

@@ -46,6 +46,10 @@ export interface Chunk {
 	readonly endLine: number;
 	/** 最大嵌套深度（空函数 = 0）。 */
 	readonly nesting: number;
+	/** 圈复杂度（迭代44-r4：MCCabe 近似——控制流分支 + 1 基准；重构复杂函数识别）。 */
+	readonly complexity?: number;
+	/** chunk 类别（class/function/module——迭代44-r4：--complexity 排除类级噪音）。 */
+	readonly kind?: "class" | "function" | "module";
 	/** 自身直接效应（Effect 原子集）；空集 = 无直接效应。 */
 	readonly direct: ReadonlySet<Effect>;
 	/** 已解析 callee 的 key 集合；含 UNKNOWN_TARGET 表示存在未解析调用。 */

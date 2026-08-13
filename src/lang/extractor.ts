@@ -82,6 +82,7 @@ export class Extractor {
 						this.pack.classNodes.includes(node.type) ? "class" : "function",
 					);
 					mc.nesting = this.maxNesting(node);
+					mc.complexity = this.complexityOf(node); // 迭代44-r4：MCCabe 近似
 					mc.assigned = this.assignedNames(node);
 					mc.declared = this.declaredNames(node);
 					mc.params = this.paramNames(node);
@@ -1367,6 +1368,24 @@ export class Extractor {
 		return max;
 	}
 
+	/** 迭代44-r4：MCCabe 圈复杂度近似——分支节点（if/for/while/switch/case/catch/三元）
+	 *  + 短路逻辑运算符（&&/||/??）计数，+1 基准。节点/运算符清单走 pack 数据（跨语言差异）。 */
+	private complexityOf(node: SyntaxNode): number {
+		const nodes = this.pack.complexityNodes ?? EMPTY_SHAPES;
+		const ops = this.pack.complexityOps ?? EMPTY_SHAPES;
+		let c = 1;
+		const walk = (n: SyntaxNode): void => {
+			if (nodes.includes(n.type)) c++;
+			if (ops.length > 0) {
+				for (const ch of n.children)
+					if (!ch.isNamed && ops.includes(ch.text)) c++;
+			}
+			for (const ch of n.children) walk(ch);
+		};
+		walk(node);
+		return c;
+	}
+
 	/** 调用点提取：点连文本 + 首段对象 + 末段名。不可拍平（super().m()、factory()()、d[k]()）产哨兵走未知；字面量接收者（"x".strip、[].push）产 receiver 事实。 */
 	private callOf(node: SyntaxNode): RawCall {
 		const argFns = this.argFnsOf(node);
@@ -1717,6 +1736,7 @@ interface MutableChunk {
 	line: number;
 	endLine: number;
 	nesting: number;
+	complexity?: number; // 迭代44-r4：MCCabe 近似
 	normText: string;
 	kind: "class" | "function" | "module";
 	calls: RawCall[];

@@ -924,7 +924,20 @@ export const csharpPack: LangPack = {
 		"pragma_directive_repeat", // grammar 变体（iter45 O-C5 机检实证）
 		"nullable_directive",
 		"extern_alias_directive",
+		"extern_alias_directive",
 	],
+	complexityNodes: [ // 迭代44-r4：MCCabe 分支节点（C# 控制流形态）
+		"if_statement",
+		"switch_statement",
+		"case_pattern_switch_label",
+		"for_statement",
+		"for_each_statement",
+		"while_statement",
+		"do_statement",
+		"conditional_expression", // 三元
+		"catch_clause",
+	],
+	complexityOps: ["&&", "||", "??"], // 短路逻辑运算符
 	valueWrapNodes: ["equals_value_clause"], // P0-3 漏网：C# 赋值 value 包装解包
 	incDecTokens: ["++", "--"], // P0-3 漏网：增减操作符（writeUnary 只认增减）
 	nestingNodes,

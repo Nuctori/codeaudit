@@ -76,6 +76,8 @@ export interface RawChunk {
 	/** 迭代37 P1-2：函数内局部单赋值构造绑定（var xs = new List<int>() → xs:"List"）——消费端 G4 守卫
 	 *  （单赋值 ∧ ¬assigned ∧ ¬param；RHS 构造调用形态；多赋值/非构造不绑）。 */
 	readonly localBindings?: Readonly<Record<string, string>>;
+	/** 迭代44-r4：圈复杂度（MCCabe 近似——控制流分支数 + 1 基准；重构复杂函数识别）。 */
+	readonly complexity?: number;
 }
 
 export interface RawFileFacts {
@@ -319,6 +321,11 @@ export interface LangPack {
 	/** 继承提取跳过节点（迭代44-r3 痛点2 根因：C# 枚举底层类型 predefined_type + 预处理
 	 *  7 节点被误判动态 heritage → 语言级降级——数据化对齐 P0-3；ERROR 由解析层兜底）。 */
 	readonly heritageSkipNodes?: readonly string[];
+	/** 圈复杂度分支节点（迭代44-r4：MCCabe 近似——if/for/while/switch/case/catch/三元等
+	 *  控制流分支 +1；逻辑运算符 &&/||/?? 由 complexityOps 计）。跨语言节点名有差异。 */
+	readonly complexityNodes?: readonly string[];
+	/** 圈复杂度逻辑运算符 token（&&/||/??——短路逻辑 +1）。 */
+	readonly complexityOps?: readonly string[];
 	/** 事件声明节点（C# event_field_declaration）。迭代43 B。 */
 	readonly eventFieldNodes?: readonly string[];
 	/** 事件订阅运算符 token（C#/JS "+="）。迭代43 B：订阅 = 注册义务（触发端展开 handler），

@@ -491,6 +491,8 @@ export function link(
 				line: rc.line,
 				endLine: rc.endLine,
 				nesting: rc.nesting,
+				complexity: rc.complexity, // 迭代44-r4：MCCabe 近似透传
+				kind: rc.kind, // 迭代44-r4：--complexity 类级排除
 				direct,
 				calls,
 				unknownSites,
