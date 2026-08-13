@@ -15,7 +15,7 @@ describe("迭代44-r3：hasDynamicExtends 误判修复（痛点2 根因）", () 
 				"public class Base { }",
 				"public class Editor : Some.Namespace.OdinEditor { }", // qualified_name 基类（修复前 dynamic）
 				"public class S : Base {", // 有子类场景
-				'    static void Init() { System.Console.WriteLine(1); }',
+				"    static void Init() { System.Console.WriteLine(1); }",
 				"    public static void Run() { Init(); }", // 同文件方法裸名调用
 				"}",
 				"#if UNITY_EDITOR",
