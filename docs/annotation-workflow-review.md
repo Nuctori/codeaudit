@@ -97,3 +97,10 @@
 - 修复：pushBase 排除 predefined_type/预处理 7 节点/ERROR + qualified_name 基类剥壳（`class X : Ns.Base` 此前也落 dynamic——同批）
 - **效果**：InitDeity 无标注 unknown 6700→4199（**-37%**）——不止 Init·bare 52 条，全部同文件符号裸名 miss（Refresh*/CopySource/count/steps/conditionals/type 全族）恢复精确解析
 - 回归测试 +1（枚举/预处理/qualified_name 基类 + 有子类场景的 Init 解析）：379/379
+
+## 迭代44-r3 最终验证（痛点 2 修复后重扫）
+
+- **无标注：unknown 4199**（痛点 2 修复后机器可解析面恢复——此前标注覆盖的 chunk 回归机器判定）
+- **带标注（6335 条）：unknown 0**——机器 + 标注联合覆盖 100%（857 PURE 生效 + 8 释放 + 5393 IMPURE 生效）
+- 部分 PURE 标注失效（1123→857——工具修复后 chunk 不再 UNKNOWN，标注 unmatched 揭示）——机器取代标注是正向
+- **InitDeity 判定 100% 确定**：24.0%（无标注 6730）→ 0%（联合）
