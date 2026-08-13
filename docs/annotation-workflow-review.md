@@ -69,3 +69,10 @@
 - 台账补 IMPURE 生效计数（impureApplied）：537 PURE + 1277 IMPURE 生效——标注者首次可见 IMPURE 标注实效
 - 下一批 184 条（Linear→PURE 18 条——DOTween Ease 枚举，数据债：枚举白名单扩展；Append/Values/Refresh/CopySource→IMPURE 166 条）→ unknown 4758→4570（16.3%）
 - **新痛点**：① 痛点 2 复发面扩大（~300 条同文件符号裸名 miss——Refresh* 同文件方法/CopySource 属性 getter/count/steps 字段读——全库范围效应，需重新评估修复）② Ease 枚举数据债（DOTween 枚举成员读取——白名单只加 4 个 System 枚举）③ `x`/`actions`/`conditionals` 等混合形态（部分工具残余部分动态分派——chunk 聚合裁决）
+
+## 迭代44-r3 工作台轮（痛点 3 落地实证）
+
+- `--unknowns` 导出加 `code` 字段（chunk 源码片段——标注者无需打开文件）：InitDeity 4541 条 100% 覆盖
+- 工作台标注轮实测：1577 条仅凭 code 片段正则裁决（519 PURE + 1058 IMPURE）→ **unknown 4556→2966（10.6%）**——累计 3403 条标注从无标注 6730 降 56%
+- **方法论**：工作台 = 导出携带代码上下文 → 标注者（含启发式批量）一个视图裁决——PURE 被拒机制兜底（校验拒绝），IMPURE 保守方向（过近似不假纯）
+- **残余**：痛点 2（~300 条全库范围效应，机制未定位）；剩余 2966 条（<unresolved>/T 泛型构造/动态分派长尾）
