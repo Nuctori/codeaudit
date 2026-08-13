@@ -156,6 +156,59 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 		expect(html).toMatch(/chip">A\.bar<\/span>/);
 		expect(html).toMatch(/chip">B\.baz<\/span>/);
 		// 重载族不因内部互调成为纠缠环成员
+		// 重载族不因内部互调成为纠缠环成员
 		expect(html).not.toMatch(/chip">T\.Track<\/span>/);
+	});
+
+	it("Iter-53：治理清单按限定名聚合——同名重载族计一行、去重调用者", () => {
+		const mk = (key: string, name: string, purity: number, calls: string[]): Verdict =>
+			({
+				chunk: {
+					key,
+					file: `${key.split("#")[0]}.cs`,
+					startLine: 1,
+					endLine: 2,
+					name,
+					calls: new Set(calls),
+					unknownSites: 0,
+					stateWrites: [],
+					parseError: false,
+				},
+				purity,
+				chain: 1,
+				chainCertain: true,
+				effects: new Set<string>(),
+				stateDeps: [],
+			}) as unknown as Verdict;
+		// 6 个重载 ctor（同名族）+ 2 个外部调用者（每个都调用全部 6 候选——并集边场景）
+		const overloads = ["#1", "#2", "#3", "#4", "#5", "#6"].map((n) =>
+			mk(`ApiException.ApiException${n}`, "ApiException.ApiException", 2, []),
+		);
+		const callers = [
+			mk("caller1", "caller1", 2, overloads.map((o) => o.chunk.key)),
+			mk("caller2", "caller2", 2, overloads.map((o) => o.chunk.key)),
+		];
+		const html = renderTechdebtHtml([...callers, ...overloads], {
+			files: 1,
+			cycles: 0,
+		});
+		// 聚合后：治理清单段内 ApiException.ApiException 只出现一次（带 "6 重载" 标注），
+		// 调用者数 = 2（去重——每 caller 命中 6 候选只计 1）
+		const govSection = html.slice(
+			html.indexOf("治理清单 top 25"),
+			html.indexOf("拓扑治理优先级"),
+		);
+		expect(govSection).toMatch(/ApiException\.ApiException/);
+		// 只出现 1 行（bar-row）——名字在 label 和文件名里各出现一次，按行数断言
+		expect(
+			(govSection.match(/class="bar-label">ApiException\.ApiException/g) ?? [])
+				.length,
+		).toBe(1);
+		expect(govSection).toContain("6 重载");
+		expect(govSection).toMatch(
+			/ApiException\.ApiException[^<]*<[^>]*>[\s\S]*?bar-val">2<\/div>/,
+		);
+		// 治理段 bar-row 数 = 3（2 caller + 1 聚合族）
+		expect((govSection.match(/class="bar-row"/g) ?? []).length).toBe(3);
 	});
 });

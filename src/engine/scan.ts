@@ -42,6 +42,15 @@ const SKIP_DIRS = new Set([
 	".nuxt",
 	"coverage",
 	".codeaudit",
+	// Unity 工程再生成目录（项目 .gitignore 同款语义——Library 包缓存/Logs 日志/Temp 临时
+	// 产物/HybridCLRData 生成数据/UserSettings 编辑器配置：非源码，扫入会污染模块 top-N）
+	"Library",
+	"Logs",
+	"Temp",
+	"HybridCLRData",
+	"UserSettings",
+	"obj",
+	"bin",
 ]);
 
 export interface ScanOptions {

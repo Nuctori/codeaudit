@@ -29,19 +29,58 @@ export function renderTechdebtHtml(
 	const br = bridgesOf(verdicts);
 	const mods = moduleSummary(verdicts);
 
-	// 治理 top（直接调用者数降序——迭代48 量纲内排序）
+	// 治理 top（限定名聚合——迭代53 审计：并集边 P1-3 下同一限定名的重载共享同一批调用点，
+	// 逐 chunk 计数会把 `new ApiException(...)` 的 414 个调用者重复计到每个重载上，展示成
+	// 6+1 行同值噪音（InitDeity 实证 7/25 槽位同一构造器）。聚合键 = 限定名，计数 = 引用
+	// 该名的调用者数（去重：一个调用者同时命中族内多候选只计 1）。
+	const qOf = new Map<string, string>();
+	for (const v of verdicts) qOf.set(v.chunk.key, v.chunk.name);
 	const inDeg = new Map<string, number>();
 	for (const v of verdicts)
 		for (const t of v.chunk.calls)
 			if (t !== UNKNOWN_TARGET) inDeg.set(t, (inDeg.get(t) ?? 0) + 1);
-	const gov = verdicts
-		.filter((v) => v.purity !== 0)
-		.sort((a, b) => {
-			const da = inDeg.get(a.chunk.key) ?? 0;
-			const db = inDeg.get(b.chunk.key) ?? 0;
-			if (db !== da) return db - da;
-			return (b.chain ?? 0) - (a.chain ?? 0);
-		})
+	const inDegQ = new Map<string, number>();
+	for (const v of verdicts) {
+		const seen = new Set<string>();
+		for (const t of v.chunk.calls) {
+			if (t === UNKNOWN_TARGET) continue;
+			const q = qOf.get(t);
+			if (q && !seen.has(q)) {
+				seen.add(q);
+				inDegQ.set(q, (inDegQ.get(q) ?? 0) + 1);
+			}
+		}
+	}
+	const govGroups = new Map<
+		string,
+		{ name: string; count: number; chain: number; files: Set<string> }
+	>();
+	// 先数全族大小（含 PURE——"重载数"标注应是族客观大小，不含则误导：Awaiter.GetResult
+	// 10 个 chunk 中 4 个 PURE，治理只列非纯 6 个，标"6 重载"是错的）
+	const famSize = new Map<string, number>();
+	for (const v of verdicts) {
+		const q = qOf.get(v.chunk.key)!;
+		famSize.set(q, (famSize.get(q) ?? 0) + 1);
+	}
+	for (const v of verdicts) {
+		if (v.purity === 0) continue;
+		const q = qOf.get(v.chunk.key)!;
+		const g = govGroups.get(q) ?? {
+			name: q,
+			count: famSize.get(q) ?? 1,
+			chain: 0,
+			files: new Set<string>(),
+		};
+		g.chain = Math.max(g.chain, v.chain === Infinity ? 0 : (v.chain ?? 0));
+		g.files.add(v.chunk.file.split("/").pop() ?? v.chunk.file);
+		govGroups.set(q, g);
+	}
+	const gov = [...govGroups.values()]
+		.sort(
+			(a, b) =>
+				(inDegQ.get(b.name) ?? 0) - (inDegQ.get(a.name) ?? 0) ||
+				b.chain - a.chain,
+		)
 		.slice(0, 25);
 
 	const complex = verdicts
@@ -59,7 +98,7 @@ export function renderTechdebtHtml(
 		.sort((a, b) => b[1] - a[1])
 		.slice(0, 12);
 	const shapeMax = shapeTop[0]?.[1] ?? 1;
-	const govMax = Math.max(...gov.map((v) => inDeg.get(v.chunk.key) ?? 0), 1);
+	const govMax = Math.max(...gov.map((v) => inDegQ.get(v.name) ?? 0), 1);
 	const cMax = Math.max(...complex.map((v) => v.chunk.complexity ?? 0), 1);
 	const n = verdicts.length;
 	const pure = verdicts.filter((v) => v.purity === 0).length;
@@ -358,9 +397,9 @@ ${mods
 ${deepChainRows.length === 0 ? '<div class="sub">无非纯传播链</div>' : deepChainRows}
 </div>
 
-<h2>治理清单 top 25（量纲：直接调用者数——被最多人引用的非纯优先）</h2>
+<h2>治理清单 top 25（量纲：直接调用者数（限定名聚合——同名重载族计一次，去重引用）——被最多人引用的非纯优先）</h2>
 <div class="panel">
-${gov.map((v) => bar(`${esc(v.chunk.name)} <span style="color:var(--dim)">· ${esc(v.chunk.file.split("/").pop() ?? "")}:${v.chunk.line}</span>`, inDeg.get(v.chunk.key) ?? 0, govMax, v.purity === 2 ? "var(--imp)" : "var(--unk)")).join("")}
+${gov.map((v) => bar(`${esc(v.name)} ${v.count > 1 ? `<span style="color:var(--dim)">· ${v.count} 重载</span>` : ""} <span style="color:var(--dim)">· ${esc([...v.files].slice(0, 2).join(", "))}</span>`, inDegQ.get(v.name) ?? 0, govMax, "var(--imp)")).join("")}
 </div>
 
 <h2>拓扑治理优先级（结构热点 → 动作清单 · 量纲各自排序不混合）</h2>

@@ -32,4 +32,31 @@ describe("迭代44-r4：圈复杂度（MCCabe 近似）", () => {
 		expect(s!.chunk.complexity).toBe(1);
 		rmSync(dir, { recursive: true, force: true });
 	});
+	it("switch 计数（Iter-53：普通 case 也计——case_switch_label 缺口修复回归）", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "cq-sw-"));
+		writeFileSync(
+			join(dir, "C.cs"),
+			[
+				"public class C {",
+				"    public int M(int a) {",
+				"        int c = 0;",
+				"        switch (a) {", // switch_statement = 1
+				"            case 1: c++; break;", // case_switch_label = 1
+				"            case 2: c += 2; break;", // case_switch_label = 1
+				"            case 3 when c > 0: c--; break;", // case_pattern_switch_label = 1
+				"            default: c = -1; break;",
+				"        }",
+				"        if (c > 0) c++;", // if = 1
+				"        return c;",
+				"    }",
+				"}",
+			].join("\n"),
+		);
+		const r = await scanProject(dir, { useCache: false });
+		const m = r.verdicts.find((x) => x.chunk.name === "C.M");
+		expect(m).toBeDefined();
+		// 1 基准 + switch×1 + case×2 + pattern case×1 + if×1 = 6
+		expect(m!.chunk.complexity).toBe(6);
+		rmSync(dir, { recursive: true, force: true });
+	});
 });

@@ -929,6 +929,8 @@ export const csharpPack: LangPack = {
 		// 迭代44-r4：MCCabe 分支节点（C# 控制流形态）
 		"if_statement",
 		"switch_statement",
+		"case_switch_label", // 普通 case X:（Iter-53 审计补：iter47 偏差表声明"每 case +1 已核实"，
+		// 但 case_pattern_switch_label 只覆盖 pattern case——普通 case 零计数与声明不符）
 		"case_pattern_switch_label",
 		"for_statement",
 		"for_each_statement",
