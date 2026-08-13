@@ -385,19 +385,29 @@ export class Extractor {
 							const t = ctorTypeName(c, this.pack); // List<int> → List（末段）
 							if (t !== null) bases.push(t);
 							else dynamic = true;
-						} else if (
-							(this.pack.typeNameNodes ?? EMPTY_SHAPES).includes(c.type) &&
-							c.type === "qualified_name"
-						) {
-							// 迭代44-r3 痛点2 根因：C# 命名空间限定基类（class X : Sirenix.OdinInspector.Editor.OdinEditor）
-							// 此前落 dynamic=true → 语言级降级 → 全库全部多态解析 unknown（Init·bare 52 条实证）。
-							// qualified_name 是静态可解析（剥壳末段——与 generic_name 同款）。
-							const t = ctorTypeName(c, this.pack);
-							if (t !== null) bases.push(t);
-							else dynamic = true;
-						} else {
-							dynamic = true; // 动态 heritage：member_expression / 调用 / subscript 等
-						}
+					} else if (
+						(this.pack.typeNameNodes ?? EMPTY_SHAPES).includes(c.type) &&
+						c.type === "qualified_name"
+					) {
+						// 迭代44-r3 痛点2 根因：C# 命名空间限定基类（class X : Sirenix.OdinInspector.Editor.OdinEditor）
+						// 此前落 dynamic=true → 语言级降级 → 全库全部多态解析 unknown（Init·bare 52 条实证）。
+						// qualified_name 是静态可解析（剥壳末段——与 generic_name 同款）。
+						const t = ctorTypeName(c, this.pack);
+						if (t !== null) bases.push(t);
+						else dynamic = true;
+					} else if (c.type === "alias_qualified_name") {
+						// 迭代45 审计 blocker（O-C5 违反实例）：global:: 限定基类（class X : global::Ns.Base）——
+						// alias_qualified_name 是 D-144 已实证存在的节点类型，此前 ∉ 接受集 → dynamic=true →
+						// 语言级降级（全库多态/隐式 this → unknown）。剥壳 = children[1]（跳过 global 标识符）
+						// 递归内层（与 flattenCallTarget 同款），内层递归走 qualified_name/identifier 分支。
+						const inner = c.children.find(
+							(k) => k.isNamed && k.type !== "identifier",
+						);
+						if (inner) pushBase(inner);
+						else dynamic = true;
+					} else {
+						dynamic = true; // 动态 heritage：member_expression / 调用 / subscript 等
+					}
 					};
 					// 迭代40 P0-3 H10：基类容器字段走 pack 数据（Python class_definition →
 					// "superclasses" 字段；C#/TS 无字段 → heritageNodes 子节点查找）

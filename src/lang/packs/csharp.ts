@@ -709,6 +709,12 @@ const propertyReadSkipParents = [
 	"undef_directive",
 	"region_directive",
 	"endregion_directive",
+	"line_directive", // 迭代45 O-C6 机检：13 个 directive 节点族与 grammar 对拍全量入表——
+	"error_directive", // #line/#error/#warning/#pragma/#nullable 编译期符号，无运行时读取；
+	"warning_directive", // 漏任一 → B5 通道误收 → unknown 噪音（安全-未知，局部）
+	"pragma_directive",
+	"nullable_directive",
+	"extern_alias_directive",
 	"field_declaration",
 	"property_declaration",
 	"method_declaration",
@@ -900,14 +906,22 @@ export const csharpPack: LangPack = {
 	eventSubscribeOps: ["+="], // 迭代43 B：事件订阅运算符
 	staticModifiers: ["static"], // 迭代43 r2：static 初始化器单元拆分
 	compileTimeOps: ["typeof", "default", "nameof"], // 迭代44-r2：编译期操作符（实参不提取）
-	heritageSkipNodes: [ // 迭代44-r3：继承提取跳过（痛点2 根因数据化）
+	heritageSkipNodes: [ // 迭代44-r3：继承提取跳过（痛点2 根因数据化）；迭代45 O-C5 机检全量补齐
 		"predefined_type", // 枚举底层类型（enum X : int）
-		"if_directive", // 预处理指令（#if 内类声明混入 base_list）
-		"elif_directive",
+		"if_directive", // 预处理指令（#if 内类声明混入 base_list）——漏任一 → 误判动态 heritage
+		"elif_directive", // → 语言级降级（全库多态/隐式 this → unknown，-37% 级）
 		"else_directive",
 		"endif_directive",
 		"define_directive",
 		"undef_directive",
+		"region_directive", // 迭代45：13 个 directive 节点族与 grammar 对拍全量入表（region 族
+		"endregion_directive", // 与 #if 同族——tree-sitter 把预处理指令挂在 token 流可及处）
+		"line_directive",
+		"error_directive",
+		"warning_directive",
+		"pragma_directive",
+		"nullable_directive",
+		"extern_alias_directive",
 	],
 	valueWrapNodes: ["equals_value_clause"], // P0-3 漏网：C# 赋值 value 包装解包
 	incDecTokens: ["++", "--"], // P0-3 漏网：增减操作符（writeUnary 只认增减）

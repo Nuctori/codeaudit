@@ -849,6 +849,37 @@ function memberNameExists(
 	return false;
 }
 
+/** 迭代45 C1 反例修复：attr 是否为 ownerClass 的成员（C# 属性/方法——限定名索引命中）。
+ *  仅 C# 语义下启用（bareNameMeansThisInMethod：隐式 this 可裸写/裸读类成员）——
+ *  TS/JS/Python 无隐式 this 属性读，裸名读永远是局部/模块级，短路判纯无洞。
+ *  C# 侧判定 = byQualified/ambiguous 限定名 `${cls}.${attr}` 命中（B5 属性 chunk 建了限定名）；
+ *  字段不产 chunk（无 getter，读纯——prop-miss 已覆盖）→ 不命中 → 短路保留。
+ *  返回 true = 是类成员 → 短路点不判纯（落回既有解析：属性 chunk 边 / ?）。 */
+function isClassMemberName(
+	cls: string,
+	name: string,
+	pack: LangPack,
+	files: ReadonlyMap<string, FileIndex>,
+	globalClasses: ReadonlyMap<
+		string,
+		{ file: string; key: string; lang: string }[]
+	>,
+	superMap: ReadonlyMap<string, ReadonlySet<string>>,
+): boolean {
+	for (const c of ancestorClosureOf(cls, pack, superMap)) {
+		const entries = globalClasses.get(c);
+		if (!entries) continue;
+		for (const e of entries) {
+			if (e.lang !== pack.name) continue;
+			const tf = files.get(e.file);
+			if (!tf) continue;
+			const q = `${c}.${name}`;
+			if (tf.byQualified.has(q) || tf.ambiguous.has(q)) return true;
+		}
+	}
+	return false;
+}
+
 /** 迭代38 A + 迭代39 B7：类成员解析（继承/多态最小健全版）。
  *  polymorphic=true（self/隐式 this/参数接收者）：运行时对象可能是 cls 的子类——
  *  后代守卫：Python/JS 一切方法多态（pack.polymorphicMethods）→ cls ∈ hasSubclass 即降 "unknown"；
@@ -1510,7 +1541,28 @@ function resolveCall(
 	// extractor 参数跳过先例——「纯是静态事实，不需要解析」）。必须在 bySimple 之前短路：遮蔽语义下
 	// 读的就是局部，无需解析（防顶层同名假边）。调用形态（prop=false）遮蔽维持 ?（iter41 阴影守卫
 	// 不回退——`const Math = evil(); Math(...)` 仍 ?）。豁免面 = obj===null ∧ prop ∧ attr∈assigned。
-	if (call.obj === null && call.prop && caller.assigned.includes(call.attr))
+	// 迭代45 审计修正（C1 反例，S1 违反）：assigned 含 assignment_expression 左值收集——C# 隐式 this
+	// 属性写（`V = "a"` 无局部 V 时解析到本类属性）后裸读 V 会被短路判 PURE，而 getter 执行 io → 假纯；
+	// 类 chunk 同理（assigned = 整棵类子树，方法内局部声明名污染类级字段初始化器读属性）。修复 =
+	// 成员互斥：attr 是 ownerClass（类 chunk 用自身名）的成员（属性/方法）时**不**短路（落回既有解析）。
+	// 局部/参数/foreach/catch 名非类成员 → 短路保留（iter44 收益不回退）；局部遮蔽成员名退回 ?（安全）。
+	if (
+		call.obj === null &&
+		call.prop &&
+		caller.assigned.includes(call.attr) &&
+		!(
+			pack.bareNameMeansThisInMethod &&
+			(caller.ownerClass ?? (caller.kind === "class" ? caller.name : null)) &&
+			isClassMemberName(
+				caller.ownerClass ?? (caller.kind === "class" ? caller.name : null)!,
+				call.attr,
+				pack,
+				files,
+				globalClasses,
+				superMap,
+			)
+		)
+	)
 		return;
 
 	// 2. 裸名：同文件顶层定义。仅顶层可裸名解析（方法不在裸名作用域）；

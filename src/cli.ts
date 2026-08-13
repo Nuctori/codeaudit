@@ -12,6 +12,8 @@ import { loadEffectOverrides, type EffectTables } from "./lang/effectOverride";
 import { riskOfChange, gateExit } from "./core/risk";
 import { graphMetrics } from "./core/topology";
 import { stateCouplingOf, type StateCouplingEntry } from "./core/state";
+import { moduleSummary } from "./core/module";
+import { outDepsOf, inDepsOf } from "./core/filedeps";
 import { sourceSnippet } from "./core/snippet";
 import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
 import {
@@ -19,6 +21,7 @@ import {
 	annotationCurve,
 	annotationCompare,
 	unknownKeysOf,
+	compareReports,
 } from "./core/influence";
 import {
 	emptyCorpus,
@@ -43,6 +46,11 @@ interface CliArgs {
 	noCache: boolean;
 	strict: boolean;
 	/** 合入门禁（--gate；与 --changed 联用：grade ≥ high → exit 1）。 */
+	modules: boolean;
+	/** 文件依赖（--deps <file>；迭代44-r4：拆分决策——入/出边文件清单）。 */
+	deps: string | null;
+	/** 重构前后对比（--compare <before.json>；迭代44-r4：复用 compareReports 库 API）。 */
+	compare: string | null;
 	gate: boolean;
 	/** 状态耦合图（--state；迭代23 D-127：写方按读者数排序，全图耦合链）。 */
 	state: boolean;
@@ -73,6 +81,9 @@ function parseArgs(argv: string[]): CliArgs {
 		topology: false,
 		sources: false,
 		tableUsage: false,
+		modules: false,
+		deps: null,
+		compare: null,
 	};
 	const rest = argv.slice(2);
 	for (let i = 0; i < rest.length; i++) {
@@ -94,6 +105,9 @@ function parseArgs(argv: string[]): CliArgs {
 		else if (a === "--sources") args.sources = true;
 		else if (a === "--state") args.state = true;
 		else if (a === "--table-usage") args.tableUsage = true;
+		else if (a === "--modules") args.modules = true;
+		else if (a === "--deps") args.deps = rest[++i]!;
+		else if (a === "--compare") args.compare = rest[++i]!;
 		else if (a === "--changed")
 			args.changed = (rest[++i] ?? "")
 				.split(",")
@@ -591,6 +605,72 @@ async function main(): Promise<void> {
 					console.log(
 						`  （注：${topWriters} 个写方含 ⊤ 降级匹配——近似耦合，见 README 已知限制）`,
 					);
+			}
+		}
+		if (args.modules) {
+		}
+		if (args.modules) {
+			// 迭代44-r4：模块级聚合（重构范围决策视图）——目录前缀聚合 purity/效应面/链深
+			const mods = moduleSummary(report.verdicts);
+			console.log(`\n模块聚合（按 chunk 数降序；top ${args.top ?? 15}）：`);
+			for (const m of mods.slice(0, args.top ?? 15)) {
+				console.log(
+					`  ${String(m.chunks).padStart(5)} chunks  P=${m.pure} U=${m.unknown} I=${m.impure}  ${(m.unknownRate * 100).toFixed(1)}%?  chain=${m.maxChain}  [${m.effects.join(",") || "-"}]  ${m.module}`,
+				);
+			}
+		}
+		if (args.deps) {
+			// 迭代44-r4：文件依赖（拆分决策）——入/出边文件清单
+			const outDeps = outDepsOf(report.verdicts, args.deps);
+			const inDeps = inDepsOf(report.verdicts, args.deps);
+			console.log(`\n依赖 ${args.deps}：`);
+			console.log(`  出边（它调用谁，top 10）：`);
+			for (const d of outDeps.slice(0, 10))
+				console.log(`    ${String(d.edges).padStart(4)}  ${d.file}`);
+			if (outDeps.length === 0) console.log(`    （无出边——纯叶/孤立）`);
+			console.log(`  入边（谁调用它，top 10）：`);
+			for (const d of inDeps.slice(0, 10))
+				console.log(`    ${String(d.edges).padStart(4)}  ${d.file}`);
+			if (inDeps.length === 0) console.log(`    （无入边——无消费者）`);
+		}
+		if (args.compare) {
+			// 迭代44-r4：重构前后对比（复用 compareReports 库 API）——判定翻转 + unknown 变化摘要
+			try {
+				const before = JSON.parse(readFileSync(args.compare, "utf8")) as {
+					verdicts: Array<{
+						chunk: { key: string; file: string; name: string };
+						purity: number;
+						chain: number;
+						effects: string[];
+					}>
+				};
+				const toView = (x: (typeof before.verdicts)[number]): Verdict => ({
+					purity: x.purity as Verdict["purity"],
+					chain: x.chain,
+					chainCertain: true,
+					effects: new Set(x.effects),
+					chunk: x.chunk as Verdict["chunk"],
+					provenance: "static" as const,
+					chainDev: x.chain,
+					chainPath: [],
+					throwsTypes: [],
+					stateDeps: [],
+				});
+				const deltas = compareReports(before.verdicts.map(toView), report.verdicts);
+				const flipped = deltas.filter((d) => d.purityFrom !== d.purityTo);
+				const beforeU = before.verdicts.filter((v) => v.purity === 1).length;
+				console.log(
+					`\n对比 ${args.compare}：unknown ${beforeU}→${report.stats.unknown}；判定翻转 ${flipped.length} 条`,
+				);
+				for (const d of flipped.slice(0, args.top ?? 10))
+					console.log(`  ${d.file}:${d.name} ${d.purityFrom}→${d.purityTo}`);
+				if (flipped.length > (args.top ?? 10))
+					console.log(`  … 共 ${flipped.length} 条（--top N 查看更多）`);
+			} catch (e) {
+				console.error(
+					"codeaudit: --compare 读取失败 " +
+						(e instanceof Error ? e.message : String(e)),
+				);
 			}
 		}
 		console.log(
