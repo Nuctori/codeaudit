@@ -86,4 +86,25 @@ describe("O-C5/O-C6 节点清单完备性机检（迭代45）", () => {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
+
+	it("别名限定基类单段（global::Base）不再触发动态 heritage（迭代47 审计 Low 单段缺口）", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "cq-oc5s-"));
+		try {
+			writeFileSync(
+				join(dir, "C.cs"),
+				[
+					"namespace Ns { public class Base { public int F() { return 1; } } }",
+					"class Derived : global::Base { public int G() { return F(); } }",
+				].join("\n"),
+			);
+			const r = await scanProject(dir, { useCache: false });
+			const g = r.verdicts.find((v) => v.chunk.name === "Derived.G");
+			// 修复前：alias_qualified_name 无非 identifier 具名子（identifier "Base" 被排除）→
+			// dynamic=true → 语言级降级 → G 判 UNKNOWN。fallback 末位具名子后必须 PURE
+			expect(g).toBeDefined();
+			expect(g!.purity).toBe(0);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 });

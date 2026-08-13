@@ -401,9 +401,10 @@ export class Extractor {
 							// alias_qualified_name 是 D-144 已实证存在的节点类型，此前 ∉ 接受集 → dynamic=true →
 							// 语言级降级（全库多态/隐式 this → unknown）。剥壳 = children[1]（跳过 global 标识符）
 							// 递归内层（与 flattenCallTarget 同款），内层递归走 qualified_name/identifier 分支。
-							const inner = c.children.find(
-								(k) => k.isNamed && k.type !== "identifier",
-							);
+							const inner =
+								c.children.find(
+									(k) => k.isNamed && k.type !== "identifier",
+								) ?? c.children.filter((k) => k.isNamed).at(-1); // 迭代47 审计 Low：global::Base 单段（无命名空间）时无非 identifier 具名子 → fallback 末位具名（identifier "Base"）
 							if (inner) pushBase(inner);
 							else dynamic = true;
 						} else {

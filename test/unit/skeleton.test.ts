@@ -100,4 +100,16 @@ describe("bridgesOf（迭代46 桥/割点：模块边界）", () => {
 		expect(r.bridges).toHaveLength(3);
 		expect(r.articulationPoints).toContain("A");
 	});
+
+	it("30K 链式图不爆栈（迭代47 审计 Medium：递归 DFS 改显式栈）", () => {
+		// 无环项目分量数 ≈ chunk 数：链式调用图递归 DFS 深度 30K → RangeError；
+		// 迭代化后必须返回 30K−1 条桥（链上每条边都是唯一通道）且 30K−2 个割点（首尾除外）
+		const N = 30_000;
+		const chunks = [];
+		for (let i = 0; i < N; i++)
+			chunks.push(v(`N${i}`, { calls: i + 1 < N ? [`N${i + 1}`] : [] }));
+		const r = bridgesOf(chunks);
+		expect(r.bridges).toHaveLength(N - 1);
+		expect(r.articulationPoints).toHaveLength(N - 2);
+	});
 });

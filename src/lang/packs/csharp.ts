@@ -924,7 +924,6 @@ export const csharpPack: LangPack = {
 		"pragma_directive_repeat", // grammar 变体（iter45 O-C5 机检实证）
 		"nullable_directive",
 		"extern_alias_directive",
-		"extern_alias_directive",
 	],
 	complexityNodes: [
 		// 迭代44-r4：MCCabe 分支节点（C# 控制流形态）

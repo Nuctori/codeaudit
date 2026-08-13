@@ -119,8 +119,7 @@ function parseArgs(argv: string[]): CliArgs {
 			const val = rest[++i];
 			if (val === undefined) throw new Error("--compare 需要参数 <json>");
 			args.compare = val;
-		}
-		else if (a === "--changed")
+		} else if (a === "--changed")
 			args.changed = (rest[++i] ?? "")
 				.split(",")
 				.map((s) => s.trim())
@@ -685,8 +684,7 @@ async function main(): Promise<void> {
 			const skFiles = new Map<string, number>(); // 目标文件 → 骨架边数
 			for (const e of sk) {
 				const f = chunkFile.get(e.to);
-				if (f && f !== args.deps)
-					skFiles.set(f, (skFiles.get(f) ?? 0) + 1);
+				if (f && f !== args.deps) skFiles.set(f, (skFiles.get(f) ?? 0) + 1);
 			}
 			if (skFiles.size > 0) {
 				console.log(`  骨架（传递去重后真直接依赖，top 10）：`);

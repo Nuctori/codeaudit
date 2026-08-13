@@ -189,7 +189,8 @@ export function bridgesOf(verdicts: readonly Verdict[]): BridgeResult {
 					if (low[f.u]! > tin[f.parent]!) {
 						bridges.push({ from: reps.get(f.parent)!, to: reps.get(f.u)! });
 					}
-					if (low[f.u]! >= tin[f.parent]!) articulation.add(f.parent);
+					// 割点判定须排除树根（原递归 parent !== -1 即此义）：根只由 children > 1 判定
+					if (f.parent !== c && low[f.u]! >= tin[f.parent]!) articulation.add(f.parent);
 				}
 			}
 		}
