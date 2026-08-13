@@ -678,7 +678,8 @@ const propertyReadSkipParents = [
 	"name_equals",
 	"using_directive", // 迭代43 诊断：using 声明的 qualified_name（using Newtonsoft.Json;）被
 	"qualified_name", // B5 identifier 通道误当调用 → module chunk unknown 噪音；类型位置无运行时读取
-	"global_keyword", // global:: 限定符（typeof(global::System.X)）
+	"alias_qualified_name", // global:: 限定符（typeof(global::System.X)——审计实证：真实节点是
+	// alias_qualified_name，global_keyword 是死条目（000c0f8 修正）
 	"field_declaration",
 	"property_declaration",
 	"method_declaration",
