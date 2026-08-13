@@ -900,6 +900,15 @@ export const csharpPack: LangPack = {
 	eventSubscribeOps: ["+="], // 迭代43 B：事件订阅运算符
 	staticModifiers: ["static"], // 迭代43 r2：static 初始化器单元拆分
 	compileTimeOps: ["typeof", "default", "nameof"], // 迭代44-r2：编译期操作符（实参不提取）
+	heritageSkipNodes: [ // 迭代44-r3：继承提取跳过（痛点2 根因数据化）
+		"predefined_type", // 枚举底层类型（enum X : int）
+		"if_directive", // 预处理指令（#if 内类声明混入 base_list）
+		"elif_directive",
+		"else_directive",
+		"endif_directive",
+		"define_directive",
+		"undef_directive",
+	],
 	valueWrapNodes: ["equals_value_clause"], // P0-3 漏网：C# 赋值 value 包装解包
 	incDecTokens: ["++", "--"], // P0-3 漏网：增减操作符（writeUnary 只认增减）
 	nestingNodes,

@@ -358,18 +358,11 @@ export class Extractor {
 				const bases: string[] = [];
 				if (name) {
 					const pushBase = (c: SyntaxNode): void => {
-						// 迭代44-r3 痛点2 根因修复：非继承形态排除——枚举底层类型（enum X : int 的
-						// predefined_type）与预处理指令（#if DISABLE_SRDEBUGGER 内类声明——if_directive
-						// 混入 base_list 子节点）此前落 dynamic=true → 语言级降级 → 全库多态解析 unknown。
-						// ERROR（parseError 文件）同样跳过（文件已降级，不额外污染语言级）。
+						// 迭代44-r3 痛点2 根因修复：非继承形态排除（枚举底层类型/predefined_type 与预处理指令）
+						// 此前落 dynamic=true → 语言级降级 → 全库多态解析 unknown。节点清单走 pack 数据
+						//（heritageSkipNodes，P0-3 纪律）；ERROR（parseError 文件）跳过（文件已降级，不额外污染）。
 						if (
-							c.type === "predefined_type" ||
-							c.type === "if_directive" ||
-							c.type === "else_directive" ||
-							c.type === "elif_directive" ||
-							c.type === "endif_directive" ||
-							c.type === "define_directive" ||
-							c.type === "undef_directive" ||
+							(this.pack.heritageSkipNodes ?? EMPTY_SHAPES).includes(c.type) ||
 							c.type === "ERROR"
 						)
 							return;

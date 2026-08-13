@@ -316,6 +316,9 @@ export interface LangPack {
 	/** 编译期操作符名（C# typeof/default/nameof）。迭代44-r2：实参是类型/编译期常量——
 	 *  不提取调用点（typeof(T) 的 T 被误当裸名调用，InitDeity T·bare 89 实证）。 */
 	readonly compileTimeOps?: readonly string[];
+	/** 继承提取跳过节点（迭代44-r3 痛点2 根因：C# 枚举底层类型 predefined_type + 预处理
+	 *  7 节点被误判动态 heritage → 语言级降级——数据化对齐 P0-3；ERROR 由解析层兜底）。 */
+	readonly heritageSkipNodes?: readonly string[];
 	/** 事件声明节点（C# event_field_declaration）。迭代43 B。 */
 	readonly eventFieldNodes?: readonly string[];
 	/** 事件订阅运算符 token（C#/JS "+="）。迭代43 B：订阅 = 注册义务（触发端展开 handler），
