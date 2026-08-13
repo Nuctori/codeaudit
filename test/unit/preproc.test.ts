@@ -28,7 +28,11 @@ describe("迭代44-r3：预处理指令符号不提取", () => {
 		// 修复前：#if UNITY_EDITOR 的符号被当裸名调用 → unknown；修复后：预处理指令位置无运行时读取
 		// Console.WriteLine 仍正常解析（IMPURE——不受排除影响）
 		expect(m!.purity).toBe(Purity.IMPURE);
-		expect([...(m!.chunk.unknownCalls ?? [])].filter((uc) => uc.attr === "UNITY_EDITOR").length).toBe(0);
+		expect(
+			[...(m!.chunk.unknownCalls ?? [])].filter(
+				(uc) => uc.attr === "UNITY_EDITOR",
+			).length,
+		).toBe(0);
 		rmSync(dir, { recursive: true, force: true });
 	});
 });
