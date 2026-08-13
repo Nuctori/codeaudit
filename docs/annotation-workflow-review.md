@@ -90,3 +90,10 @@
 - 收尾标注 313 条（`<unresolved>` 265 + `T` 48 + 其他——保守 IMPURE，方向安全）→ **unknown 314 → 1（0.004%）**——累计 6335 条标注（1123 PURE + 5393 IMPURE 生效）从无标注 6730 归零
 - 剩余 1 = 工具残余单点（机制未定位的痛点 2 族）
 - 结论：**InitDeity 标注面 100% 覆盖**——可标全标（形态组/工作台/保守 IMPURE）+ 设计内消除（<unresolved>/T 标注覆盖）
+
+## 迭代44-r3 痛点 2 根因修复（日志级定位）
+
+- **根因**：classExtendsOf 把枚举底层类型（`enum X : int` 的 predefined_type）与预处理指令（`#if DISABLE_SRDEBUGGER` 内类声明的 if_directive 混入 base_list）误判为**动态 heritage** → hasDynamicExtends=true → 规则3 语言级降级 → **全库所有 C# 多态/隐式 this 解析 unknown**
+- 修复：pushBase 排除 predefined_type/预处理 7 节点/ERROR + qualified_name 基类剥壳（`class X : Ns.Base` 此前也落 dynamic——同批）
+- **效果**：InitDeity 无标注 unknown 6700→4199（**-37%**）——不止 Init·bare 52 条，全部同文件符号裸名 miss（Refresh*/CopySource/count/steps/conditionals/type 全族）恢复精确解析
+- 回归测试 +1（枚举/预处理/qualified_name 基类 + 有子类场景的 Init 解析）：379/379

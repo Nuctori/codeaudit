@@ -358,6 +358,21 @@ export class Extractor {
 				const bases: string[] = [];
 				if (name) {
 					const pushBase = (c: SyntaxNode): void => {
+						// 迭代44-r3 痛点2 根因修复：非继承形态排除——枚举底层类型（enum X : int 的
+						// predefined_type）与预处理指令（#if DISABLE_SRDEBUGGER 内类声明——if_directive
+						// 混入 base_list 子节点）此前落 dynamic=true → 语言级降级 → 全库多态解析 unknown。
+						// ERROR（parseError 文件）同样跳过（文件已降级，不额外污染语言级）。
+						if (
+							c.type === "predefined_type" ||
+							c.type === "if_directive" ||
+							c.type === "else_directive" ||
+							c.type === "elif_directive" ||
+							c.type === "endif_directive" ||
+							c.type === "define_directive" ||
+							c.type === "undef_directive" ||
+							c.type === "ERROR"
+						)
+							return;
 						if (
 							c.type === "identifier" ||
 							c.type === "type_identifier" ||
@@ -375,6 +390,16 @@ export class Extractor {
 							c.type === "generic_name"
 						) {
 							const t = ctorTypeName(c, this.pack); // List<int> → List（末段）
+							if (t !== null) bases.push(t);
+							else dynamic = true;
+						} else if (
+							(this.pack.typeNameNodes ?? EMPTY_SHAPES).includes(c.type) &&
+							c.type === "qualified_name"
+						) {
+							// 迭代44-r3 痛点2 根因：C# 命名空间限定基类（class X : Sirenix.OdinInspector.Editor.OdinEditor）
+							// 此前落 dynamic=true → 语言级降级 → 全库全部多态解析 unknown（Init·bare 52 条实证）。
+							// qualified_name 是静态可解析（剥壳末段——与 generic_name 同款）。
+							const t = ctorTypeName(c, this.pack);
 							if (t !== null) bases.push(t);
 							else dynamic = true;
 						} else {
