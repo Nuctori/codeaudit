@@ -49,7 +49,9 @@ export function renderTechdebtHtml(
 			const k = `${uc.attr}·${uc.root}`;
 			shapes.set(k, (shapes.get(k) ?? 0) + 1);
 		}
-	const shapeTop = [...shapes.entries()].sort((a, b) => b[1] - a[1]).slice(0, 12);
+	const shapeTop = [...shapes.entries()]
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, 12);
 	const shapeMax = shapeTop[0]?.[1] ?? 1;
 	const govMax = Math.max(...gov.map((v) => inDeg.get(v.chunk.key) ?? 0), 1);
 	const cMax = Math.max(...complex.map((v) => v.chunk.complexity ?? 0), 1);
@@ -86,8 +88,7 @@ export function renderTechdebtHtml(
 		const extEntry = new Set<string>();
 		for (const v of verdicts) {
 			if (members.has(v.chunk.key)) continue;
-			for (const t of v.chunk.calls)
-				if (members.has(t)) extEntry.add(t);
+			for (const t of v.chunk.calls) if (members.has(t)) extEntry.add(t);
 		}
 		if (extEntry.size > 1)
 			entangled.push({ comp: comp.slice(0, 6), entries: extEntry.size });
@@ -97,7 +98,12 @@ export function renderTechdebtHtml(
 
 	// —— 桥清单（模块边界：唯一通道 from→to 分量代表）——
 	const bridgeRows = br.bridges
-		.map((e) => ({ from: nameOf(e.from), to: nameOf(e.to) }))
+		.map((e) => ({
+			from: nameOf(e.from),
+			to: nameOf(e.to),
+			impact: (inDeg.get(e.from) ?? 0) + (inDeg.get(e.to) ?? 0),
+		}))
+		.sort((a, b) => b.impact - a.impact)
 		.slice(0, 15);
 	// 割点枢纽按调用者数排序
 	const artRows = br.articulationPoints
@@ -105,9 +111,23 @@ export function renderTechdebtHtml(
 		.sort((a, b) => b.callers - a.callers)
 		.slice(0, 15);
 
+	// —— 拓扑治理优先级（三类结构热点各自按影响面排序 + 动作建议；量纲不混合）——
+	// 纠缠环：影响 = 入口数 × 环成员数（解耦收益 = 打断多少个外部入口 × 环体量）
+	const ringRows = entangled
+		.map((e) => ({
+			names: e.comp.map((k) => nameOf(k)),
+			entries: e.entries,
+			impact: e.entries * e.comp.length,
+		}))
+		.sort((a, b) => b.impact - a.impact)
+		.slice(0, 10);
+	const bridgeMax = Math.max(...bridgeRows.map((b) => b.impact), 1);
+	const artMax = Math.max(...artRows.map((a) => a.callers), 1);
+
 	// —— 骨架差异（最小化：全边 vs 骨架——传递冗余揭示）——
 	const knownTotal = verdicts.reduce(
-		(sum, v) => sum + [...v.chunk.calls].filter((t) => t !== UNKNOWN_TARGET).length,
+		(sum, v) =>
+			sum + [...v.chunk.calls].filter((t) => t !== UNKNOWN_TARGET).length,
 		0,
 	);
 	const redundant = Math.max(knownTotal - sk.length, 0);
@@ -118,6 +138,23 @@ export function renderTechdebtHtml(
 			.replace(/</g, "&lt;")
 			.replace(/>/g, "&gt;")
 			.replace(/"/g, "&quot;");
+
+	// —— 长传播链（用户判据：治理最优先 = 效应从源头传播最深的链，非纯模块可能只是边缘叶子）——
+	// chain = 效应跳数（audit 悲观下界）；chainPath = 效应源 → ... → 本 chunk 的证据路径。
+	// 长链 = 效应传染深远 = 改动链上任何一环影响面大——治理优先级高于孤立非纯叶子。
+	const deepChainRows = verdicts
+		.filter((v) => v.purity !== 0 && Number.isFinite(v.chain) && (v.chain ?? 0) > 0)
+		.sort((a, b) => (b.chain ?? 0) - (a.chain ?? 0))
+		.slice(0, 15)
+		.map((v) => {
+			const path = (v.chainPath ?? [])
+				.map((k) => nameOf(k))
+				.join(" → ");
+			return `<div class="bar-row"><div class="bar-label" style="width:34%">${esc(v.chunk.name)} <span style="color:var(--dim)">· ${esc(v.chunk.file.split("/").pop() ?? "")}</span></div>
+  <div class="bar-track" style="background:transparent"><div class="chain-path">${esc(path)}</div></div>
+  <div class="bar-val">${v.chain} 跳</div></div>`;
+		})
+		.join("");
 
 	const bar = (
 		label: string,
@@ -167,8 +204,9 @@ export function renderTechdebtHtml(
 		.join("");
 	const chainMax = Math.max(...g.chainHistogram, g.chainInf, 1);
 	const chainRows =
-		g.chainHistogram.map((c, i) => bar(`chain=${i}`, c, chainMax, "var(--fg)")).join("") +
-		bar("chain=∞(PURE)", g.chainInf, chainMax, "var(--pure)");
+		g.chainHistogram
+			.map((c, i) => bar(`chain=${i}`, c, chainMax, "var(--fg)"))
+			.join("") + bar("chain=∞(PURE)", g.chainInf, chainMax, "var(--pure)");
 	const entryMax = Math.max(...g.sccEntryHistogram, 1);
 	const entryRows = g.sccEntryHistogram
 		.map((c, i) => bar(`入口 ${i}`, c ?? 0, entryMax, "var(--unk)"))
@@ -208,6 +246,7 @@ td{padding:6px 8px;border-bottom:1px solid var(--br);color:var(--fg);white-space
 .two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:800px){.two-col{grid-template-columns:1fr}}
 .chip{display:inline-block;background:var(--panel2);border:1px solid var(--br);border-radius:4px;padding:2px 8px;margin:3px;font-size:11px;color:var(--fg)}
+.chain-path{font-size:11px;color:var(--dim);font-family:ui-monospace,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style></head><body>
 <h1>${esc(opts.title ?? "codeaudit 技术债报告")}</h1>
 <div class="sub">${esc(opts.sub ?? "")} · ${n} chunks · ${stats.files} 文件 · ${stats.cycles} 环 · ${new Date().toISOString().slice(0, 19)}</div>
@@ -242,8 +281,15 @@ ${entryRows}
 
 <h2>模块级（PURE/UNKNOWN/IMPURE 分段 · top 10）</h2>
 <div class="panel">
-${mods.slice(0, 10).map((m) => seg(m.module, [m.pure, m.unknown, m.impure], m.chunks)).join("")}
+${mods
+	.slice(0, 10)
+	.map((m) => seg(m.module, [m.pure, m.unknown, m.impure], m.chunks))
+	.join("")}
 <div class="legend"><span><i class="dot" style="background:var(--pure)"></i>PURE</span><span><i class="dot" style="background:var(--unk)"></i>UNKNOWN</span><span><i class="dot" style="background:var(--imp)"></i>IMPURE</span></div>
+</div>
+<h2>长传播链 top 15（治理最优先——效应从源头传染最深，改链上任何一环波及深远；非纯叶子在边缘不优先）</h2>
+<div class="panel">
+${deepChainRows.length === 0 ? '<div class="sub">无非纯传播链</div>' : deepChainRows}
 </div>
 
 <h2>治理清单 top 25（量纲：直接调用者数——被最多人引用的非纯优先）</h2>
@@ -251,19 +297,63 @@ ${mods.slice(0, 10).map((m) => seg(m.module, [m.pure, m.unknown, m.impure], m.ch
 ${gov.map((v) => bar(`${esc(v.chunk.name)} <span style="color:var(--dim)">· ${esc(v.chunk.file.split("/").pop() ?? "")}:${v.chunk.line}</span>`, inDeg.get(v.chunk.key) ?? 0, govMax, v.purity === 2 ? "var(--imp)" : "var(--unk)")).join("")}
 </div>
 
-<h2>纠缠环 top ${entangled.length > 8 ? 8 : entangled.length}（可规约性热点——多入口=重构雷区）</h2>
+<h2>拓扑治理优先级（结构热点 → 动作清单 · 量纲各自排序不混合）</h2>
 <div class="panel">
-${entangled.length === 0 ? '<div class="sub">无多入口纠缠环</div>' : entangled.slice(0, 8).map((e) => `<div class="bar-row"><div class="bar-label">${e.entries} 入口</div><div class="bar-track" style="background:transparent">${e.comp.map((k) => `<span class="chip">${esc(nameOf(k))}</span>`).join("")}</div><div class="bar-val"></div></div>`).join("")}
+<h3>🔗 纠缠环优先解耦序（影响 = 外部入口数 × 环成员数——打断哪个环收益最大）</h3>
+${
+	ringRows.length === 0
+		? '<div class="sub">无多入口纠缠环</div>'
+		: ringRows
+				.map(
+					(r) =>
+						`<div class="bar-row"><div class="bar-label" style="width:44%">${r.entries} 入口 × ${r.names.length} 成员</div><div class="bar-track" style="background:transparent">${r.names.map((nm) => `<span class="chip">${esc(nm)}</span>`).join("")}</div><div class="bar-val">影响 ${r.impact}</div></div>`,
+				)
+				.join("")
+}
+<div class="sub" style="margin-top:8px">动作：从影响最大的环开始解耦——收敛为单入口（结构化递归）或打断环。</div>
+</div>
+<div class="panel">
+<h3>🛡 桥边优先保护序（影响 = 两端调用者合计——哪个唯一通道断裂波及最大）</h3>
+${
+	bridgeRows.length === 0
+		? '<div class="sub">无桥边</div>'
+		: bridgeRows
+				.map(
+					(b) =>
+						`<div class="bar-row"><div class="bar-label" style="width:44%">${esc(b.from)} → ${esc(b.to)}</div><div class="bar-track">${b.impact > 0 ? `<div class="bar-fill" style="width:${Math.max(Math.round((b.impact / bridgeMax) * 100), 1)}%;background:var(--acc)"></div>` : ""}</div><div class="bar-val">影响 ${b.impact}</div></div>`,
+				)
+				.join("")
+}
+<div class="sub" style="margin-top:8px">动作：从影响最大的桥开始补契约测试/版本兼容——改桥两端前先跑影响面（--changed）。</div>
+</div>
+<div class="panel">
+<h3>🎯 割点优先评审序（按调用者数——哪个必经枢纽改动风险最大）</h3>
+${
+	artRows.length === 0
+		? '<div class="sub">无割点</div>'
+		: artRows
+				.map(
+					(a) =>
+						`<div class="bar-row"><div class="bar-label" style="width:44%">${esc(a.name)}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(Math.round((a.callers / artMax) * 100), 1)}%;background:var(--imp)"></div></div><div class="bar-val">${a.callers} callers</div></div>`,
+				)
+				.join("")
+}
+<div class="sub" style="margin-top:8px">动作：从调用者最多的割点开始——代码评审从严、改动跑全量回归。</div>
 </div>
 
-<h2>桥与割点（模块边界）</h2>
-<div class="two-col">
-<div class="panel"><h3>桥边 top 15（唯一通道——契约测试必保接口）</h3>
-${bridgeRows.length === 0 ? '<div class="sub">无桥边</div>' : bridgeRows.map((b) => `<div class="bar-row"><div class="bar-label" style="width:70%">${esc(b.from)} → ${esc(b.to)}</div><div class="bar-track" style="background:transparent"><span class="chip">🔗</span></div><div class="bar-val"></div></div>`).join("")}
-</div>
-<div class="panel"><h3>割点枢纽 top 15（必经分量——改动影响面最大）</h3>
-${artRows.length === 0 ? '<div class="sub">无割点</div>' : artRows.map((a) => bar(esc(a.name), a.callers, Math.max(...artRows.map((x) => x.callers), 1), "var(--imp)")).join("")}
-</div>
+<h2>纠缠环成员（可规约性热点——重构雷区详情）</h2>
+<div class="panel">
+${
+	entangled.length === 0
+		? '<div class="sub">无多入口纠缠环</div>'
+		: entangled
+				.slice(0, 8)
+				.map(
+					(e) =>
+						`<div class="bar-row"><div class="bar-label">${e.entries} 入口</div><div class="bar-track" style="background:transparent">${e.comp.map((k) => `<span class="chip">${esc(nameOf(k))}</span>`).join("")}</div><div class="bar-val"></div></div>`,
+				)
+				.join("")
+}
 </div>
 
 <h2>圈复杂度 top 20</h2>
