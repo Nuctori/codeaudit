@@ -1494,6 +1494,13 @@ export class Extractor {
 		if (this.pack.propertyReadSkipMorphs?.includes(p.type)) return false;
 		// 声明/类型位排除（C# 声明、类型参数、特性、标签、cast/is/as 等——无运行时读取）
 		if (this.pack.propertyReadSkipParents?.includes(p.type)) return false;
+		// 迭代53：裸 identifier 实参位（方法组引用）——只停发 identifier 形态（member_access 实参
+		// 保留效应表通道）；裸名方法组会被 implicitThis 误解析成调用边（事件订阅/退订伪环）。
+		if (
+			node.type === "identifier" &&
+			this.pack.bareArgReadSkipParents?.includes(p.type)
+		)
+			return false;
 		// 声明名位排除（name/type 槽位——无运行时读取；value 位保留）。
 		// 位置比较（web-tree-sitter 每次访问产新包装对象，=== 引用比较失效）
 		const slots = this.pack.propertyReadNameSlots?.[p.type];

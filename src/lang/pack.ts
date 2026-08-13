@@ -159,6 +159,13 @@ export interface LangPack {
 	 */
 	readonly propertyReadSkipParents?: readonly string[];
 	/**
+	 * 裸 identifier 属性读取排除：parent 实参位（迭代53）——方法组实参（AddListener/RemoveListener/
+	 * delegate 传参）是引用非调用；裸名会被 implicitThis 误解析成调用边（事件订阅/退订伪环）。
+	 * 只停发裸 identifier（member_access 实参如 Console.WriteLine 保留——效应表通道契约，iter30-32 测试）。
+	 * argFnsOf 通道保留 HOF 回调边；addArgEdges 已补 C# implicitThis 解析（link.ts 迭代53）。
+	 */
+	readonly bareArgReadSkipParents?: readonly string[];
+	/**
 	 * 属性读取形态排除：parent 的 name/type 槽位（声明名位无运行时读取，value 位保留）。
 	 * 值 = 命名字段数组；"__child0" = children[0]（无命名字段的语言形态，C# variable_declarator）。
 	 */

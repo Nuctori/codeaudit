@@ -62,6 +62,47 @@ describe("C# 语言包（迭代19）", () => {
 		expect(calc!.purity).toBe(0); // Math.Max 纯 + 读状态（读非副作用）
 	});
 
+	it("迭代53：方法组实参（AddListener/RemoveListener）不建调用边", async () => {
+		const root = project("evt", {
+			"S.cs": [
+				"using UnityEngine.Events;",
+				"public class S {",
+				"    public UnityEvent onX = new UnityEvent();",
+				"    public void Subscribe() { onX.AddListener(Handle); }",
+				"    public void Unsubscribe() { onX.RemoveListener(Handle); }",
+				"    public void Handle() { }",
+				"    public void Fire() { onX.Invoke(); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		expect(r.stats.parseErrors).toBe(0);
+		const sub = by(r).get("S.cs::S.Subscribe") as
+			| { chunk: { calls: Set<string>; key: string } }
+			| undefined;
+		const unsub = by(r).get("S.cs::S.Unsubscribe") as
+			| { chunk: { calls: Set<string>; key: string } }
+			| undefined;
+		const handle = by(r).get("S.cs::S.Handle") as
+			| { chunk: { key: string } }
+			| undefined;
+		const fire = by(r).get("S.cs::S.Fire") as
+			| { chunk: { calls: Set<string>; key: string } }
+			| undefined;
+		expect(sub).toBeDefined();
+		expect(unsub).toBeDefined();
+		expect(handle).toBeDefined();
+		expect(fire).toBeDefined();
+		const hk = handle!.chunk.key;
+		// 方法组实参是引用非调用：订阅/退订都不应产生指向处理器的边
+		expect(sub!.chunk.calls.has(hk)).toBe(false);
+		expect(unsub!.chunk.calls.has(hk)).toBe(false);
+		// 处理器本体不受影响：空体纯函数
+		expect((handle as unknown as { purity: number }).purity).toBe(0);
+		// 控件组：Fire 直接调用 Invoke（框架未知 → 诚实未知，非假纯）
+		expect((fire as unknown as { purity: number }).purity).toBe(1);
+	});
+
 	it("Unity 效应表：PlayerPrefs/File/GameObject/Resources", async () => {
 		const root = project("unityfx", {
 			"S.cs": [

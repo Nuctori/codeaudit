@@ -435,6 +435,25 @@ export function link(
 										}
 									}
 								}
+								// 迭代53：C# 隐式 this 裸名方法组实参（Enumerable.ForEach(xs, Save)）——
+								// HOF 回调边通道补齐：此前靠参数位 prop-read 误发射兜底（iter30-32 测试依赖），
+								// 参数位 prop-read 停发后此处必须自持；edges=已解析、unknown=落回下方无条件未知。
+								if (fi.pack.implicitThis && rc.ownerClass) {
+									const r = resolveClassMember(
+										rc.ownerClass,
+										n,
+										fi.pack,
+										files,
+										globalClasses,
+										superMap,
+										hasSubclass,
+										langHasDynamicExtends,
+										virtualMembers,
+										{ addEdge: (k: string) => calls.add(k) } as unknown as Sink,
+										true,
+									);
+									if (r === "edges") continue;
+								}
 								// 无条件调用实参的 HOF（map/filter/forEach…）：实参未解析 → 记未知（防假纯，
 								// 如 const f = writeFileSync; [1].map(f)）；条件调用（sorted key=/Array.from cb）
 								// 的实参未解析 → 跳过（无法区分 max(xs) 与 map(ext_fn)，记未知会误伤噪音）

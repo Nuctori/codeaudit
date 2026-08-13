@@ -876,6 +876,7 @@ export const csharpPack: LangPack = {
 	propertyReadSkipMorphs, // 形态排除（调用目标链/赋值左值/++/--）
 	propertyReadSkipParents, // 声明/类型位排除
 	propertyReadNameSlots, // name/type 槽位排除（variable_declarator 用 __child0）
+	bareArgReadSkipParents: ["argument", "named_argument", "argument_list"], // 迭代53：裸 identifier 实参位
 	propMissIsPure: true, // C# 静态语义：成员 miss + 属性读取 → 纯（动态语言不设 → ? 诚实）
 	interfaceHeuristicMinBases: 2, // 迭代40 P0-3 B03：base_list ≥2（基类+接口）→ 全方法隐含 virtual
 	ctorTypeFields: { object_creation_expression: "type" }, // 迭代40 P0-3 H02：new X() 类型名字段
