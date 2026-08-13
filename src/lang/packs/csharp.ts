@@ -168,6 +168,15 @@ const pureGlobals = new Set<string>([
 	"Rect", // Unity 数学结构
 	"Mathf", // Unity 数学
 	"StringBuilder", // 可变字符串——纯（无 io）
+	// 迭代44 候选2（双评审）：System 枚举名——枚举成员是编译期常量（C# 规范），读取无副作用；
+	// 语料实证频次（InitDeity）：StringComparison.Ordinal 86/单文件、TaskStatus 1187、BindingFlags 570。
+	// 入 pureGlobals 而非 frameworkPure：obj=裸首段形态匹配；项目类同名由 globalClasses 优先
+	//（L1249）+ assigned/moduleAssigned 遮蔽守卫双保险（iter41 免费保护）；B 方案（无条件枚举判纯）
+	// 否决——无类型系统无法识别枚举 vs 类，泛化 = 插件静态 getter 假纯（A7 结构违反）。
+	"StringComparison",
+	"TaskStatus",
+	"BindingFlags",
+	"AttributeTargets",
 	// 内建值类型静态方法（int.Parse/TryParse 等——纯计算；迭代19 C#）
 	"int",
 	"long",
@@ -469,6 +478,11 @@ const pureCtor = new Set<string>([
 	"Guid",
 	"Uri",
 	"Mathf",
+	// 迭代44 候选4 首批（InitDeity top-miss 数据）：System.Net.Http 消息构造——纯分配
+	//（生成代码 API.g.cs 高频：ctor:HttpRequestMessage/HttpMethod/StringContent miss 站）
+	"HttpRequestMessage",
+	"HttpMethod",
+	"StringContent",
 	// Random/WaitForSeconds/FileStream 等不在表——构造即效应走 impureGlobals（random/clock/fs）
 ]);
 

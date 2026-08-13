@@ -1766,6 +1766,22 @@ function flattenCallTarget(node: SyntaxNode, pack: LangPack): string | null {
 	) {
 		return node.text;
 	}
+	// 迭代44 候选3（双评审）：两漏网形态可拍平——generic_name（`Foo<int>(1)` 调用目标，
+	// 剥壳先例 ctorTypeName L1836）与 alias_qualified_name（`global::System.X`——剥 global
+	// 前缀递归内层，与 propertyReadSkipParents 的 alias_qualified_name 排除同源实证）。
+	// 残余不可拍平形态（factory()()/d[k]()）维持 <unresolved>（设计诚实）。
+	if (node.type === "generic_name") {
+		const id =
+			node.childForFieldName("name") ??
+			node.children.find((c) => c.type === "identifier");
+		if (id) return id.text;
+		return null;
+	}
+	if (node.type === "alias_qualified_name") {
+		const inner = node.children[1] ?? null; // children[0] = identifier[global]
+		if (inner) return flattenCallTarget(inner, pack);
+		return null;
+	}
 	if (
 		members.includes(node.type) &&
 		node.type !== "conditional_access_expression"

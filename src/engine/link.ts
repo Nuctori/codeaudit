@@ -1506,6 +1506,12 @@ function resolveCall(
 		return;
 	}
 
+	// 迭代44 候选1（双评审锚定）：裸名 prop 读 + 遮蔽名 → 读取存储位置恒纯（与参数读取同族，
+	// extractor 参数跳过先例——「纯是静态事实，不需要解析」）。必须在 bySimple 之前短路：遮蔽语义下
+	// 读的就是局部，无需解析（防顶层同名假边）。调用形态（prop=false）遮蔽维持 ?（iter41 阴影守卫
+	// 不回退——`const Math = evil(); Math(...)` 仍 ?）。豁免面 = obj===null ∧ prop ∧ attr∈assigned。
+	if (call.obj === null && call.prop && caller.assigned.includes(call.attr)) return;
+
 	// 2. 裸名：同文件顶层定义。仅顶层可裸名解析（方法不在裸名作用域）；
 	//    局部赋值遮蔽则跳过；同名重定义歧义 → ?（与限定名 ambiguous 对称）。
 	if (call.obj === null && !caller.assigned.includes(call.attr)) {

@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — 迭代 44（工具不完备/数据债数学最小性收口：局部读判纯 + System 枚举 + <unresolved> 漏网）
+
+### 新增
+
+- 候选1 局部变量 prop 读判纯（阴影守卫误伤修复，InitDeity root=bare 形态 92121 站面）：裸名 prop 读 + assigned 遮蔽 → 读取存储位置恒纯（与参数读取同族先例）——link.ts 分支 2 顶部早期短路（bySimple 前防顶层同名假边）；调用形态遮蔽维持 ?（iter41 阴影守卫不回退）；豁免面 = obj===null ∧ prop ∧ attr∈assigned 三条件
+- 候选2 System 枚举判纯（A 方案）：pureGlobals 加 StringComparison/TaskStatus/BindingFlags/AttributeTargets（枚举成员编译期常量；B 泛化方案否决——无类型系统 = 插件 getter 假纯）；项目类优先 + 遮蔽守卫双保险
+- 候选3 `<unresolved>` 两漏网形态：flattenCallTarget 加 generic_name（`Foo<int>()` 调用目标剥壳）+ alias_qualified_name（`global::` 前缀递归）——13575 站面下降
+- 候选4 首批数据条目：HttpRequestMessage/HttpMethod/StringContent 入 pureCtor（生成代码 HTTP 构造，top-miss 数据驱动）
+- 测试 +3（局部读判纯 unknownSites=0 / C# 遮蔽调用对照 / System 枚举 / generic+global 回归）：371/371
+
+### 修复
+
+- InitDeity 重扫：unknown chunks 7063→6853（24.4%）；`<unresolved>` 13575→11702
+- README 367→371 测试数同步（C4 门禁绿）
+
+### 已知残余
+
+- catch/循环变量（e/x ~3000 站）：assignedNames 覆盖缺口（catch_declaration 不在收集）；ReadObjectResponseAsync 1079 站待定位；missSlots 主体 = 动态分派标注面（29.7% 设计边界）；top-100 剩余条目分轮审查；propertyReadSkipParents 与 grammar 对拍小任务
+- **停止准则触发评估**：unknown-rate 连续两次 <1pp（26.0→25.2→24.4）——iter44 后转入标注工作流评估
+
 ## [Unreleased] — 迭代 43-r2（static-init 单元精确化：类型加载效应独立判定 + L1 跨语言覆盖）
 
 ### 新增

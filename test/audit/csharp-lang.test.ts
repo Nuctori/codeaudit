@@ -1446,4 +1446,59 @@ describe("C# 语言包（迭代19）", () => {
 		const m = by(r).get("A.cs::C.M") as { purity: number } | undefined;
 		expect(m!.purity).toBe(2); // System.Console.WriteLine 仍正常解析（不受排除影响）
 	});
+
+	it("迭代44 候选2：System 枚举读取判纯（StringComparison.Ordinal 形态）", async () => {
+		const root = project("enum-sys44", {
+			"E.cs": [
+				"using System;",
+				"public class E {",
+				"    public bool M(string a, string b) {",
+				"        return string.Equals(a, b, StringComparison.Ordinal);",
+				"    }",
+				"    public bool T(int s) {",
+				"        return s == (int)TaskStatus.Running;",
+				"    }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		expect(r.stats.parseErrors).toBe(0);
+		const m = by(r).get("E.cs::E.M") as { purity: number } | undefined;
+		const t = by(r).get("E.cs::E.T") as { purity: number } | undefined;
+		expect(m).toBeDefined();
+		expect(t).toBeDefined();
+		// 修复前：StringComparison.Ordinal → obj=StringComparison 效应表 miss → ?（RMA 86 次实证）；
+		// 修复后：pureGlobals 白名单 → 枚举成员读取判纯（编译期常量）
+		expect(m!.purity).toBe(0);
+		expect(t!.purity).toBe(0);
+	});
+
+	it("迭代44 候选3：泛型调用目标 + global:: 限定不再落 <unresolved>", async () => {
+		const root = project("unresolved44", {
+			"U.cs": [
+				"using System;",
+				"public class U {",
+				"    public void M() {",
+				"        var x = Math.Max(1, 2);", // 对照：普通调用不受影响
+				"    }",
+				"    public void G<T>() { }",
+				"    public void Call() {",
+				"        G<int>();", // generic_name 调用目标（修复前 <unresolved>）
+				"    }",
+				"    public void Read() {",
+				"        var s = global::System.String.Empty;", // alias_qualified_name（修复前 <unresolved>）
+				"    }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		expect(r.stats.parseErrors).toBe(0);
+		// 修复后：G<int>() 解析到 G（generic_name 剥壳）；global::System.String.Empty → obj=System → frameworkPure/missTable
+		// 不再落 <unresolved>——验证方式：全库无 <unresolved> unknownCalls
+		for (const x of r.verdicts) {
+			for (const uc of x.chunk.unknownCalls || []) {
+				expect(uc.attr).not.toBe("<unresolved>");
+			}
+		}
+	});
 });
