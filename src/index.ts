@@ -96,5 +96,7 @@ export {
 export type { BaseRateModel, CorpusFile, CorpusSite, Prior } from "./core/corpus";
 export { graphMetrics } from "./core/topology";
 export type { GraphMetrics } from "./core/topology";
+export { dependencySkeleton, bridgesOf } from "./core/skeleton";
+export type { SkeletonEdge, BridgeResult } from "./core/skeleton";
 export { proofCompleteness } from "./core/proof";
 export type { ProofCompleteness } from "./core/proof";

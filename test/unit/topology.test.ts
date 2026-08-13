@@ -147,4 +147,38 @@ describe("graphMetrics（迭代14 视角 3 实施）", () => {
 			expect(m.cyclicComponents).toBe(0);
 		}
 	});
+
+	it("迭代46 C：SCC 外部入口——单入口（结构化递归）=0 多入口、多入口（纠缠）=1", () => {
+		// 单入口 SCC：X→A、A↔B（环）、C 不入环——外部入边只进 A
+		const m1 = graphMetrics([
+			v("X", { calls: ["A"] }),
+			v("A", { calls: ["B"] }),
+			v("B", { calls: ["A"] }),
+		]);
+		expect(m1.cyclicComponents).toBe(1);
+		expect(m1.multiEntryScc).toBe(0);
+		expect(m1.sccEntryHistogram[1]).toBe(1); // 入口 1 桶
+
+		// 多入口 SCC：X→A、Y→B、A↔B——外部入边进 A 与 B 两个不同节点
+		const m2 = graphMetrics([
+			v("X", { calls: ["A"] }),
+			v("Y", { calls: ["B"] }),
+			v("A", { calls: ["B"] }),
+			v("B", { calls: ["A"] }),
+		]);
+		expect(m2.cyclicComponents).toBe(1);
+		expect(m2.multiEntryScc).toBe(1);
+		expect(m2.sccEntryHistogram[2]).toBe(1);
+	});
+
+	it("迭代46 C：自环/链不误计，孤立递归团入口 0 桶", () => {
+		const m = graphMetrics([
+			v("A", { calls: ["A"] }), // 自环单点（非真 SCC>1，不计）
+			v("B", { calls: ["C"] }),
+			v("C", { calls: ["B"] }), // 无外部入口的递归团
+		]);
+		expect(m.cyclicComponents).toBe(1); // B↔C
+		expect(m.multiEntryScc).toBe(0);
+		expect(m.sccEntryHistogram[0]).toBe(1); // B↔C 无外部入口
+	});
 });

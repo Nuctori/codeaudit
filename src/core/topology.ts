@@ -17,6 +17,10 @@ export interface GraphMetrics {
 	readonly selfLoopCount: number;
 	/** SCC 大小>1 个数 === stats.cycles（同边口径，由构造保证）。 */
 	readonly cyclicComponents: number;
+	/** 迭代46 C：外部入边进入 >1 个不同节点的 SCC 数（多入口=纠缠递归，Hecht-Ullman 可规约性）。 */
+	readonly multiEntryScc: number;
+	/** 迭代46 C：SCC 外部入口数分布（入口数 → SCC 个数；单入口=结构化递归）。 */
+	readonly sccEntryHistogram: readonly number[];
 	/** 凝聚 DAG 最长路径（**边数口径**，与 chain=跳数一致；无跨分量边=0）。 */
 	readonly dagDepth: number;
 	/** knownEdges / (n·(n-1))，n<2 → 0（自环已从分子扣除）。 */
@@ -133,6 +137,34 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 	}
 
 	const density = n > 1 ? knownEdges / (n * (n - 1)) : 0;
+
+	// 迭代46 C：SCC 外部入口数（可规约性——Hecht-Ullman：单入口=结构化递归，多入口=纠缠递归）。
+	// 入口 = 来自其他分量的边进入该 SCC 的**不同目标节点**数（跨分量边终点；自环/内部边不计）。
+	// 只统计真 SCC（>1，与 cyclicComponents 同口径）；孤立递归团（无外部入口）落入口 0 桶。
+	const sccEntry = new Map<number, Set<string>>();
+	for (const v of verdicts) {
+		const c = compOf.get(v.chunk.key)!;
+		for (const t of v.chunk.calls) {
+			if (t === UNKNOWN_TARGET || t === v.chunk.key) continue;
+			const tc = compOf.get(t);
+			if (tc === undefined || tc === c) continue;
+			let s = sccEntry.get(tc);
+			if (!s) {
+				s = new Set();
+				sccEntry.set(tc, s);
+			}
+			s.add(t); // 被进入分量内的目标节点（跨分量边终点）
+		}
+	}
+	let multiEntryScc = 0;
+	const sccEntryHistogram: number[] = [];
+	for (let c = 0; c < comps.length; c++) {
+		if (comps[c]!.length <= 1) continue; // 只统计真 SCC（>1），与 cyclicComponents 同口径
+		const entryCount = sccEntry.get(c)?.size ?? 0; // 无外部入口的递归团 = 0
+		sccEntryHistogram[entryCount] = (sccEntryHistogram[entryCount] ?? 0) + 1;
+		if (entryCount > 1) multiEntryScc++;
+	}
+
 	const uncertain = verdicts.filter((v) => !v.chainCertain).length;
 	const parseErr = verdicts.filter((v) => v.chunk.parseError).length;
 	let totalSites = 0;
@@ -145,6 +177,8 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 		unknownEdges,
 		selfLoopCount,
 		cyclicComponents,
+		multiEntryScc,
+		sccEntryHistogram,
 		dagDepth,
 		density,
 		layerHistogram,
