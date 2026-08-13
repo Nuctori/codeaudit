@@ -642,7 +642,7 @@ async function main(): Promise<void> {
 						purity: number;
 						chain: number;
 						effects: string[];
-					}>
+					}>;
 				};
 				const toView = (x: (typeof before.verdicts)[number]): Verdict => ({
 					purity: x.purity as Verdict["purity"],
@@ -656,7 +656,10 @@ async function main(): Promise<void> {
 					throwsTypes: [],
 					stateDeps: [],
 				});
-				const deltas = compareReports(before.verdicts.map(toView), report.verdicts);
+				const deltas = compareReports(
+					before.verdicts.map(toView),
+					report.verdicts,
+				);
 				const flipped = deltas.filter((d) => d.purityFrom !== d.purityTo);
 				const beforeU = before.verdicts.filter((v) => v.purity === 1).length;
 				console.log(
@@ -703,7 +706,11 @@ async function main(): Promise<void> {
 				`  图完整度：${(100 * (1 - missSites / totalSites)).toFixed(1)}% 调用点已解析（${missSites} 未知站点）`,
 			);
 		}
-		let shown = report.verdicts.filter((v) => v.purity !== Purity.PURE);
+		// 迭代44-r4：--topology/--modules/--deps 模式抑制默认清单（健康度/聚合视图不被 IMPURE 列表淹没）
+		let shown =
+			args.topology || args.modules || args.deps !== null
+				? []
+				: report.verdicts.filter((v) => v.purity !== Purity.PURE);
 		if (args.top !== null) shown = shown.slice(0, args.top);
 		let lastGroup = "";
 		for (const v of shown) {

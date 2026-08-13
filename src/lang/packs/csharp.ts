@@ -906,7 +906,8 @@ export const csharpPack: LangPack = {
 	eventSubscribeOps: ["+="], // 迭代43 B：事件订阅运算符
 	staticModifiers: ["static"], // 迭代43 r2：static 初始化器单元拆分
 	compileTimeOps: ["typeof", "default", "nameof"], // 迭代44-r2：编译期操作符（实参不提取）
-	heritageSkipNodes: [ // 迭代44-r3：继承提取跳过（痛点2 根因数据化）；迭代45 O-C5 机检全量补齐
+	heritageSkipNodes: [
+		// 迭代44-r3：继承提取跳过（痛点2 根因数据化）；迭代45 O-C5 机检全量补齐
 		"predefined_type", // 枚举底层类型（enum X : int）
 		"if_directive", // 预处理指令（#if 内类声明混入 base_list）——漏任一 → 误判动态 heritage
 		"elif_directive", // → 语言级降级（全库多态/隐式 this → unknown，-37% 级）

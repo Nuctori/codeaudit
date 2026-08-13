@@ -7,7 +7,8 @@ import { scanProject } from "../../src/index";
 
 const mk = (tag: string, files: Record<string, string>) => {
 	const dir = mkdtempSync(join(tmpdir(), tag));
-	for (const [f, src] of Object.entries(files)) writeFileSync(join(dir, f), src);
+	for (const [f, src] of Object.entries(files))
+		writeFileSync(join(dir, f), src);
 	return dir;
 };
 

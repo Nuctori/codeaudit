@@ -9,7 +9,10 @@ export interface FileDep {
 }
 
 /** 出边：文件内 chunk 的 calls 指向的文件（按边数降序）。UNKNOWN_TARGET/同文件排除。 */
-export function outDepsOf(verdicts: readonly Verdict[], file: string): FileDep[] {
+export function outDepsOf(
+	verdicts: readonly Verdict[],
+	file: string,
+): FileDep[] {
 	const out = new Map<string, number>();
 	const fileOf = (key: string): string | null => {
 		const i = key.indexOf("::");
@@ -29,7 +32,10 @@ export function outDepsOf(verdicts: readonly Verdict[], file: string): FileDep[]
 }
 
 /** 入边：哪些文件（的 chunk）调用了本文件的 chunk（按边数降序）。 */
-export function inDepsOf(verdicts: readonly Verdict[], file: string): FileDep[] {
+export function inDepsOf(
+	verdicts: readonly Verdict[],
+	file: string,
+): FileDep[] {
 	const out = new Map<string, number>();
 	const fileOf = (key: string): string | null => {
 		const i = key.indexOf("::");
@@ -43,7 +49,8 @@ export function inDepsOf(verdicts: readonly Verdict[], file: string): FileDep[] 
 	for (const v of verdicts) {
 		if (v.chunk.file === file) continue;
 		for (const k of v.chunk.calls) {
-			if (targets.has(k)) out.set(v.chunk.file, (out.get(v.chunk.file) ?? 0) + 1);
+			if (targets.has(k))
+				out.set(v.chunk.file, (out.get(v.chunk.file) ?? 0) + 1);
 		}
 	}
 	return [...out.entries()]

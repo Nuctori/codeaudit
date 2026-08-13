@@ -14,20 +14,19 @@ describe("迭代44-r4：模块聚合 + 文件依赖（重构决策视图）", ()
 		join(dir, "Mod/A.cs"),
 		[
 			"public class A {",
-			'    public void io() { System.Console.WriteLine(1); }',
+			"    public void io() { System.Console.WriteLine(1); }",
 			"    public void call() { new B().pure(); }",
 			"}",
 		].join("\n"),
 	);
 	writeFileSync(
 		join(dir, "Mod/B.cs"),
-		[
-			"public class B {",
-			"    public int pure() { return 1; }",
-			"}",
-		].join("\n"),
+		["public class B {", "    public int pure() { return 1; }", "}"].join("\n"),
 	);
-	writeFileSync(join(dir, "Other/C.cs"), "public class C { public int x() { return new Mod.A().io(); } }\n");
+	writeFileSync(
+		join(dir, "Other/C.cs"),
+		"public class C { public int x() { return new Mod.A().io(); } }\n",
+	);
 
 	it("moduleSummary 按目录前缀聚合", async () => {
 		const r = await scanProject(dir, { useCache: false });

@@ -1,6 +1,12 @@
 // 迭代45 O-C5/O-C6 机检测试：heritageSkipNodes / propertyReadSkipParents 与 grammar 节点集对拍
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import {
+	readFileSync,
+	existsSync,
+	mkdtempSync,
+	writeFileSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { csharpPack } from "../../src/lang/packs/csharp";
