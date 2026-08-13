@@ -1234,3 +1234,63 @@ describe("定义性事实族（用户覆写会议否决后实施）", () => {
 		expect(b.get("c.ts::dynamic")!.purity).toBe(Purity.UNKNOWN); // any → 动态 ? 诚实（不判纯）
 	});
 });
+
+describe("维度26: 阴影守卫对称化（迭代41，数学家探针实证的活假纯修复）", () => {
+	it("Python 遮蔽纯内建：max = print 后调用 → UNKNOWN（修复前 PURE 假纯）", async () => {
+		const root = project("shadow-py", {
+			"f.py": [
+				"def f():",
+				"    max = print  # 遮蔽纯内建 max（运行时绑定 io）",
+				"    return max(1, 2)",
+				"",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		const v = b.get("f.py::f")!;
+		expect(v.purity).toBe(Purity.UNKNOWN); // 修复前：pureBuiltins["max"] → PURE（A6 S1 违反）
+	});
+
+	it("TS 模块级遮蔽纯全局：const Math = evil() 后调用 → UNKNOWN（修复前 PURE 假纯）", async () => {
+		const root = project("shadow-ts", {
+			"f.ts": [
+				"function evil(): any { return { floor: () => { console.log('io'); return 1; } }; }",
+				"const Math = evil();  // 遮蔽纯全局 Math",
+				"export function f(): number { return Math.floor(1); }",
+				"",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		const v = b.get("f.ts::f")!;
+		expect(v.purity).toBe(Purity.UNKNOWN); // 修复前：pureGlobals["Math"] → PURE
+	});
+
+	it("对照：未遮蔽的纯内建/全局保持原判定（不误伤）", async () => {
+		const root = project("shadow-ctrl", {
+			"f.py": ["def f(xs):", "    return max(xs)  # 未遮蔽 max → 纯", ""].join(
+				"\n",
+			),
+			"f.ts": [
+				"export function f(x: number): number { return Math.floor(x); }  // 未遮蔽 Math → 纯",
+				"",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("f.py::f")!.purity).toBe(Purity.PURE);
+		expect(b.get("f.ts::f")!.purity).toBe(Purity.PURE);
+	});
+
+	it("HOF unconditional 回归（迭代41 B1 修复）：const f = writeFileSync; [1].map(f) → UNKNOWN", async () => {
+		// axioms 修复 4 原用例：字面量接收者 hof + 未解析回调 → 记未知（防假纯）。
+		// B1 事故：M6 修数据 edit 误删 hofAlwaysArgs 的 "map" → unconditional 判定恒 false → 假 PURE。
+		const root = project("hof-uni", {
+			"f.ts": [
+				"import { writeFileSync } from 'fs';",
+				"const f = writeFileSync;",
+				"export function g(): void { [1].map(f); }",
+				"",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root));
+		expect(b.get("f.ts::g")!.purity).toBe(Purity.UNKNOWN);
+	});
+});

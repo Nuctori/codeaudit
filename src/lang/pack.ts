@@ -374,3 +374,76 @@ export interface LangPack {
 		byLast?: ReadonlyMap<string, string[]>,
 	): string | null;
 }
+
+/**
+ * 表级一致性断言（迭代41）：互斥性从约定变机器校验（评审：formula-convergence 精化版）。
+ * - M1：impureBuiltins ∩ pureBuiltins（裸名通道 impure 先查，同键 pure 必死）。
+ * - M2s/M3s：仅 **string 值键** 与纯表互斥（array 值键是成员级互补分区——TS Math/Date 合法；
+ *   与 effectUsage P1 的 string-only 判定对齐，同一语义不得两套实现）。
+ * - M4s：段级——frameworkIo[ns] 前缀清单 ∩ frameworkPure[ns] 类型键 = ∅（同首段调用双命中；
+ *   C# System 双键合法分区：io 类 vs 纯类型）。
+ * - M5：pureCtor ∩ impureGlobals（ctor 决策 impureGlobals 先查，重叠 = 死条目）。
+ * - M6：hofAlwaysArgs ⊆ hofCallsArgs（无条件子集是文档契约；违反仅卫生——union 双查点行为不变）。
+ * 返回违规消息数组；空 = 一致。生产路径不调用（测试 + override 合并后 warn）。
+ */
+export function validatePackConsistency(pack: LangPack): string[] {
+	const errors: string[] = [];
+	const overlap = (a: Iterable<string>, b: ReadonlySet<string>): string[] => {
+		const out: string[] = [];
+		for (const k of a) if (b.has(k)) out.push(k);
+		return out;
+	};
+	// M1
+	const m1 = overlap(Object.keys(pack.impureBuiltins), pack.pureBuiltins);
+	if (m1.length > 0)
+		errors.push(
+			`M1 impureBuiltins ∩ pureBuiltins = {${m1.join(", ")}}（pure 条目不可达）`,
+		);
+	// M2s：string 值键
+	const m2 = overlap(
+		Object.entries(pack.impureModules)
+			.filter(([, v]) => typeof v === "string")
+			.map(([k]) => k),
+		pack.pureModules,
+	);
+	if (m2.length > 0)
+		errors.push(
+			`M2s impureModules(string值) ∩ pureModules = {${m2.join(", ")}}`,
+		);
+	// M3s：string 值键
+	const m3 = overlap(
+		Object.entries(pack.impureGlobals)
+			.filter(([, v]) => typeof v === "string")
+			.map(([k]) => k),
+		pack.pureGlobals,
+	);
+	if (m3.length > 0)
+		errors.push(
+			`M3s impureGlobals(string值) ∩ pureGlobals = {${m3.join(", ")}}`,
+		);
+	// M4s：段级
+	if (pack.frameworkPure) {
+		for (const [ns, prefixes] of Object.entries(pack.frameworkIo)) {
+			const pureTypes = pack.frameworkPure[ns];
+			if (!pureTypes) continue;
+			const clash = prefixes.filter((p) => Object.hasOwn(pureTypes, p));
+			if (clash.length > 0)
+				errors.push(
+					`M4s frameworkIo["${ns}"] 前缀 ∩ frameworkPure["${ns}"] 类型键 = {${clash.join(", ")}}`,
+				);
+		}
+	}
+	// M5
+	if (pack.pureCtor) {
+		const m5 = overlap(pack.pureCtor, new Set(Object.keys(pack.impureGlobals)));
+		if (m5.length > 0)
+			errors.push(
+				`M5 pureCtor ∩ impureGlobals = {${m5.join(", ")}}（ctor 分支 impure 先查，pureCtor 条目不可达）`,
+			);
+	}
+	// M6
+	const m6 = [...pack.hofAlwaysArgs].filter((x) => !pack.hofCallsArgs.has(x));
+	if (m6.length > 0)
+		errors.push(`M6 hofAlwaysArgs ⊄ hofCallsArgs：${m6.join(", ")}`);
+	return errors;
+}

@@ -490,7 +490,25 @@ export const typescriptPack: LangPack = {
 	pureModules,
 	impureGlobals,
 	pureGlobals,
-	hofCallsArgs: new Set(["from", "Promise"]), // Array.from(xs, cb) 与 new Promise(executor) 会调用函数实参
+	hofCallsArgs: new Set([
+		"from",
+		"Promise", // Array.from(xs, cb) 与 new Promise(executor) 会调用函数实参
+		// 迭代41 M6：hofAlwaysArgs 全量并入（子集契约 hofAlwaysArgs ⊆ hofCallsArgs——无条件子集是
+		// 文档声明的语义；union 双查点行为不变，单查点命中方向恒保守）
+		"map",
+		"filter",
+		"forEach",
+		"reduce",
+		"reduceRight",
+		"some",
+		"every",
+		"find",
+		"findIndex",
+		"flatMap",
+		"setTimeout",
+		"setInterval",
+		"queueMicrotask",
+	]),
 	// 数组方法中无条件调用实参的子集（Array.from 的 cb 可选 → 不入）；实参未解析时记未知
 	hofAlwaysArgs: new Set([
 		"map",

@@ -437,9 +437,7 @@ const pureCtor = new Set<string>([
 	"RectInt",
 	"GUIContent",
 	"GUIStyle",
-	"GUILayout",
 	"RectOffset",
-	"Texture2D",
 	"Sprite",
 	"JsonSerializerSettings",
 	"JsonSerializer",
@@ -471,7 +469,6 @@ const pureCtor = new Set<string>([
 	"Guid",
 	"Uri",
 	"Mathf",
-	"SystemInfo",
 	// Random/WaitForSeconds/FileStream 等不在表——构造即效应走 impureGlobals（random/clock/fs）
 ]);
 

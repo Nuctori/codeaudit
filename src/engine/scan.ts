@@ -10,6 +10,7 @@ import { createHash } from "node:crypto";
 import { join, relative, normalize, extname, sep } from "node:path";
 import type Parser from "web-tree-sitter";
 import type { LangPack, RawFileFacts, TreeSitterLanguage } from "../lang/pack";
+import { validatePackConsistency } from "../lang/pack";
 import {
 	applyEffectOverrides,
 	validateEffectOverride,
@@ -350,7 +351,14 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 			throw new Error("effectOverrides 非法：\n  " + errs.join("\n  "));
 		for (const [lang, ov] of Object.entries(opts.effectOverrides)) {
 			const pack = packsByName.get(lang);
-			if (pack) packsByName.set(lang, applyEffectOverrides(pack, ov));
+			if (pack) {
+				packsByName.set(lang, applyEffectOverrides(pack, ov));
+				// 迭代41：override 合并后一致性 warn（用户数据可制造 M1/M3s/M5 死条目——探针实证
+				// pureCtor:["Debug"] 合并后 M5 红；与 validateEffectOverride 同级信任边界）
+				const inconsistent = validatePackConsistency(packsByName.get(lang)!);
+				for (const msg of inconsistent)
+					console.warn(`[effectOverrides] ${lang} 合并后不一致：${msg}`);
+			}
 		}
 	}
 	const { chunks, effectTableUsage } = link(facts, packsByName);
@@ -378,8 +386,8 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	const baselineUnknown =
 		ann && ann.size > 0
 			? new Set(
-					analyze(chunks2).verdicts
-						.filter((v) => v.purity === Purity.UNKNOWN)
+					analyze(chunks2)
+						.verdicts.filter((v) => v.purity === Purity.UNKNOWN)
 						.map((v) => v.chunk.key),
 				)
 			: null;
@@ -428,7 +436,9 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	const impure = verdicts2.filter((v) => v.purity === Purity.IMPURE).length;
 	const unknown = verdicts2.filter((v) => v.purity === Purity.UNKNOWN).length;
 	const uncertain = verdicts2.filter((v) => !v.chainCertain).length;
-	const annotated = verdicts2.filter((v) => v.provenance === "annotated").length;
+	const annotated = verdicts2.filter(
+		(v) => v.provenance === "annotated",
+	).length;
 	const derived = verdicts2.filter((v) => v.provenance === "derived").length;
 
 	// 标注一致性校验（迭代21 数学解 A）：PURE 标注的 chunk 在 analyze 后必须判 PURE——
