@@ -482,14 +482,28 @@ async function main(): Promise<void> {
 	}
 
 	if (args.format === "json") {
-		// --top 与 text 语义一致：先滤 PURE（治理项 = 非纯），再取前 N（schema 不变）
+		// --top 与 text 语义一致（P1-3 迭代51 审计修正）：滤 PURE → in-degree 治理排序 → 取前 N。
+		// 此前 json 直接 slice 扫描序——json 消费方（AI/CI）拿不到治理序，与 text 分歧。
 		const out =
 			args.top !== null
 				? {
 						...report,
-						verdicts: report.verdicts
-							.filter((v) => v.purity !== Purity.PURE)
-							.slice(0, args.top),
+						verdicts: (() => {
+							const inDeg = new Map<string, number>();
+							for (const v of report.verdicts)
+								for (const t of v.chunk.calls)
+									if (t !== UNKNOWN_TARGET)
+										inDeg.set(t, (inDeg.get(t) ?? 0) + 1);
+							return report.verdicts
+								.filter((v) => v.purity !== Purity.PURE)
+								.sort((a, b) => {
+									const da = inDeg.get(a.chunk.key) ?? 0;
+									const db = inDeg.get(b.chunk.key) ?? 0;
+									if (db !== da) return db - da;
+									return (b.chain ?? 0) - (a.chain ?? 0);
+								})
+								.slice(0, args.top);
+						})(),
 					}
 				: report;
 		// --topology：json 顶层加拓扑字段（additive，现有 schema 消费者不受影响；迭代14 视角 3）
@@ -562,7 +576,7 @@ async function main(): Promise<void> {
 			const bridgeRatio =
 				t.knownEdges > 0 ? brTopo.bridges.length / t.knownEdges : 1;
 			console.log(
-				`拓扑：${t.nodes} nodes / ${t.knownEdges} edges / 密度 ${t.density.toFixed(4)} / ` +
+				`拓扑：${t.nodes} nodes / ${t.knownEdges} edges / ` +
 					`桥比例 ${(bridgeRatio * 100).toFixed(0)}% / ` +
 					`自环 ${t.selfLoopCount} / 环 ${t.cyclicComponents} / 深度 ${t.dagDepth} / ` +
 					`未知边 ${t.unknownEdges}`,
@@ -825,22 +839,28 @@ async function main(): Promise<void> {
 			});
 		}
 		if (args.top !== null) shown = shown.slice(0, args.top);
-		let lastGroup = "";
-		for (const v of shown) {
-			const group =
-				v.purity === Purity.IMPURE ? "IMPURE" : "UNKNOWN (audit 假设为不纯)";
-			if (group !== lastGroup) {
-				console.log("\n" + group);
-				lastGroup = group;
-			}
-			console.log(
-				`  chain=${fmtChain(v)}  ${fmtEffects(v).padEnd(10)} ` +
-					`callers=${String(inDeg.get(v.chunk.key) ?? 0).padStart(3)}  ` +
-					`${v.chunk.name.padEnd(28)} ${v.chunk.file}:${v.chunk.line}`,
-			);
-			// 传染路径（可解释性）：效应源 → ... → 本 chunk
-			if (v.chainPath.length > 1) {
-				console.log(`      传染: ${v.chainPath.join(" → ")}`);
+		// 迭代51 审计修正（组头交错噪音）：先按纯度分组（IMPURE → UNKNOWN），组内保持 in-degree
+		// 治理序——此前 in-degree 跨组排序导致组头 IMPURE/UNKNOWN 交替，首屏噪音。
+		const groups: Array<[string, typeof shown]> = [
+			["IMPURE", shown.filter((v) => v.purity === Purity.IMPURE)],
+			[
+				"UNKNOWN (audit 假设为不纯)",
+				shown.filter((v) => v.purity !== Purity.IMPURE),
+			],
+		];
+		for (const [group, vs] of groups) {
+			if (vs.length === 0) continue;
+			console.log("\n" + group);
+			for (const v of vs) {
+				console.log(
+					`  chain=${fmtChain(v)}  ${fmtEffects(v).padEnd(10)} ` +
+						`callers=${String(inDeg.get(v.chunk.key) ?? 0).padStart(3)}  ` +
+						`${v.chunk.name.padEnd(28)} ${v.chunk.file}:${v.chunk.line}`,
+				);
+				// 传染路径（可解释性）：效应源 → ... → 本 chunk
+				if (v.chainPath.length > 1) {
+					console.log(`      传染: ${v.chainPath.join(" → ")}`);
+				}
 			}
 		}
 		// 效应表使用率摘要（迭代21 数学解 B——additive 一行，详情看 json stats.effectTableUsage）

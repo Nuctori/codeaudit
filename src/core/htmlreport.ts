@@ -85,8 +85,9 @@ export function renderTechdebtHtml(
 	);
 	const compOf = new Map<string, number>();
 	comps.forEach((comp, c) => comp.forEach((k) => compOf.set(k, c)));
-	// 多入口环：SCC>1 且外部调用者进入 >1 个不同成员
-	const entangled: { comp: string[]; entries: number }[] = [];
+	// 多入口环：SCC>1 且外部调用者进入 >1 个不同成员。P1-1 修正（迭代51 审计）：
+	// 保留全量成员用于影响计算（impact = entries × 全量长度），展示层再截断（避免排序键被截断污染）。
+	const entangled: { comp: string[]; size: number; entries: number }[] = [];
 	for (let c = 0; c < comps.length; c++) {
 		const comp = comps[c]!;
 		if (comp.length <= 1) continue;
@@ -97,9 +98,9 @@ export function renderTechdebtHtml(
 			for (const t of v.chunk.calls) if (members.has(t)) extEntry.add(t);
 		}
 		if (extEntry.size > 1)
-			entangled.push({ comp: comp.slice(0, 6), entries: extEntry.size });
+			entangled.push({ comp: comp.slice(0, 6), size: comp.length, entries: extEntry.size });
 	}
-	entangled.sort((a, b) => b.entries - a.entries);
+	entangled.sort((a, b) => b.entries * b.size - a.entries * a.size);
 	const nameOf = (k: string): string => byKey.get(k)?.chunk.name ?? k;
 
 	// —— 真实传播深度（用户修正判据：chain 是"最近效应源最短距离"（源密集时恒小），
@@ -123,13 +124,15 @@ export function renderTechdebtHtml(
 		if ((v.chunk.direct?.size ?? 0) > 0) isSource[k] = true;
 	}
 	// depth[c] = 效应源传染到 c 的最大深度（-1 = 不可达/纯）；via[c] = 深度来源分量（路径重构）
+	// P1-2 修正（迭代51 审计）：源分量**不跳过**传播——副作用函数调用副作用函数是常态
+	//（src1(io)→src2(io)→X 真深度 3），isSource 强制 0 会把源→源链截断成「不经过中间源的
+	// 最长源距」。depth[k] = max(0, 1 + max depth[callee])——源自身至少 0，经源链继续累加。
 	const depth = new Array<number>(comps.length).fill(-1);
 	const via = new Array<number>(comps.length).fill(-1);
-	comps.forEach((_, k) => {
-		if (isSource[k]) depth[k] = 0;
-	});
 	for (let k = 0; k < comps.length; k++) {
-		if (isSource[k]) continue;
+		if (isSource[k]) depth[k] = 0; // 源自身深度 0（传播起点）
+	}
+	for (let k = 0; k < comps.length; k++) {
 		let best = -1;
 		let bestK2 = -1;
 		for (const k2 of succ[k]!) {
@@ -138,8 +141,10 @@ export function renderTechdebtHtml(
 				bestK2 = k2;
 			}
 		}
-		depth[k] = best;
-		via[k] = bestK2;
+		if (best >= 0 && best > depth[k]!) {
+			depth[k] = best;
+			via[k] = bestK2;
+		}
 	}
 	// 最长传播链：按深度降序取 top；路径 = 源 → ... → 本 chunk（沿 via 回溯，源在前）
 	const deepChainRows = verdicts
@@ -192,7 +197,7 @@ export function renderTechdebtHtml(
 		.map((e) => ({
 			names: e.comp.map((k) => nameOf(k)),
 			entries: e.entries,
-			impact: e.entries * e.comp.length,
+			impact: e.entries * e.size, // P1-1：全量成员数（非展示截断后长度）
 		}))
 		.sort((a, b) => b.impact - a.impact)
 		.slice(0, 10);
@@ -390,21 +395,6 @@ ${
 				.join("")
 }
 <div class="sub" style="margin-top:8px">动作：从调用者最多的割点开始——代码评审从严、改动跑全量回归。</div>
-</div>
-
-<h2>纠缠环成员（可规约性热点——重构雷区详情）</h2>
-<div class="panel">
-${
-	entangled.length === 0
-		? '<div class="sub">无多入口纠缠环</div>'
-		: entangled
-				.slice(0, 8)
-				.map(
-					(e) =>
-						`<div class="bar-row"><div class="bar-label">${e.entries} 入口</div><div class="bar-track" style="background:transparent">${e.comp.map((k) => `<span class="chip">${esc(nameOf(k))}</span>`).join("")}</div><div class="bar-val"></div></div>`,
-				)
-				.join("")
-}
 </div>
 
 <h2>圈复杂度 top 20</h2>
