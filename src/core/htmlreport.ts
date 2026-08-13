@@ -103,46 +103,45 @@ export function renderTechdebtHtml(
 	const nameOf = (k: string): string => byKey.get(k)?.chunk.name ?? k;
 
 	// —— 真实传播深度（用户修正判据：chain 是"最近效应源最短距离"（源密集时恒小），
-	// 真实治理优先级 = 效应源传染到最远调用者的深度——沿调用边反向最长路径，凝聚 DAG DP）——
+	// 真实治理优先级 = 效应源传染到最远调用者的深度。方向：k 调用 tc ⇒ tc 效应传 k，
+	// depth[k] = max(1 + depth[tc]) over tc ∈ succ[k]（被调用者先算——tarjan 契约 callee 下标更小）——
 	const succ: Set<number>[] = comps.map(() => new Set());
-	const pred: Set<number>[] = comps.map(() => new Set());
 	comps.forEach((s, k) => {
 		for (const i of s)
 			for (const t of edgeSet.get(i)!) {
 				const tc = compOf.get(t)!;
-				if (tc !== k) {
-					succ[k]!.add(tc);
-					pred[tc]!.add(k);
-				}
+				if (tc !== k) succ[k]!.add(tc);
 			}
 	});
-	// 效应源分量 = direct 效应 或 audit ? 源（与 analyze 同口径：公理3 未知倒向不纯）
+	// 效应源分量 = **直接效应**（direct 非空）——传播深度语义：真实副作用从产生点传染多远。
+	// 注意：不含 audit ? 源（calls 含 UNKNOWN_TARGET）——`?` 是知识缺失（公理3 悲观判定用），
+	// 不是效应产生点；若计入，12087 个含未知调用的 chunk 全成源，传播链被截浅（用户质疑实证：
+	// 含 ? 源 max=3，仅 direct 源 max=6）。
 	const isSource = new Array<boolean>(comps.length).fill(false);
 	for (const v of verdicts) {
 		const k = compOf.get(v.chunk.key)!;
-		if ((v.chunk.direct?.size ?? 0) > 0 || v.chunk.calls.has(UNKNOWN_TARGET))
-			isSource[k] = true;
+		if ((v.chunk.direct?.size ?? 0) > 0) isSource[k] = true;
 	}
-	// depth[c] = c 到最近可到达效应源的最长传播深度（-1 = 不可达/纯）；via[c] = 深度来源（路径重构）
+	// depth[c] = 效应源传染到 c 的最大深度（-1 = 不可达/纯）；via[c] = 深度来源分量（路径重构）
 	const depth = new Array<number>(comps.length).fill(-1);
 	const via = new Array<number>(comps.length).fill(-1);
 	comps.forEach((_, k) => {
 		if (isSource[k]) depth[k] = 0;
 	});
-	for (let k = comps.length - 1; k >= 0; k--) {
+	for (let k = 0; k < comps.length; k++) {
 		if (isSource[k]) continue;
 		let best = -1;
-		let bestP = -1;
-		for (const p of pred[k]!) {
-			if (depth[p]! >= 0 && 1 + depth[p]! > best) {
-				best = 1 + depth[p]!;
-				bestP = p;
+		let bestK2 = -1;
+		for (const k2 of succ[k]!) {
+			if (depth[k2]! >= 0 && 1 + depth[k2]! > best) {
+				best = 1 + depth[k2]!;
+				bestK2 = k2;
 			}
 		}
 		depth[k] = best;
-		via[k] = bestP;
+		via[k] = bestK2;
 	}
-	// 最长传播链：按深度降序取 top；路径 = 源 → ... → 本 chunk（沿 via 回溯）
+	// 最长传播链：按深度降序取 top；路径 = 源 → ... → 本 chunk（沿 via 回溯，源在前）
 	const deepChainRows = verdicts
 		.filter((v) => (depth[compOf.get(v.chunk.key)!] ?? -1) >= 0)
 		.sort(
@@ -155,12 +154,12 @@ export function renderTechdebtHtml(
 			const chainKeys: string[] = [];
 			let cur = compOf.get(v.chunk.key)!;
 			const guard = new Set<number>();
-			while (cur >= 0 && via[cur]! >= 0 && !guard.has(cur)) {
+			while (cur >= 0 && !guard.has(cur)) {
 				guard.add(cur);
 				chainKeys.unshift(comps[cur]![0]!);
+				if (via[cur]! < 0) break;
 				cur = via[cur]!;
 			}
-			if (cur >= 0 && !guard.has(cur)) chainKeys.unshift(comps[cur]![0]!);
 			const path = chainKeys.map((k) => nameOf(k)).join(" → ");
 			const d = depth[compOf.get(v.chunk.key)!] ?? 0;
 			return `<div class="bar-row"><div class="bar-label" style="width:34%">${esc(v.chunk.name)} <span style="color:var(--dim)">· ${esc(v.chunk.file.split("/").pop() ?? "")}</span></div>
@@ -168,7 +167,9 @@ export function renderTechdebtHtml(
   <div class="bar-val">${d} 跳</div></div>`;
 		})
 		.join("");
-	const maxPropDepth = Math.max(...verdicts.map((v) => depth[compOf.get(v.chunk.key)!] ?? -1));
+	const maxPropDepth = Math.max(
+		...verdicts.map((v) => depth[compOf.get(v.chunk.key)!] ?? -1),
+	);
 
 	// —— 桥清单（模块边界：唯一通道 from→to 分量代表）——
 	const bridgeRows = br.bridges

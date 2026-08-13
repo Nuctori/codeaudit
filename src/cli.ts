@@ -604,7 +604,7 @@ async function main(): Promise<void> {
 				);
 			if (t.dagDepth > 0)
 				console.log(
-					`  ➜ 调用图最深路径 ${t.dagDepth} 层（结构深度——效应传染深度看 chain 列）`,
+					`  ➜ 调用图最深路径 ${t.dagDepth} 层（结构深度；真实效应传播深度看 HTML 长传播链——chain 只是最近源距离）`,
 				);
 		}
 		if (args.sources) {

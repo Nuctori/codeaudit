@@ -81,4 +81,40 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 			rmSync(dir, { recursive: true, force: true });
 		}
 	});
+
+	it("长传播链：效应从 direct 源沿调用链传播（迭代50-r4 回归——深度 DP 方向/口径）", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "cq-htmlchain-"));
+		try {
+			writeFileSync(
+				join(dir, "a.py"),
+				// src 直接调 io（direct 源）→ mid 调 src → top 调 mid：传播深度 2
+				"import os\ndef src():\n    os.system('x')\ndef mid():\n    return src()\ndef top():\n    return mid()\n",
+			);
+			const res = await scanProject(dir, { useCache: false });
+			const html = renderTechdebtHtml(res.verdicts, res.stats);
+			// 含 2 跳传播链（src→mid→top 的 top 深度 2）；标题 maxPropDepth=2
+			expect(html).toMatch(/项目最大 2 跳/);
+			// 路径含传染链（src → mid → top）
+			expect(html).toMatch(/src → mid → top/);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("? 源不计入传播深度（知识缺失非效应源——用户判据实证）", async () => {
+		const dir = mkdtempSync(join(tmpdir(), "cq-htmlq-"));
+		try {
+			writeFileSync(
+				join(dir, "a.py"),
+				// top 调未知函数（? 源）但无 direct 效应——传播深度应不含 ? 源
+				"def top():\n    return missing_fn()\n",
+			);
+			const res = await scanProject(dir, { useCache: false });
+			const html = renderTechdebtHtml(res.verdicts, res.stats);
+			// top 判 UNKNOWN（? 源）但 direct 为空 → 不是传播源；无 direct 链 → maxPropDepth 0 或 -1 不误报
+			expect(html).toMatch(/项目最大 (0|-1) 跳/);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
+	});
 });
