@@ -203,6 +203,19 @@ function priorHint(corpus: CorpusFile, sites: Chunk["unknownCalls"]): string {
 		: "";
 }
 
+/** 迭代44-r3（工作台痛点3）：chunk 源码片段——unknowns 导出携带代码上下文，标注者无需打开文件。
+ *  读取失败（文件被删/权限）→ 空串（不中断导出）。行区间含 endLine；超长截断防导出膨胀。 */
+function sourceSnippet(root: string, chunk: Chunk): string {
+	try {
+		const lines = readFileSync(join(root, chunk.file), "utf8").split("\n");
+		const start = Math.max(0, chunk.line - 1);
+		const end = Math.min(lines.length, chunk.endLine);
+		return lines.slice(start, end).join("\n").slice(0, 2000);
+	} catch {
+		return "";
+	}
+}
+
 /**
  * 迭代36 §b-2 落地：--state 序列化长度工程上界。500 写方硬上限是实测调参值非数学上界
  * （500 写方 × 平均 >1.3 万读者仍可超 V8 上限）。每写方条目 compact 序列化长度前缀和
@@ -705,6 +718,9 @@ async function main(): Promise<void> {
 							? "该文件解析失败，函数体可能不完整（tree-sitter 错误恢复）——PURE 标注会被忽略，请只标 IMPURE 或改源码后重扫。"
 							: `请判断它是否执行 I/O 或副作用，回答 PURE / IMPURE / UNKNOWN 并给出一句话理由（PURE 需全部调用点确证）。`) +
 						priorHint(corpus, v.chunk.unknownCalls),
+					// 迭代44-r3（工作台痛点3）：chunk 源码片段——标注者无需打开文件即可裁决
+					//（unknownCalls 已在 calls 字段——此字段补齐代码上下文）。
+					code: sourceSnippet(args.dir, v.chunk),
 				};
 			});
 		// 原子写（与语料/缓存同款 tmp+rename）：--unknowns 指向预置符号链接时不写穿
