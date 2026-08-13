@@ -101,6 +101,20 @@ export interface RawFileFacts {
 	/** 类字段名（迭代40 M6：无 getter 声明的字段读取纯——JS 语义；TS/JS 提取，C# 不需要
 	 *  （propMissIsPure 静态论证已覆盖）。跨文件祖先查询在 link 侧。 */
 	readonly memberNames?: Readonly<Record<string, readonly string[]>>;
+	/** 迭代43 B：类事件表（类名 → 事件名 → 订阅信息）。事件触发时 handler 效应传播到触发方
+	 *  （S2 过近似：可能执行 = 效应传播；非 private / 集合不完整 → 触发端附加 ?）。 */
+	readonly events?: Readonly<Record<string, Readonly<Record<string, FileEventInfo>>>>;
+}
+
+/** 迭代43 B：单个事件（类事件表的条目）。
+ *  - handlers：裸名订阅 handler（evt += h，跨方法关联；触发时展开为方法调用边）
+ *  - private：语言保证仅声明类可订阅 → 订阅集合完备（触发端免守卫）；非 private → 触发端附加 ?
+ *  - incomplete：存在不可归属订阅形态（member_access/lambda/调用 RHS/partial 类）→ 集合不完整 → 触发端 ?
+ */
+export interface FileEventInfo {
+	private: boolean;
+	handlers: string[];
+	incomplete: boolean;
 }
 
 export interface LangPack {
@@ -292,7 +306,13 @@ export interface LangPack {
 	 *  H03。 */
 	readonly virtualModifiers?: readonly string[];
 	/** sealed 修饰符 token（C# sealed——不可再覆写 → 静态分派精确）。H03。 */
+	/** sealed 修饰符 token（C# sealed——不可再覆写 → 静态分派精确）。H03。 */
 	readonly sealedModifiers?: readonly string[];
+	/** 事件声明节点（C# event_field_declaration）。迭代43 B。 */
+	readonly eventFieldNodes?: readonly string[];
+	/** 事件订阅运算符 token（C#/JS "+="）。迭代43 B：订阅 = 注册义务（触发端展开 handler），
+	 *  与 state 写通道直和共存（不得取代——`+=` 同时是委托字段变异）。 */
+	readonly eventSubscribeOps?: readonly string[];
 
 	// ---- 迭代40 P0-3 批3：extractor 剩余语言形状数据化（H04-H19）----
 	/** 类成员方法体节点（inClassMemberBody 命中集——C# method/constructor_declaration）。H04。 */

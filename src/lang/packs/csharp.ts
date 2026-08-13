@@ -669,6 +669,8 @@ const propertyReadSkipMorphs = [
 // 属性读取形态排除（parent 声明/类型位——无运行时读取：声明、类型参数、特性、标签、cast/is/as 等）
 const propertyReadSkipParents = [
 	"variable_declaration",
+	"event_field_declaration", // 迭代43 B：事件字段初始化器 RHS（public event Action OnX = HandleX;）
+	// 的 identifier 经 equals_value_clause 直父被误判 prop 读 → 意外获得 handler 边（双计噪音）
 	"field_declaration",
 	"property_declaration",
 	"method_declaration",
@@ -856,6 +858,8 @@ export const csharpPack: LangPack = {
 	paramListField: "parameters", // H18：参数列表字段名（paramNames/paramTypesOf）
 	argWrapNodes: ["argument"], // P0-3 漏网：C# 实参包装解包
 	interfaceNodes: ["interface_declaration"], // P0-3 漏网：接口方法无条件 virtual
+	eventFieldNodes: ["event_field_declaration"], // 迭代43 B：事件声明节点
+	eventSubscribeOps: ["+="], // 迭代43 B：事件订阅运算符
 	valueWrapNodes: ["equals_value_clause"], // P0-3 漏网：C# 赋值 value 包装解包
 	incDecTokens: ["++", "--"], // P0-3 漏网：增减操作符（writeUnary 只认增减）
 	nestingNodes,

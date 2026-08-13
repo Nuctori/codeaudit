@@ -57,6 +57,7 @@ const EXTRACT_SIDE_TABLES = new Set([
   "callNodes", "nestingNodes", "selfNames", "assignmentTargets",
   "propertyReadNodes", "propertyReadSkipMorphs", "propertyReadSkipParents",
   "propertyReadNameSlots", "propMissIsPure",
+  "eventFieldNodes", "eventSubscribeOps", // 迭代43 B：事件提取侧表（C02 纪律）
 ]);
 
 /**

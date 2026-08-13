@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type Parser from "web-tree-sitter";
 import type { SyntaxNode } from "./pack";
-import type { LangPack, RawCall, RawChunk, RawFileFacts } from "./pack";
+import type { LangPack, RawCall, RawChunk, RawFileFacts, FileEventInfo } from "./pack";
 import { UNRESOLVED_TARGET } from "./pack";
 
 /**
@@ -138,6 +138,7 @@ export class Extractor {
 			classExtends: ce.map,
 			hasDynamicExtends: ce.dynamic || undefined,
 			virtualMembers: this.virtualMembersOf(root) || undefined,
+			events: this.eventsOf(root) || undefined, // 迭代43 B：类事件表（事件触发通道）
 			memberNames: mn || undefined,
 			parseError: root.hasError,
 		};
@@ -461,6 +462,98 @@ export class Extractor {
 						for (const c of node.children) walk(c);
 					};
 					for (const c of n.children) walk(c);
+				}
+			}
+			for (const c of n.children) visit(c);
+		};
+		visit(root);
+		return Object.keys(out).length > 0 ? out : null;
+	}
+
+	/** 迭代43 B：类事件表提取（C# event_field_declaration + `evt += h` 订阅点）。
+	 *  类名 → 事件名 → { private, handlers, incomplete }。
+	 *  形态规则（数学评审 §2 + 工程评审陷阱）：
+	 *  - 订阅点 = augmented_assignment_expression（运算符 ∈ pack.eventSubscribeOps），left 裸名 identifier
+	 *    → 事件；RHS 裸名 identifier → handler（跨方法关联）；RHS 其他形态（lambda/调用/方法组引用）
+	 *    → 集合不完整（触发端 ?）；
+	 *  - left 为 member_access（X.evt += h 跨实例订阅，property 名 ∈ 本类事件）→ 集合不完整（接收者
+	 *    类型不可证 → 订阅不可归属 → 触发端 ? 传导）；
+	 *  - partial 类（修饰符）→ 订阅可跨文件 → 集合不完整（数学修正 3）。 */
+	private eventsOf(
+		root: SyntaxNode,
+	): Record<string, Readonly<Record<string, FileEventInfo>>> | null {
+		const eventNodes = this.pack.eventFieldNodes ?? EMPTY_SHAPES;
+		const ops = this.pack.eventSubscribeOps ?? EMPTY_SHAPES;
+		if (eventNodes.length === 0 || ops.length === 0) return null;
+		const out: Record<string, Record<string, FileEventInfo>> = {};
+		const visit = (n: SyntaxNode): void => {
+			if (this.pack.classNodes.includes(n.type)) {
+				const name = n.childForFieldName("name");
+				if (name) {
+					const cls: Record<string, FileEventInfo> = {};
+					const isPartial = n.children.some((c) => c.text === "partial");
+					const walk = (node: SyntaxNode): void => {
+						if (node !== n && this.pack.classNodes.includes(node.type)) return;
+						if (eventNodes.includes(node.type)) {
+							// C# 形态（探针实证）：event_field_declaration → variable_declaration →
+							// variable_declarator(identifier name, equals_value_clause?)——name 字段不在
+							// event_field_declaration 直接子节点（嵌套两层）。
+							const vdecl = node.children.find(
+								(c) => c.type === "variable_declaration",
+							);
+							const vd = vdecl?.children.find(
+								(c) => c.type === "variable_declarator",
+							);
+							const en = vd?.childForFieldName("name") ?? vd?.children[0];
+							if (en) {
+								const mods = node.children.map((x) => x.text);
+								const info: FileEventInfo = {
+									private: mods.includes("private"),
+									handlers: [],
+									incomplete: isPartial,
+								};
+								// 初始化器订阅（数学 §2a）：`= HandleInit` 在构造序早期注册 → 属 sub_static。
+								// RHS identifier → handler；RHS 调用形态（Factory()）真实执行于字段初始化——
+								// 保留调用边（callOf 通道），不并入订阅边语义（数学修正 2）。
+								const rhs = vd?.childForFieldName("value")?.namedChildren[0];
+								if (rhs && rhs.type === "identifier") info.handlers.push(rhs.text);
+								cls[en.text] = info;
+							}
+							return;
+						}
+						if (
+							node.type === "assignment_expression" &&
+							node.children.some(
+								(c) =>
+									c.type === "assignment_operator" && ops.includes(c.text),
+							)
+						) {
+							// 订阅点（探针实证）：C# 事件 += 是 assignment_expression（含 assignment_operator
+							// 匿名子节点），非 augmented_assignment。left/right 字段兜底 children 索引。
+							const left =
+								node.childForFieldName("left") ?? node.children[0];
+							const right =
+								node.childForFieldName("right") ??
+								node.namedChildren[1];
+							if (left && right) {
+								if (left.type === "identifier") {
+									const ev = cls[left.text];
+									if (ev) {
+										if (right.type === "identifier")
+											ev.handlers.push(right.text);
+										else ev.incomplete = true; // lambda/方法组/调用 → 集合不完整
+									}
+								} else if (left.type === "member_access_expression") {
+									const prop = left.childForFieldName("property");
+									const ev = prop && cls[prop.text];
+									if (ev) ev.incomplete = true; // 跨实例订阅 → 触发端 ?
+								}
+							}
+						}
+						for (const c of node.children) walk(c);
+					};
+					for (const c of n.children) walk(c);
+					if (Object.keys(cls).length > 0) out[name.text] = cls;
 				}
 			}
 			for (const c of n.children) visit(c);

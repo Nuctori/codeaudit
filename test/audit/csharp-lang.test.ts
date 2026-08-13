@@ -1269,4 +1269,106 @@ describe("C# 语言包（迭代19）", () => {
 		// 修复后：不结算 → 落 ? → UNKNOWN=1（边保留 + 未知诚实）
 		expect(use!.purity).toBe(1);
 	});
+
+	it("迭代43 B：private 事件触发判别力——订阅集合完备，触发端确定判定（修复前 UNKNOWN）", async () => {
+		const root = project("evt-private43", {
+			"P.cs": [
+				"public class Priv {",
+				"    private event Action<int> OnChange;",
+				"    public void Wire() { OnChange += Handle; }",
+				"    void Handle(int x) { }",
+				"    public void Fire() { OnChange(1); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		expect(r.stats.parseErrors).toBe(0);
+		const fire = by(r).get("P.cs::Priv.Fire") as { purity: number } | undefined;
+		const wire = by(r).get("P.cs::Priv.Wire") as { purity: number } | undefined;
+		expect(fire).toBeDefined();
+		expect(wire).toBeDefined();
+		// private 事件：语言保证仅声明类可订阅 → 完备集合 {Handle} → Handle 纯 → Fire 确定 PURE
+		// （修复前：裸名 OnChange(1) 落 markUnknown → UNKNOWN=1；`+=` 双重语义保留：Wire 仍 state 写）
+		expect(fire!.purity).toBe(0);
+		expect(wire!.purity).toBe(2);
+	});
+
+	it("迭代43 B：跨实例订阅不可归属 → 触发端 ? 传导（对称诚实）", async () => {
+		const root = project("evt-cross43", {
+			"X.cs": [
+				"public class Pub {",
+				"    public event Action OnX;",
+				"    public void Subscribe(Other o) { o.OnX += HandleX; }",
+				"    void HandleX() { }",
+				"    public void Fire() { OnX?.Invoke(); }",
+				"}",
+				"public class Other { }",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const fire = by(r).get("X.cs::Pub.Fire") as { purity: number } | undefined;
+		expect(fire).toBeDefined();
+		// o.OnX += HandleX：member_access left → 接收者不可证 → OnX 集合不完整 → 触发端 ?
+		// （修复前也 UNKNOWN——public 守卫本身附加 ?；本用例验证 incomplete 传导路径）
+		expect(fire!.purity).toBe(1);
+	});
+
+	it("迭代43 B：private 事件初始化器订阅（= HandleInit）入订阅集合 + 无意外 prop 边", async () => {
+		const root = project("evt-init43", {
+			"I.cs": [
+				"public class Init {",
+				"    private event Action Hidden = HandleInit;",
+				"    void HandleInit() { }",
+				"    public void Fire() { Hidden.Invoke(); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const fire = by(r).get("I.cs::Init.Fire") as { purity: number } | undefined;
+		expect(fire).toBeDefined();
+		// 初始化器订阅（构造序早期注册）→ sub_static 含 HandleInit → 触发端展开 → 确定 PURE；
+		// 修正 1：event_field_declaration 在 propertyReadSkipParents → 无意外 prop 边双计
+		expect(fire!.purity).toBe(0);
+	});
+
+	it("迭代43 B：非 private 事件触发端保持 ?（可见性守卫）——handler io 不翻确定判定", async () => {
+		const root = project("evt-pub43", {
+			"G.cs": [
+				"using System;",
+				"public class Pub2 {",
+				"    public event Action<int> OnChanged;",
+				"    public void Wire() { OnChanged += Handle; }",
+				"    void Handle(int x) { Console.WriteLine(\"io\"); }",
+				"    public void Fire() { OnChanged(1); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const fire = by(r).get("G.cs::Pub2.Fire") as { purity: number } | undefined;
+		expect(fire).toBeDefined();
+		expect(fire).toBeDefined();
+		// 非 private 事件：handler io 确定传播（展开边）→ IMPURE（修复前：事件不建模 → 触发落 ? →
+		// UNKNOWN——效应归因缺失）；可见性守卫 ? 在 handler 纯时体现（把 PURE 抬到 UNKNOWN，防假纯）
+		expect(fire!.purity).toBe(2);
+		expect((fire as unknown as { effects: Set<string> }).effects.has("io")).toBe(true);
+	});
+
+	it("迭代43 B：可见性守卫——public 事件 + 纯 handler 触发端 ?（防假 PURE）", async () => {
+		const root = project("evt-guard43", {
+			"H.cs": [
+				"public class Pub3 {",
+				"    public event Action<int> OnChanged;",
+				"    public void Wire() { OnChanged += Handle; }",
+				"    void Handle(int x) { }",
+				"    public void Fire() { OnChanged(1); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const fire = by(r).get("H.cs::Pub3.Fire") as { purity: number } | undefined;
+		expect(fire).toBeDefined();
+		// handler 纯但事件 public：外部订阅不可见 → 触发端 ?（UNKNOWN）——
+		// 守卫公式 sub_static(e) ∪ {?}；private 事件则确定 PURE（测试 1）
+		expect(fire!.purity).toBe(1);
+	});
 });

@@ -90,5 +90,18 @@ describe("C# 真实项目 fixture（迭代22）", () => {
 		expect(wire).toBeDefined();
 		// 事件 += 修改事件字段 → state 写（extractor 裸标识符写判定——Wire IMPURE 语义正确）
 		expect(wire!.purity).toBe(2);
+		// 迭代43 B：事件触发通道——Raise 的 OnLevelChanged?.Invoke() 展开订阅 handler 边
+		// （HandleLevel key 出现在 Raise 的 calls 中）；事件 public → 触发端保持 ?（守卫）
+		const raise = by(r).get("EventSubscribe.cs::EventSubscribe.Raise") as
+			| { purity: number; calls?: string[] }
+			| undefined;
+		expect(raise).toBeDefined();
+		expect(raise!.purity).toBe(1); // public 事件 → 守卫 ? 保持（修复前同值）
+		const calls = (raise as unknown as { chunk: { calls: Set<string> } }).chunk.calls;
+		const handleKey = (by(r).get("EventSubscribe.cs::EventSubscribe.HandleLevel") as
+			| { chunk: { key: string } }
+			| undefined)?.chunk.key;
+		expect(handleKey).toBeDefined();
+		expect(calls.has(handleKey!)).toBe(true); // 事件触发 → 订阅 handler 边
 	});
 });

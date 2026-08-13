@@ -32,7 +32,7 @@
 | B1 | **效应表 70+ 类基数无校准** | 每类人工裁决（Debug io/PlayerPrefs state 明确；Path fs/Screen io/Transform state 保守） | 过度判定 → 假 IMPURE（LOW 阈值分布偏移） | 安全-过近似 | **部分缓解**：P1-1 注入白名单补 frameworkPure/pureCtor——新 API 可注入免改包代码（校准仍是人工数据债） |
 | B2 | **frameworkIo["this"] 20 组件 + gameObject/transform 隐式 this** | this.gameObject.SetActive → io（固定 io 非细分） | 组件链一律 io，无法区分读/写 | 安全-过近似 | 保留（数据裁决） |
 | B3 | **LINQ 链全 ?**（xs.Where(...).Select(...)） | 变量 receiver 动态 → 诚实 ? | 集合内存操作判 unknown（可标注 PURE） | 安全-未知 | 保留（iter31 S1 链修复部分缓解——builtinMethodReturns 链式接收者解析） |
-| B4 | **事件订阅不建模**（+= / AddListener） | 回调方法独立判定，订阅方不建边 | **现状实证（iter42 数学评审 F2）：已意外闭合**——`+=` 是 state 写（订阅方恒非 PURE）、触发端全落 `?`（诚实）→ 无假纯通道，真实残余 = 判别力损失 + 效应归因缺失 | 安全-未知 ∪ 安全-过近似（改标，原「假纯可能」不可实例化） | 保留（事件订阅边建模 → iter43 候选1，已评审修正设计：可见性守卫 + 形态守卫） |
+| B4 | **事件订阅不建模**（+= / AddListener） | 回调方法独立判定，订阅方不建边 | **现状实证（iter42 数学评审 F2）：已意外闭合**——`+=` 是 state 写（订阅方恒非 PURE）、触发端全落 `?`（诚实）→ 无假纯通道，真实残余 = 判别力损失 + 效应归因缺失 | 安全-未知 ∪ 安全-过近似（改标，原「假纯可能」不可实例化） | **已修（迭代43 B）**：事件间接层 + 订阅/触发双通道 + private 可见性守卫——handler 效应归因触发方（IMPURE 确定传播）、private 事件触发端确定判定；残余：跨实例触发（x.evt(...)）保持 `?`、UnityEvent 模型外派发（M_out） |
 | B6 | **隐式 this 与局部变量竞态**：裸名 gameObject 若局部变量遮蔽 → 仍判 io | 遮蔽守卫只查 assigned | 极小 | 安全-过近似 | 保留（P0-2 数据化不改变语义） |
 | B7 | **C# virtual 精度**：多态守卫不区分 virtual/非 virtual | 非 virtual 静态分派本可精确；? 是健全降级 | 基类 self 调用噪音 | 安全-未知 | 已修（迭代39 L4：virtualMembers 提取，非 virtual 免守卫） |
 | B8 | **项目外子类不可见**（库/插件扩展你的类） | 多态并集漏项目外覆写 | 项目外覆写 → 假纯 | **假纯可能** | 入 M_out——与项目外写者同族，无静态解 |
@@ -46,7 +46,7 @@ A6 的 S1 是**模型相对**的（"实际效应定义在模型真值上"）。�
 
 | # | 通道 | 触发条件 | 方向 | 接受理由 | 升级路径 |
 | --- | --- | --- | --- | --- | --- |
-| M1 | **事件订阅不建模**（B4） | 订阅方持有事件，事件触发执行 io 回调 | 假纯可能（改标：现状已意外闭合，见 B4） | 触发不确定性（回调可能永不执行）；事件驱动建模是第一版级语言语义 | 事件订阅边（订阅方 → 回调方法，方向 S2）——iter43 候选1 修正版：private 可见性守卫 + 形态守卫 + `+=` 双语义保留 |
+| M1 | **事件订阅不建模**（B4） | 订阅方持有事件，事件触发执行 io 回调 | 假纯可能（改标：现状已意外闭合，见 B4） | 触发不确定性（回调可能永不执行）；事件驱动建模是第一版级语言语义 | **已修（迭代43 B）**：private 可见性守卫（完备集合）+ 形态守卫（lambda/方法组/跨实例/partial → 触发端 ?）+ `+=` 双语义保留；残余：跨实例触发（x.evt(...)）接收者不可证 → `?`、UnityEvent 模型外派发（无静态守卫可闭合） |
 | M2 | **项目外子类覆写**（B8） | 库/插件 extends 项目类并覆写方法 | 假纯可能 | 项目外代码不可静态可见（与 M3 同族） | 无静态解；文档化 + 触发率实测 |
 | M3 | **项目外状态写者** | 测试夹具/框架注入写项目状态 | 假纯可能 | 同上（README 已知限制） | 无静态解 |
 | M4 | **Python **new** / monkey-patch**（B12） | `C()` 被 monkey-patch 返回任意对象；`C.m = ...` 运行时换方法 | 假纯可能 | 动态语言语义，静态不可见 | 文档化接受 |
@@ -192,6 +192,17 @@ A6 的 S1 是**模型相对**的（"实际效应定义在模型真值上"）。�
 **验收**：355/355（+3：enum 判纯 / 候选7 三态 / 对照零变化）+ tsc 0 + 自扫描 invariantViolations=0 + README 测试数同步（343→355，C4 门禁绿）+ essence 8/8。
 
 **评审流程**：docs/iter42/（00-plan → 01-math-review → 02-jeff-review → 03-synthesis）；延后项：候选1 事件订阅（iter43-r1，修正版：private 可见性守卫 + 形态守卫 + `+=` 双语义）、候选2 static-init 独立 chunk（iter43-r2，side table 方案）、候选 4/5/6 defer（无读者 / Λ 不变死数据 / Σ_ext 无挂接点）。
+
+## 迭代 43 清空项（本轮闭合——B4/M1 事件订阅建模）
+
+| 项 | 类型 | 闭合方式 |
+| --- | --- | --- |
+| **B4/M1 事件订阅不建模** | 假纯可能（改标后精度特性） | 候选B：事件间接层 + 订阅边（evt += h，类内跨方法关联）+ 触发边（裸名 evt(...) / evt.Invoke / evt?.Invoke 展开 handler 闭包，S2 过近似）——private 可见性守卫（完备集合 → 触发端确定）+ 完整性守卫（lambda/方法组/跨实例/partial → 触发端 ?）；`+=` 双语义 = state ⊕ 订阅边直和 |
+| **事件字段初始化器意外 prop 边** | 噪音（S2） | 数学修正 1：propertyReadSkipParents 加 event_field_declaration；初始化器 RHS identifier 入订阅集合（构造序早期注册，引理成立），RHS 调用形态保留调用边 |
+
+**验收**：362/362（+5 + fixture 扩展）+ tsc 0 + 自扫描 invariantViolations=0 + README 门禁绿（355→362）+ essence 8/8。
+
+**评审流程**：docs/iter43/（00-plan → 01-math-review → 02-jeff-review → 03-synthesis）；延后项：static-init side table + L1 跨语言测试（iter43-r2）、A1 真实感 C# 合成大库回归网（iter43-r3，B/C 后校准）、A2/--state 输出 defer。残余：跨实例触发（x.evt(...)）保持 ?（接收者类型不可证）；UnityEvent 模型外派发（M_out）；事件不可标注（无 chunk/公理4 id）。
 
 ## 总体评估
 

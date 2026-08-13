@@ -1,5 +1,28 @@
 # Changelog
 
+## [Unreleased] — 迭代 43（B4/M1 事件订阅建模闭合：间接层 + 订阅/触发双通道 + 可见性守卫）
+
+### 新增
+
+- 事件订阅建模（候选B，iter43-r1）：事件 = 间接层节点（不独立 chunk）——extractor 提取类事件表（RawFileFacts.events：事件名/private/订阅 handler 列表/incomplete）；link 事件触发通道（resolveCall 尾部，markUnknown/markDynamic 之前，零优先级扰动）——裸名 `evt(...)` / `evt.Invoke()` / `evt?.Invoke()` 触发展开订阅 handler 闭包（S2 过近似：可能执行 = 效应传播）
+- private 可见性守卫：private 事件订阅集合完备（语言保证）→ 触发端确定判定（判别力收益）；非 private → 触发端附加 `?`（外部订阅不可见，对称诚实）
+- 形态守卫：订阅点 RHS 非裸名 identifier（lambda/方法组/调用）→ 集合不完整 → 触发端 `?`；跨实例订阅（x.evt += h，member_access left）→ 不可归属 → 触发端 `?` 传导；partial 类 → 集合不完整
+- 初始化器订阅（`private event Action H = HandleInit;`）：构造序早期注册 → 属 sub_static（数学引理）；RHS 调用形态保留调用边（非订阅语义）
+- `+=` 双重语义契约：订阅边 ⊕ state 写直和共存（fixture.test.ts:92 Wire purity=2 锚保持）
+- 事件字段初始化器意外 prop 边修复（数学修正 1）：propertyReadSkipParents 加 event_field_declaration（此前 RHS identifier 经 B5 通道产意外 handler 边）
+- 新数据表（P0-3 纪律）：eventFieldNodes/eventSubscribeOps（pack.ts + csharp.ts）；EXTRACT_SIDE_TABLES 同步（C02）
+- 评审流程 docs/iter43/：双评审裁决——A1 回归网延后（B/C 后校准）、A2 defer、L1 跨语言测试并入 C 轮、--state 输出 defer
+- 测试 +5（private 判别力 / 跨实例传导 / 初始化器订阅 / public+io 效应归因 / 守卫防假 PURE）+ fixture 扩展（Raise calls 含 HandleLevel）
+
+### 修复
+
+- C# 事件订阅形态实证修正：`+=` 是 assignment_expression（非 augmented_assignment）；事件名在 variable_declarator（嵌套两层）；初始化器在 equals_value_clause——探针驱动重写 eventsOf
+- README 355→362 测试数同步（C4 门禁绿）
+
+### 已知残余
+
+- static-init 独立 chunk（iter43-r2，side table 方案 + L1 跨语言测试）；A1 真实感 C# 合成大库回归网（iter43-r3/iter44，B/C 后校准）；跨实例触发（x.evt(...)）保持 ?（接收者类型不可证）；事件本身不可标注（无 chunk/公理4 id）
+
 ## [Unreleased] — 迭代 42（工程妥协形式化评审落地：静态访问类型加载闭合 + enum 判纯）
 
 ### 新增

@@ -4,6 +4,7 @@ import {
 	type RawChunk,
 	type RawFileFacts,
 	type RawImport,
+	type FileEventInfo,
 	UNRESOLVED_TARGET,
 } from "../lang/pack";
 import { classifyUsage, type EffectTableUsage } from "../core/effectUsage";
@@ -38,6 +39,8 @@ interface FileIndex {
 	/** 文件级绑定名（module chunk 的 assigned：模块级赋值/重绑遮蔽所有消费者）。 */
 	readonly moduleAssigned: ReadonlySet<string>;
 	readonly chunkByKey: Map<string, RawChunk>;
+	/** 迭代43 B：类事件表（类名 → 事件名 → 订阅信息）——事件触发通道（fireEvent）消费。 */
+	readonly events?: Readonly<Record<string, Readonly<Record<string, FileEventInfo>>>>;
 }
 
 /** 迭代39：类层次上下文（import 解析通道复用 resolveClassMember 的参数束）。 */
@@ -161,6 +164,7 @@ export function link(
 			wildcards,
 			chunkByKey,
 			moduleAssigned,
+			events: facts.events, // 迭代43 B：类事件表（fireEvent 消费）
 		});
 	}
 
@@ -1680,7 +1684,44 @@ function resolveCall(
 	}
 
 	// 5. 星号导入回退；其余裸名记未知，对象方法记动态分派
+	// 迭代43 B：事件触发通道——插在所有既有通道之后（零优先级扰动）、markUnknown/markDynamic 之前。
+	// 语义：事件 = 间接层；触发展开订阅 handler 闭包（S2 过近似：可能执行 = 效应传播）；
+	// 非 private / 集合不完整 → 附加 ?（可见性守卫）。形态：evt(...) 裸名 / evt.Invoke() / evt?.Invoke()。
+	const fireEvent = (evName: string): boolean => {
+		const cls = caller.ownerClass;
+		const info = cls ? fi.events?.[cls]?.[evName] : undefined;
+		if (!info) return false;
+		// 订阅 handler 展开（类内方法解析——隐式 this 语义，多态并集）
+		for (const h of info.handlers) {
+			const r = resolveClassMember(
+				cls!,
+				h,
+				pack,
+				files,
+				globalClasses,
+				superMap,
+				hasSubclass,
+				langHasDynamicExtends,
+				virtualMembers,
+				sink,
+				true,
+			);
+			if (r === "unknown") {
+				sink.addUnknownCall(call);
+				sink.markUnknown();
+			}
+			// edges：边已建；none：handler 方法不可见（外部/标注）→ 不加边（不误报）
+		}
+		// 可见性守卫（非 private：外部订阅不可见 → ?）+ 集合完整性守卫（incomplete：形态不可归属 → ?）
+		if (!info.private || info.incomplete) {
+			sink.addUnknownCall(call);
+			sink.markUnknown();
+		}
+		sink.hitTable(`event:${evName}`);
+		return true;
+	};
 	if (call.obj === null) {
+		if (fireEvent(call.attr)) return;
 		for (const wf of fi.wildcards) {
 			const hit = resolveSymbol(wf, call.attr, 1);
 			if (hit !== null) {
@@ -1693,6 +1734,9 @@ function resolveCall(
 		return;
 	}
 
+	// 事件对象触发（evt.Invoke() / evt?.Invoke()——obj 为裸事件名，attr 为 Invoke；
+	// 跨实例/链式接收者（x.evt / this.evt / C.evt）保持 markDynamic ?（数学 §2b：接收者类型不可证）
+	if (call.attr === "Invoke" && !call.obj.includes(".") && fireEvent(call.obj)) return;
 	sink.addUnknownCall(call);
 	sink.markDynamic();
 }
