@@ -696,6 +696,14 @@ const propertyReadSkipParents = [
 	"qualified_name", // B5 identifier 通道误当调用 → module chunk unknown 噪音；类型位置无运行时读取
 	"alias_qualified_name", // global:: 限定符（typeof(global::System.X)——审计实证：真实节点是
 	// alias_qualified_name，global_keyword 是死条目（000c0f8 修正）
+	"if_directive", // 迭代44-r3：预处理指令（#if UNITY_EDITOR 的符号被当裸名调用，110 实证）——
+	"elif_directive", // 编译期符号无运行时读取
+	"else_directive",
+	"endif_directive",
+	"define_directive",
+	"undef_directive",
+	"region_directive",
+	"endregion_directive",
 	"field_declaration",
 	"property_declaration",
 	"method_declaration",

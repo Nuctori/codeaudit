@@ -22,7 +22,7 @@
 | 类 | 量 | 处置 |
 | --- | --- | --- |
 | `<unresolved>` 不可拍平 | 486 | 工具侧（flatten 残余：泛型/链式形态）——修后消失 |
-| `UNITY_EDITOR` 条件编译 | 110 | 设计内（#if 不可静态判定）——跳过 |
+| `UNITY_EDITOR` 条件编译 | 110 | **已修（迭代44-r3）**：预处理指令（#if UNITY_EDITOR）的符号被 B5 通道误当调用——if_directive 等 8 节点排除——InitDeity 重扫 -123（含多符号） |
 | `T` 泛型参数 | 89 | 工具侧（typeof/default/nameof 实参提取）——下轮修 |
 | `Value`（getter 风险） | 83 | 保守跳过 |
 | 已标形态残留（Count/TryGetValue/SetActive/Invoke/GetType/Clear） | ~560 | **chunk 完整覆盖**（同一 chunk 的其余未知点补齐） |
