@@ -15,7 +15,7 @@ describe("迭代44 候选1：局部变量 prop 读判纯（阴影守卫误伤修
 				"    public void M() {",
 				"        int status_ = 200;",
 				"        if (status_ == 200) { }",
-				"        var name_ = \"x\";",
+				'        var name_ = "x";',
 				"        var s = name_;",
 				"    }",
 				"}",

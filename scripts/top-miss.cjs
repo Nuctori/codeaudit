@@ -2,7 +2,9 @@
 const { scanProject } = require("../dist/index.js");
 
 async function main() {
-	const r = await scanProject("J:/旧宇宙/代码仓库/InitDeity/Assets", { useCache: false });
+	const r = await scanProject("J:/旧宇宙/代码仓库/InitDeity/Assets", {
+		useCache: false,
+	});
 	const usage = r.effectTableUsage ?? r.stats?.effectTableUsage;
 	if (!usage) {
 		console.log("no effectTableUsage in report; keys:", Object.keys(r));
