@@ -690,6 +690,8 @@ const propertyReadSkipParents = [
 	"attribute_argument_list", // 的枚举参数被 B5 通道误建 prop 边 → 生成代码 unknown 暴涨
 	"attribute_argument",
 	"name_equals",
+	"type_argument", // 迭代44-r2：泛型类型实参（WorldAnchor<T> 的 T）——类型位置无运行时读取（T·bare 同源）
+	"type_argument_list",
 	"using_directive", // 迭代43 诊断：using 声明的 qualified_name（using Newtonsoft.Json;）被
 	"qualified_name", // B5 identifier 通道误当调用 → module chunk unknown 噪音；类型位置无运行时读取
 	"alias_qualified_name", // global:: 限定符（typeof(global::System.X)——审计实证：真实节点是
@@ -884,6 +886,7 @@ export const csharpPack: LangPack = {
 	eventFieldNodes: ["event_field_declaration"], // 迭代43 B：事件声明节点
 	eventSubscribeOps: ["+="], // 迭代43 B：事件订阅运算符
 	staticModifiers: ["static"], // 迭代43 r2：static 初始化器单元拆分
+	compileTimeOps: ["typeof", "default", "nameof"], // 迭代44-r2：编译期操作符（实参不提取）
 	valueWrapNodes: ["equals_value_clause"], // P0-3 漏网：C# 赋值 value 包装解包
 	incDecTokens: ["++", "--"], // P0-3 漏网：增减操作符（writeUnary 只认增减）
 	nestingNodes,

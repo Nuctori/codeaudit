@@ -55,6 +55,14 @@ export class Extractor {
 				node.children.some((c) => smods.includes(c.text))
 			)
 				return;
+			// 迭代44-r2：编译期操作符（typeof/default/nameof）——实参是类型/编译期常量，
+			// 不提取调用点（typeof(T) 的 T 被误当裸名调用，InitDeity T·bare 89 实证）。
+			// 跳过整个子树（实参无运行时求值；类型实参位置已由 propertyReadSkipParents 排除）。
+			const ctop = this.pack.compileTimeOps ?? EMPTY_SHAPES;
+			if (ctop.length > 0 && node.type === "invocation_expression") {
+				const fn = node.childForFieldName("function") ?? node.children[0];
+				if (fn && fn.type === "identifier" && ctop.includes(fn.text)) return;
+			}
 			// CJS 导出函数 chunk（迭代15 解构 require 盲区）：exports.handler = function(){} /
 			// module.exports.handler = fn → 建命名 chunk（名 = 成员名），from-import 语义
 			// （imported="handler"）可解析；否则导出函数只有 <module> 伪 chunk，解构 require 回调全落 ?
@@ -1645,10 +1653,7 @@ export class Extractor {
 				);
 				for (let i = 0; i < kids.length && (inIdx < 0 || i < inIdx); i++) {
 					const c = kids[i]!;
-					if (
-						c.type === "identifier" ||
-						c.type === "property_identifier"
-					) {
+					if (c.type === "identifier" || c.type === "property_identifier") {
 						out.push(c.text);
 						break;
 					}
@@ -1657,10 +1662,7 @@ export class Extractor {
 				// 迭代44：catch 变量（catch_declaration 的唯一 identifier——C# 类型化 catch）→ assigned
 				//（e·bare 实证同族；stateReadPos ⑤ 规则已抑制读侧，此处补 assigned 让候选 1 短路覆盖）
 				for (const c of n.children) {
-					if (
-						c.type === "identifier" ||
-						c.type === "property_identifier"
-					) {
+					if (c.type === "identifier" || c.type === "property_identifier") {
 						out.push(c.text);
 						break;
 					}

@@ -313,6 +313,9 @@ export interface LangPack {
 	 *  静态构造器体 → 合成 chunk "<static-init>"，类型加载效应独立判定）。其他语言不填 →
 	 *  不拆分（类体/静态块调用留在 class chunk，现状语义）。 */
 	readonly staticModifiers?: readonly string[];
+	/** 编译期操作符名（C# typeof/default/nameof）。迭代44-r2：实参是类型/编译期常量——
+	 *  不提取调用点（typeof(T) 的 T 被误当裸名调用，InitDeity T·bare 89 实证）。 */
+	readonly compileTimeOps?: readonly string[];
 	/** 事件声明节点（C# event_field_declaration）。迭代43 B。 */
 	readonly eventFieldNodes?: readonly string[];
 	/** 事件订阅运算符 token（C#/JS "+="）。迭代43 B：订阅 = 注册义务（触发端展开 handler），
