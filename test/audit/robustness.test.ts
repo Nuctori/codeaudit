@@ -160,6 +160,18 @@ describe("维度28: CLI 对抗", () => {
     expect(r.out).toContain("拓扑");
   });
 
+  it("--topology 输出可规约性/桥/割点（迭代46：多入口环 + 骨架结构解读行）", () => {
+    const root = project("cli-topology-structure", {
+      "a.py": "def a():\n    return b()\ndef b():\n    return a()\n",
+      "c.py": "from a import a\ndef c():\n    return a()\n",
+    });
+    const r = run(["scan", root, "--no-cache", "--topology"]);
+    expect(r.code).toBe(0);
+    expect(r.out).toContain("环");
+    // 桥/割点是结构解读行（a↔b 单环 + c→环 入口——图小但结构输出必现）
+    expect(r.out).toMatch(/桥|割点/);
+  });
+
   it("全部布尔旗标可解析（迭代23 回归护栏：新旗标不得顶掉兄弟分支——--gate/--topology/--sources/--state/--table-usage 逐一冒烟）", () => {
     const root = project("cli-all-flags", { "a.py": "def f():\n    return 1\n" });
     const flags = ["--strict", "--topology", "--sources", "--state", "--table-usage"];

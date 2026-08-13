@@ -11,6 +11,7 @@ import { scanProject } from "./index";
 import { loadEffectOverrides, type EffectTables } from "./lang/effectOverride";
 import { riskOfChange, gateExit } from "./core/risk";
 import { graphMetrics } from "./core/topology";
+import { bridgesOf, dependencySkeleton } from "./core/skeleton";
 import { stateCouplingOf, type StateCouplingEntry } from "./core/state";
 import { moduleSummary } from "./core/module";
 import { outDepsOf, inDepsOf } from "./core/filedeps";
@@ -110,8 +111,15 @@ function parseArgs(argv: string[]): CliArgs {
 		else if (a === "--table-usage") args.tableUsage = true;
 		else if (a === "--modules") args.modules = true;
 		else if (a === "--complexity") args.complexity = true;
-		else if (a === "--deps") args.deps = rest[++i]!;
-		else if (a === "--compare") args.compare = rest[++i]!;
+		else if (a === "--deps") {
+			const val = rest[++i];
+			if (val === undefined) throw new Error("--deps 需要参数 <json>"); // 缺值静默失效（undefined !== null 误触发视图抑制）→ 显式报错 exit 2
+			args.deps = val;
+		} else if (a === "--compare") {
+			const val = rest[++i];
+			if (val === undefined) throw new Error("--compare 需要参数 <json>");
+			args.compare = val;
+		}
 		else if (a === "--changed")
 			args.changed = (rest[++i] ?? "")
 				.split(",")
@@ -149,7 +157,7 @@ function printHelp(): void {
   --effect-table <json> 效应表注入（{ 语言: { 表名: 值 } }；键只增不删、数组并集；读文件/校验失败 exit 2）
   --corpus <file>      标注语料文件（默认 .codeaudit/corpus.json；累积先验供 suggested_prompt）
   --no-cache           禁用增量缓存
-  --topology           拓扑健康度：密度/环/深度/自环 + 人类解读（json 模式顶层加 topology 字段）
+  --topology           拓扑健康度：密度/环/深度/自环/多入口纠缠环/桥/割点 + 人类解读（json 顶层加 topology 字段）
   --sources            效应源清单：chain=0 IMPURE——直接调 io/net/random/state 的源头（背锅者，按调用点排序）
   --state              状态耦合图：写方按读者数排序（json 模式顶层加 stateCoupling；默认 top 50、硬上限 500——大项目防序列化超限）
   --strict             存在 IMPURE chunk 时退出码为 1
@@ -523,7 +531,7 @@ async function main(): Promise<void> {
 			`STATS: pure ${s.pure}, impure ${s.impure}, unknown ${s.unknown}`,
 		);
 		if (args.topology) {
-			// 拓扑摘要（--topology text 模式；迭代14 视角 3）+ 可解释性解读（迭代15）
+			// 拓扑摘要（--topology text 模式；迭代14 视角 3）+ 可解释性解读（迭代15）+ 可规约性/骨架（迭代46）
 			const t = graphMetrics(report.verdicts);
 			console.log(
 				`拓扑：${t.nodes} nodes / ${t.knownEdges} edges / 密度 ${t.density.toFixed(3)} / ` +
@@ -545,6 +553,21 @@ async function main(): Promise<void> {
 			if (t.cyclicComponents > 0)
 				console.log(
 					`  ➜ ${t.cyclicComponents} 个循环依赖（SCC>1——初始化/销毁顺序风险）`,
+				);
+			// 迭代46 C：可规约性（Hecht-Ullman——单入口=结构化递归、多入口=纠缠递归）
+			if (t.multiEntryScc > 0)
+				console.log(
+					`  ➜ 其中 ${t.multiEntryScc} 个多入口纠缠环（多个调用者从不同节点进环——重构雷区，优先解耦）`,
+				);
+			// 迭代46 桥/割点：模块边界（无向化凝聚图唯一通道/必经枢纽）
+			const br = bridgesOf(report.verdicts);
+			if (br.bridges.length > 0)
+				console.log(
+					`  ➜ ${br.bridges.length} 条桥边（模块间唯一连通通道——契约测试/版本兼容必保接口）`,
+				);
+			if (br.articulationPoints.length > 0)
+				console.log(
+					`  ➜ ${br.articulationPoints.length} 个割点枢纽（必经分量——改动影响面最大，评审从严）`,
 				);
 			if (t.dagDepth > 0)
 				console.log(
@@ -654,6 +677,24 @@ async function main(): Promise<void> {
 			for (const d of inDeps.slice(0, 10))
 				console.log(`    ${String(d.edges).padStart(4)}  ${d.file}`);
 			if (inDeps.length === 0) console.log(`    （无入边——无消费者）`);
+			// 迭代46 A：依赖骨架（凝聚 DAG 传递约简）——文件级聚合：骨架边指向该 chunk 所在文件
+			const sk = dependencySkeleton(report.verdicts);
+			const chunkFile = new Map(
+				report.verdicts.map((v) => [v.chunk.key, v.chunk.file]),
+			);
+			const skFiles = new Map<string, number>(); // 目标文件 → 骨架边数
+			for (const e of sk) {
+				const f = chunkFile.get(e.to);
+				if (f && f !== args.deps)
+					skFiles.set(f, (skFiles.get(f) ?? 0) + 1);
+			}
+			if (skFiles.size > 0) {
+				console.log(`  骨架（传递去重后真直接依赖，top 10）：`);
+				for (const [f, n] of [...skFiles.entries()]
+					.sort((a, b) => b[1] - a[1])
+					.slice(0, 10))
+					console.log(`    ${String(n).padStart(4)}  ${f}`);
+			}
 		}
 		if (args.compare) {
 			// 迭代44-r4：重构前后对比（复用 compareReports 库 API）——判定翻转 + unknown 变化摘要
@@ -730,7 +771,7 @@ async function main(): Promise<void> {
 		}
 		// 迭代44-r4：--topology/--modules/--deps 模式抑制默认清单（健康度/聚合视图不被 IMPURE 列表淹没）
 		let shown =
-			args.topology || args.modules || args.deps !== null
+			args.topology || args.modules || args.deps !== null || args.complexity
 				? []
 				: report.verdicts.filter((v) => v.purity !== Purity.PURE);
 		if (args.top !== null) shown = shown.slice(0, args.top);

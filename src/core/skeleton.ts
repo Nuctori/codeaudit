@@ -155,27 +155,46 @@ export function bridgesOf(verdicts: readonly Verdict[]): BridgeResult {
 	const articulation = new Set<number>();
 	let timer = 0;
 
-	const dfs = (u: number, parent: number): void => {
-		tin[u] = low[u] = timer++;
-		let children = 0;
-		for (const w of adj[u]!) {
-			if (w === parent) continue;
-			if (tin[w] === -1) {
-				children++;
-				dfs(w, u);
-				low[u] = Math.min(low[u]!, low[w]!);
-				if (low[w]! > tin[u]!) {
-					bridges.push({ from: reps.get(u)!, to: reps.get(w)! });
+	// 显式栈迭代（与 tarjan.ts 同款纪律：生产环境不允许递归爆栈——无环项目分量数 ≈ chunk 数，
+	// 链式调用图 30K 节点递归 DFS 即 RangeError）。帧 = (u, parent, 下一邻居下标)，精确模拟递归。
+	interface Frame {
+		u: number;
+		parent: number;
+		i: number;
+	}
+	const children = new Array(n).fill(0); // 每棵 DFS 树的根子计数（割点判定 root 用）
+	for (let c = 0; c < n; c++) {
+		if (tin[c] !== -1) continue;
+		tin[c] = low[c] = timer++;
+		const stack: Frame[] = [{ u: c, parent: -1, i: 0 }];
+		while (stack.length > 0) {
+			const f = stack[stack.length - 1]!;
+			const adjU = adj[f.u]!;
+			if (f.i < adjU.length) {
+				const w = adjU[f.i]!;
+				f.i++;
+				if (w === f.parent) continue;
+				if (tin[w] === -1) {
+					children[f.u] = children[f.u]! + 1;
+					tin[w] = low[w] = timer++;
+					stack.push({ u: w, parent: f.u, i: 0 });
+				} else {
+					low[f.u] = Math.min(low[f.u]!, tin[w]!); // 后向边（low 更新时机与递归一致）
 				}
-				if (parent !== -1 && low[w]! >= tin[u]!) articulation.add(u);
 			} else {
-				low[u] = Math.min(low[u]!, tin[w]!);
+				stack.pop();
+				if (f.parent !== -1) {
+					// 子帧完成：更新父 low + 桥/割点判定（递归返回后的同一位置）
+					low[f.parent] = Math.min(low[f.parent]!, low[f.u]!);
+					if (low[f.u]! > tin[f.parent]!) {
+						bridges.push({ from: reps.get(f.parent)!, to: reps.get(f.u)! });
+					}
+					if (low[f.u]! >= tin[f.parent]!) articulation.add(f.parent);
+				}
 			}
 		}
-		if (parent === -1 && children > 1) articulation.add(u);
-	};
-
-	for (let c = 0; c < n; c++) if (tin[c] === -1) dfs(c, -1);
+		if (children[c]! > 1) articulation.add(c); // 根：子树 > 1 即割点
+	}
 
 	return {
 		bridges,
