@@ -24,11 +24,18 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 			expect(html).toContain("<!DOCTYPE html>");
 			expect(html).toContain("测试项目");
 			for (const section of [
+				"健康度总览",
+				"拓扑健康度",
+				"层分布",
+				"效应链分布",
+				"SCC 入口分布",
+				"模块级",
 				"治理清单",
+				"纠缠环",
+				"桥与割点",
 				"圈复杂度",
 				"未知点形态",
 				"效应源",
-				"模块级",
 			])
 				expect(html).toContain(section);
 			expect(html).toContain("hub"); // 治理 top 含被调用者

@@ -3,12 +3,15 @@ import { UNKNOWN_TARGET } from "./types";
 import { graphMetrics } from "./topology";
 import { dependencySkeleton, bridgesOf } from "./skeleton";
 import { moduleSummary } from "./module";
+import { tarjan } from "./tarjan";
 
 /**
- * 技术债 HTML 可视化（迭代49 插件化：通用报告渲染器）。
+ * 技术债 HTML 可视化（迭代49 插件化：通用报告渲染器；迭代50 全量纲补全）。
  * 纯函数：verdicts + stats → 自包含单文件 HTML（零依赖、无 CDN、数据内嵌）。
- * 与 graphMetrics/riskOfChange 同构（verdicts 输入、不可变输出）——任意项目可复用，
- * 非 InitDeity 专用。量纲独立排序不混合（迭代48 纪律）。
+ * 全部量纲独立可视化（迭代48 纪律：量纲不混合，各视图各自排序）：
+ *   健康度卡片 / 拓扑健康度（密度/深度/自环/层分布/链分布/图完整度）/ 模块级 /
+ *   治理清单 / 纠缠环（可规约性）/ 桥与割点（模块边界）/ 骨架差异（最小化）/
+ *   圈复杂度 / 未知形态 / 效应源。
  */
 export function renderTechdebtHtml(
 	verdicts: readonly Verdict[],
@@ -55,6 +58,60 @@ export function renderTechdebtHtml(
 	const impure = verdicts.filter((v) => v.purity === 2).length;
 	const unknown = n - pure - impure;
 
+	// —— 纠缠环（可规约性：多入口 SCC 成员）——
+	const byKey = new Map(verdicts.map((v) => [v.chunk.key, v]));
+	const edgeSet = new Map<string, ReadonlySet<string>>();
+	for (const v of verdicts) {
+		edgeSet.set(
+			v.chunk.key,
+			new Set(
+				[...v.chunk.calls].filter(
+					(t) => t !== UNKNOWN_TARGET && t !== v.chunk.key && byKey.has(t),
+				),
+			),
+		);
+	}
+	const comps = tarjan(
+		verdicts.map((v) => v.chunk.key),
+		edgeSet,
+	);
+	const compOf = new Map<string, number>();
+	comps.forEach((comp, c) => comp.forEach((k) => compOf.set(k, c)));
+	// 多入口环：SCC>1 且外部调用者进入 >1 个不同成员
+	const entangled: { comp: string[]; entries: number }[] = [];
+	for (let c = 0; c < comps.length; c++) {
+		const comp = comps[c]!;
+		if (comp.length <= 1) continue;
+		const members = new Set(comp);
+		const extEntry = new Set<string>();
+		for (const v of verdicts) {
+			if (members.has(v.chunk.key)) continue;
+			for (const t of v.chunk.calls)
+				if (members.has(t)) extEntry.add(t);
+		}
+		if (extEntry.size > 1)
+			entangled.push({ comp: comp.slice(0, 6), entries: extEntry.size });
+	}
+	entangled.sort((a, b) => b.entries - a.entries);
+	const nameOf = (k: string): string => byKey.get(k)?.chunk.name ?? k;
+
+	// —— 桥清单（模块边界：唯一通道 from→to 分量代表）——
+	const bridgeRows = br.bridges
+		.map((e) => ({ from: nameOf(e.from), to: nameOf(e.to) }))
+		.slice(0, 15);
+	// 割点枢纽按调用者数排序
+	const artRows = br.articulationPoints
+		.map((k) => ({ name: nameOf(k), callers: inDeg.get(k) ?? 0 }))
+		.sort((a, b) => b.callers - a.callers)
+		.slice(0, 15);
+
+	// —— 骨架差异（最小化：全边 vs 骨架——传递冗余揭示）——
+	const knownTotal = verdicts.reduce(
+		(sum, v) => sum + [...v.chunk.calls].filter((t) => t !== UNKNOWN_TARGET).length,
+		0,
+	);
+	const redundant = Math.max(knownTotal - sk.length, 0);
+
 	const esc = (s: string): string =>
 		String(s)
 			.replace(/&/g, "&amp;")
@@ -62,7 +119,12 @@ export function renderTechdebtHtml(
 			.replace(/>/g, "&gt;")
 			.replace(/"/g, "&quot;");
 
-	const bar = (label: string, value: number, max: number, color: string): string => {
+	const bar = (
+		label: string,
+		value: number,
+		max: number,
+		color: string,
+	): string => {
 		const pct = max > 0 ? Math.round((value / max) * 100) : 0;
 		return `<div class="bar-row"><div class="bar-label">${label}</div>
   <div class="bar-track"><div class="bar-fill" style="width:${Math.max(pct, 1)}%;background:${color}"></div></div>
@@ -82,13 +144,35 @@ export function renderTechdebtHtml(
     <div class="seg-imp" style="width:${Math.max(100 - w - wu, 0)}%"></div>
   </div><div class="bar-val">${parts[0]}/${parts[1]}/${parts[2]}</div></div>`;
 	};
-	const card = (label: string, value: number | string, sub: string, color: string): string =>
+	const card = (
+		label: string,
+		value: number | string,
+		sub: string,
+		color: string,
+	): string =>
 		`<div class="card"><div class="card-label">${label}</div><div class="card-val" style="color:${color}">${value}</div><div class="card-sub">${sub}</div></div>`;
 
 	const sources = verdicts
-		.filter((v) => v.purity === 2 && v.chain === 0 && (v.chunk.direct?.size ?? 0) > 0)
+		.filter(
+			(v) => v.purity === 2 && v.chain === 0 && (v.chunk.direct?.size ?? 0) > 0,
+		)
 		.sort((a, b) => b.chunk.calls.size - a.chunk.calls.size)
 		.slice(0, 15);
+
+	// 拓扑健康度：层分布/链分布/入口分布条形
+	const layerMax = Math.max(...g.layerHistogram, 1);
+	const layerRows = g.layerHistogram
+		.map((c, i) => bar(`层 ${i}`, c, layerMax, "var(--acc)"))
+		.filter((_, i) => g.layerHistogram[i]! > 0)
+		.join("");
+	const chainMax = Math.max(...g.chainHistogram, g.chainInf, 1);
+	const chainRows =
+		g.chainHistogram.map((c, i) => bar(`chain=${i}`, c, chainMax, "var(--fg)")).join("") +
+		bar("chain=∞(PURE)", g.chainInf, chainMax, "var(--pure)");
+	const entryMax = Math.max(...g.sccEntryHistogram, 1);
+	const entryRows = g.sccEntryHistogram
+		.map((c, i) => bar(`入口 ${i}`, c ?? 0, entryMax, "var(--unk)"))
+		.join("");
 
 	return `<!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -98,6 +182,7 @@ export function renderTechdebtHtml(
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;padding:24px;max-width:1100px;margin:0 auto}
 h1{font-size:20px;margin-bottom:4px}h2{font-size:15px;margin:28px 0 10px;color:var(--acc);border-bottom:1px solid var(--br);padding-bottom:6px}
+h3{font-size:13px;margin:16px 0 6px;color:var(--fg)}
 .sub{color:var(--dim);font-size:12px;margin-bottom:18px}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
 .card{background:var(--panel);border:1px solid var(--br);border-radius:8px;padding:12px 14px}
@@ -120,19 +205,39 @@ td{padding:6px 8px;border-bottom:1px solid var(--br);color:var(--fg);white-space
 .pure{color:var(--pure)}.unk{color:var(--unk)}.imp{color:var(--imp)}
 .legend{display:flex;gap:16px;color:var(--dim);font-size:12px;margin-top:8px}
 .legend span{display:flex;align-items:center;gap:5px}.dot{width:10px;height:10px;border-radius:2px;display:inline-block}
+.two-col{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:800px){.two-col{grid-template-columns:1fr}}
+.chip{display:inline-block;background:var(--panel2);border:1px solid var(--br);border-radius:4px;padding:2px 8px;margin:3px;font-size:11px;color:var(--fg)}
 </style></head><body>
 <h1>${esc(opts.title ?? "codeaudit 技术债报告")}</h1>
 <div class="sub">${esc(opts.sub ?? "")} · ${n} chunks · ${stats.files} 文件 · ${stats.cycles} 环 · ${new Date().toISOString().slice(0, 19)}</div>
 
+<h2>健康度总览</h2>
 <div class="grid">
 ${card("Chunks", n, "可判定单元", "var(--fg)")}
 ${card("PURE", pure, `${((pure / n) * 100).toFixed(1)}%`, "var(--pure)")}
 ${card("IMPURE", impure, `${((impure / n) * 100).toFixed(1)}% 有确定副作用`, "var(--imp)")}
 ${card("UNKNOWN", unknown, `${((unknown / n) * 100).toFixed(1)}% 无法判定`, "var(--unk)")}
+${card("图完整度", `${(100 * (1 - g.evidence.missingSiteRate)).toFixed(1)}%`, `未知站点 ${g.unknownEdges}`, "var(--acc)")}
+${card("密度", g.density.toFixed(4), "完全图=1，近树≈0", "var(--acc)")}
+${card("深度", g.dagDepth, "凝聚 DAG 最长路径", "var(--acc)")}
+${card("自递归", g.selfLoopCount, "自我调用 chunk", "var(--acc)")}
+</div>
+
+<h2>拓扑健康度</h2>
+<div class="panel">
+<div class="grid" style="margin-bottom:12px">
 ${card("环 SCC", g.cyclicComponents, `${g.multiEntryScc} 多入口纠缠(${Math.round((g.multiEntryScc / Math.max(g.cyclicComponents, 1)) * 100)}%)`, "var(--acc)")}
 ${card("桥边", br.bridges.length, "模块唯一通道", "var(--acc)")}
 ${card("割点", br.articulationPoints.length, "必经枢纽", "var(--acc)")}
-${card("骨架边", sk.length, "真直接依赖", "var(--acc)")}
+${card("骨架边", sk.length, `全边 ${knownTotal} − 传递冗余 ${redundant}`, "var(--acc)")}
+</div>
+<div class="two-col">
+<div><h3>层分布（调用深度）</h3>${layerRows}</div>
+<div><h3>效应链分布（chain）</h3>${chainRows}</div>
+</div>
+<h3>SCC 入口分布（可规约性——入口=1 结构化递归，>1 纠缠递归）</h3>
+${entryRows}
 </div>
 
 <h2>模块级（PURE/UNKNOWN/IMPURE 分段 · top 10）</h2>
@@ -144,6 +249,21 @@ ${mods.slice(0, 10).map((m) => seg(m.module, [m.pure, m.unknown, m.impure], m.ch
 <h2>治理清单 top 25（量纲：直接调用者数——被最多人引用的非纯优先）</h2>
 <div class="panel">
 ${gov.map((v) => bar(`${esc(v.chunk.name)} <span style="color:var(--dim)">· ${esc(v.chunk.file.split("/").pop() ?? "")}:${v.chunk.line}</span>`, inDeg.get(v.chunk.key) ?? 0, govMax, v.purity === 2 ? "var(--imp)" : "var(--unk)")).join("")}
+</div>
+
+<h2>纠缠环 top ${entangled.length > 8 ? 8 : entangled.length}（可规约性热点——多入口=重构雷区）</h2>
+<div class="panel">
+${entangled.length === 0 ? '<div class="sub">无多入口纠缠环</div>' : entangled.slice(0, 8).map((e) => `<div class="bar-row"><div class="bar-label">${e.entries} 入口</div><div class="bar-track" style="background:transparent">${e.comp.map((k) => `<span class="chip">${esc(nameOf(k))}</span>`).join("")}</div><div class="bar-val"></div></div>`).join("")}
+</div>
+
+<h2>桥与割点（模块边界）</h2>
+<div class="two-col">
+<div class="panel"><h3>桥边 top 15（唯一通道——契约测试必保接口）</h3>
+${bridgeRows.length === 0 ? '<div class="sub">无桥边</div>' : bridgeRows.map((b) => `<div class="bar-row"><div class="bar-label" style="width:70%">${esc(b.from)} → ${esc(b.to)}</div><div class="bar-track" style="background:transparent"><span class="chip">🔗</span></div><div class="bar-val"></div></div>`).join("")}
+</div>
+<div class="panel"><h3>割点枢纽 top 15（必经分量——改动影响面最大）</h3>
+${artRows.length === 0 ? '<div class="sub">无割点</div>' : artRows.map((a) => bar(esc(a.name), a.callers, Math.max(...artRows.map((x) => x.callers), 1), "var(--imp)")).join("")}
+</div>
 </div>
 
 <h2>圈复杂度 top 20</h2>
@@ -162,6 +282,6 @@ ${shapeTop.map(([k, n2]) => bar(esc(k), n2, shapeMax, "var(--unk)")).join("")}
 ${sources.map((v) => `<tr><td>${esc(v.chunk.name)}</td><td>${esc(v.chunk.file)}</td><td>${[...v.effects].map((e) => `<span class="badge b-${e}">${e}</span>`).join("")}</td><td>${v.chunk.calls.size}</td></tr>`).join("")}
 </table>
 </div>
-<div class="sub" style="margin-top:24px">codeaudit renderTechdebtHtml · 量纲独立排序不混合 · 数据内嵌零外部依赖</div>
+<div class="sub" style="margin-top:24px">codeaudit renderTechdebtHtml · 全量纲独立可视化不混合 · 数据内嵌零外部依赖</div>
 </body></html>`;
 }
