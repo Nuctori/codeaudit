@@ -34,7 +34,7 @@ node dist/cli.js scan ./src --unknowns unknowns.json   # 导出未知符号供 A
 node dist/cli.js scan ./src --strict                   # 存在 IMPURE 时退出码 1（CI 门禁）
 node dist/cli.js scan ./src --changed a.ts --gate      # 合入门禁：回归风险 grade ≥ high 时退出码 1
 node dist/cli.js scan ./src --effect-table overrides.json   # 效应表注入（不改库代码；{ 语言: { 表: 值 } }，读文件/校验失败 exit 2）
-```
+node dist/cli.js scan ./src --html report.html   # 技术债 HTML 可视化（自包含单文件：健康度/模块/治理/复杂度/未知形态/效应源）
 
 编程式 API：
 
@@ -65,7 +65,7 @@ const injected = await scanProject("./src", {
 // CLI 同构（迭代29）：--effect-table overrides.json（JSON 形状同上；读文件/校验失败 exit 2，与 --annotations 同款）
 ```
 
-导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `riskOfChange` / `forwardClosure` / `gradeOf` / `gateExit` / `fitBaseRate` / `priorFor` / `emptyCorpus` / `updateCorpus` / `mergeCorpus` / `summarize` / `siteShapeInfo` / `isCorpus` / `graphMetrics` / `dependencySkeleton` / `bridgesOf` / `proofCompleteness` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` / `compareReports` / `applyEffectOverrides` / `validateEffectOverride` / `loadEffectOverrides` + `defaultPacks` + 类型（`BaseRateModel`/`CorpusFile`/`CorpusSite`/`Prior`/`ChangeImpact`/`ImpactedChunk`/`ChangeRisk`/`ProofCompleteness`/`GraphMetrics`/`SkeletonEdge`/`BridgeResult`/`VerdictDelta`/`Verdict`/`Chunk`/`ScanReport`/`ScanStats`/`LangPack`/`Purity`/`EffectTables`）。
+导出的库函数：`scanProject` / `analyzeChange` / `changedImpact` / `riskOfChange` / `forwardClosure` / `gradeOf` / `gateExit` / `fitBaseRate` / `priorFor` / `emptyCorpus` / `updateCorpus` / `mergeCorpus` / `summarize` / `siteShapeInfo` / `isCorpus` / `graphMetrics` / `dependencySkeleton` / `bridgesOf` / `renderTechdebtHtml` / `proofCompleteness` / `annotationBudget` / `annotationCurve` / `influenceAnalysis` / `compareReports` / `applyEffectOverrides` / `validateEffectOverride` / `loadEffectOverrides` + `defaultPacks` + 类型（`BaseRateModel`/`CorpusFile`/`CorpusSite`/`Prior`/`ChangeImpact`/`ImpactedChunk`/`ChangeRisk`/`ProofCompleteness`/`GraphMetrics`/`SkeletonEdge`/`BridgeResult`/`VerdictDelta`/`Verdict`/`Chunk`/`ScanReport`/`ScanStats`/`LangPack`/`Purity`/`EffectTables`）。
 
 ## 回归风险控制（`--changed`）
 

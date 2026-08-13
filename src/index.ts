@@ -105,6 +105,7 @@ export type {
 } from "./core/corpus";
 export { graphMetrics } from "./core/topology";
 export type { GraphMetrics } from "./core/topology";
+export { renderTechdebtHtml } from "./core/htmlreport";
 export { dependencySkeleton, bridgesOf } from "./core/skeleton";
 export type { SkeletonEdge, BridgeResult } from "./core/skeleton";
 export { proofCompleteness } from "./core/proof";

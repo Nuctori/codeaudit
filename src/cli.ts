@@ -7,7 +7,7 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import { scanProject } from "./index";
+import { scanProject, renderTechdebtHtml } from "./index";
 import { loadEffectOverrides, type EffectTables } from "./lang/effectOverride";
 import { riskOfChange, gateExit } from "./core/risk";
 import { graphMetrics } from "./core/topology";
@@ -47,6 +47,7 @@ interface CliArgs {
 	noCache: boolean;
 	strict: boolean;
 	/** 合入门禁（--gate；与 --changed 联用：grade ≥ high → exit 1）。 */
+	gate: boolean;
 	modules: boolean;
 	/** 圈复杂度 top（--complexity；迭代44-r4：重构复杂函数识别）。 */
 	complexity: boolean;
@@ -54,7 +55,8 @@ interface CliArgs {
 	deps: string | null;
 	/** 重构前后对比（--compare <before.json>；迭代44-r4：复用 compareReports 库 API）。 */
 	compare: string | null;
-	gate: boolean;
+	/** 技术债 HTML 可视化输出（--html <file>；迭代49 插件化——renderTechdebtHtml 库 API 的 CLI 入口）。 */
+	html: string | null;
 	/** 状态耦合图（--state；迭代23 D-127：写方按读者数排序，全图耦合链）。 */
 	state: boolean;
 	/** 回归风险分析：改动文件集（--changed a.ts,b.py）。 */
@@ -88,6 +90,7 @@ function parseArgs(argv: string[]): CliArgs {
 		complexity: false,
 		deps: null,
 		compare: null,
+		html: null,
 	};
 	const rest = argv.slice(2);
 	for (let i = 0; i < rest.length; i++) {
@@ -119,6 +122,10 @@ function parseArgs(argv: string[]): CliArgs {
 			const val = rest[++i];
 			if (val === undefined) throw new Error("--compare 需要参数 <json>");
 			args.compare = val;
+		} else if (a === "--html") {
+			const val = rest[++i];
+			if (val === undefined) throw new Error("--html 需要参数 <file>");
+			args.html = val;
 		} else if (a === "--changed")
 			args.changed = (rest[++i] ?? "")
 				.split(",")
@@ -162,6 +169,7 @@ function printHelp(): void {
   --strict             存在 IMPURE chunk 时退出码为 1
   --gate               与 --changed 联用：grade ≥ high（风险≥35）时退出码 1（合入门禁；invalid 不放行）
   --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
+  --html <file>        技术债 HTML 可视化（自包含单文件：健康度卡片/模块分段/治理清单/复杂度/未知形态/效应源）
   -h, --help           显示帮助
 `);
 }
@@ -455,6 +463,20 @@ async function main(): Promise<void> {
 		console.error(
 			`codeaudit: warning — ${report.stats.invariantViolations} invariant violations, ${report.stats.staleEdges} stale edges`,
 		);
+	}
+
+	// 迭代49 插件化：--html <file>——技术债 HTML 可视化（renderTechdebtHtml 库 API 的 CLI 入口，
+	// 通用任意项目；独立于 format，不影响 text/json 主输出）
+	if (args.html) {
+		try {
+			const html = renderTechdebtHtml(report.verdicts, report.stats, {
+				title: `codeaudit 技术债报告 — ${root}`,
+			});
+			writeFileSync(args.html, html);
+			console.error(`HTML -> ${args.html}（${(html.length / 1024).toFixed(0)} KB）`);
+		} catch (e) {
+			throw new Error(`--html 写入失败：${(e as Error).message}`);
+		}
 	}
 
 	if (args.format === "json") {
