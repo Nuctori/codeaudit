@@ -12,6 +12,7 @@ import { loadEffectOverrides, type EffectTables } from "./lang/effectOverride";
 import { riskOfChange, gateExit } from "./core/risk";
 import { graphMetrics } from "./core/topology";
 import { stateCouplingOf, type StateCouplingEntry } from "./core/state";
+import { sourceSnippet } from "./core/snippet";
 import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
 import {
 	annotationBudget,
@@ -181,7 +182,7 @@ function trimRootPath(msg: string): string {
 	return msg.slice(0, i) + "." + msg.slice(i + cliRoot.length);
 }
 
-/** 语料先验提示（建议置信度，非纯度判定；n 不足/分歧大时不提示）。0.65/0.35 与 PRIOR_THRESHOLD 同源。 */
+	/** 语料先验提示（建议置信度，非纯度判定；n 不足/分歧大时不提示）。0.65/0.35 与 PRIOR_THRESHOLD 同源。 */
 function priorHint(corpus: CorpusFile, sites: Chunk["unknownCalls"]): string {
 	const hints: string[] = [];
 	for (const site of sites) {
@@ -203,18 +204,6 @@ function priorHint(corpus: CorpusFile, sites: Chunk["unknownCalls"]): string {
 		: "";
 }
 
-/** 迭代44-r3（工作台痛点3）：chunk 源码片段——unknowns 导出携带代码上下文，标注者无需打开文件。
- *  读取失败（文件被删/权限）→ 空串（不中断导出）。行区间含 endLine；超长截断防导出膨胀。 */
-function sourceSnippet(root: string, chunk: Chunk): string {
-	try {
-		const lines = readFileSync(join(root, chunk.file), "utf8").split("\n");
-		const start = Math.max(0, chunk.line - 1);
-		const end = Math.min(lines.length, chunk.endLine);
-		return lines.slice(start, end).join("\n").slice(0, 2000);
-	} catch {
-		return "";
-	}
-}
 
 /**
  * 迭代36 §b-2 落地：--state 序列化长度工程上界。500 写方硬上限是实测调参值非数学上界
@@ -505,7 +494,7 @@ async function main(): Promise<void> {
 		console.log(
 			JSON.stringify(
 				payload3,
-				(k, v) => (v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v),
+				(_k, v) => (v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v),
 				2,
 			),
 		);
