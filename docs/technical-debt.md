@@ -2,7 +2,7 @@
 
 > 重基线于迭代 40（2026-08-13）：B5（C# 属性访问器假纯洞）闭合——property chunk + 属性读取 prop 边；
 > B 表重审引入**方向分类**（方向安全 ≠ 假纯通道，iter31 定义对齐）；M_out 模型外通道清单形式化。
-> 现基线：355/355 测试（vitest 串行）+ tsc 干净 + 真实扫描冒烟通过（迭代42：候选7 静态访问类型加载闭合 + 候选3 enum 判纯 + B4/M1 方向改标）。
+> 现基线：388/388 测试（vitest 串行）+ tsc 干净（除并行迭代44-r4 工作树 cli.ts 未提交改动）+ 真实扫描冒烟通过（迭代45：C1 成员互斥 S1 修复 + O-C5/O-C6 机检落地 + 妥协形式化落档 axioms.md 四·八）。
 > 分类：**A. 形式正确性修复（已修）** / **B. 工程妥协（有意，方向分类）** / **C. 无主债（应还）** / **D. 外部债（非本仓库可修）**
 >
 > **方向分类字段**（迭代40 引入，对齐 iter31 操作定义）：
@@ -67,6 +67,8 @@ A6 的 S1 是**模型相对**的（"实际效应定义在模型真值上"）。�
 | C5 | **效应表测试稀疏**：70+ 类只测 10 个——其余无断言 | 1h | 保留 |
 | C6 | **局部变量类型推断缺失**（API.g.cs 生成代码 30.5% 未知站点——构造器初始化子集 ~2-3k） | 2h + 度量 | **已闭环**（迭代37 P1-2，c09d335）：localBindingsOf 单赋值构造绑定 + link 消费（G4 守卫：单赋值 ∧ ¬param ∧ 构造形态；`var xs = new List<int>()` → xs.Add 纯信箱）；残余 = 方法结果/下标 receiver 绑定（需跨 chunk 数据流，仍延后） |
 | C7 | **重载歧义断链**（ApiClientHelper.PrepareRequest 732 站） | 0.5-1d + 文档 | **已闭环**（迭代37 P1-3，c09d335）：byQualifiedAll + addUnionEdges 并集边（数学 S1/S2/S3 可证安全，全候选建边禁止任选）；同名重定义从 ? 升级确定判定 |
+| C8 | **标注生命周期账本**（半衰期/失效预算核算的输入） | 账本 ~10-15 行 | **裁决（迭代45）：不做**——无第二语料/无扫描历史/唯一语料 100% 覆盖无消费者；已够用闭环 = unmatched 回显 + 语料吸收 + seen 去重 + 台账（数学解 V/R/O/S 命题已形式化 axioms.md 四·八，等第二项目语料再落） |
+| C9 | **impureGlobals 无遮蔽守卫**（`var Console = evil(); Console.WriteLine()` → 假 io） | 极小 | 安全-过近似（假 IMPURE 不假纯）——迭代45 Jeff 评审补入清单；field-read 测试特意用非表键名避开（iter41 已知过近似，记录在案） |
 
 ## D. 外部债（非本仓库可修）
 
@@ -213,6 +215,19 @@ A6 的 S1 是**模型相对**的（"实际效应定义在模型真值上"）。�
 | **L1 跨语言测试** | 覆盖缺口 | TS static 字段初始化器 / Python 类体赋值 → 静态访问路径 IMPURE |
 
 **验收**：366/366（+4）+ tsc 0 + essence 8/8 + README 门禁绿（362→366）。残余：static-init 标注 id 迁移发布动作（静态 ctor chunk id 消失）；A1 回归网排 iter43-r3（分布稳定后校准）。
+
+## 迭代 44-r4/45 清空项（迭代45 双评审：妥协最小形式化 + C1 S1 修复 + O-C5/O-C6 机检）
+
+| 项 | 类型 | 闭合方式 |
+| --- | --- | --- |
+| **C1 成员互斥短路守卫**（写-读缓存属性/类 chunk 跨作用域污染） | 假纯（S1 违反，迭代45 数学家 blocker + 探针实证） | link.ts isClassMemberName：`obj===null ∧ prop ∧ attr∈assigned ∧ attr ∉ 类成员` 才短路——C# 限定名索引 `${cls}.${attr}` 命中（属性/方法 chunk）→ 不短路；TS/JS memberNameExists；仅 bareNameMeansThisInMethod 语言启用。回归 iter45-c1.test.ts 3 用例 |
+| **O-C5 heritage 接受集完备性**（alias_qualified_name 缺位 + region/endregion 不对称） | 机检 + 修复 | extractor pushBase 加 alias_qualified_name 剥壳（children[1] 递归）；heritageSkipNodes 13 directive 全量入表；heritage-skip-completeness.test.ts 3 用例（wasm grammar 节点集对拍） |
+| **O-C6 排除表完备性**（propertyReadSkipParents 漏 5 directive） | 机检 + 修复 | propertyReadSkipParents 补 line/error/warning/pragma/nullable/extern_alias；与 C5 共用检查器 |
+| **C8 标注生命周期数学解** | 形式化（不做代码） | V/R/O/S 命题组入 axioms.md 四·八：决定集 = 机器判定差集；工具修复不改变 chunk id → 吸收是 matched 冗余非 unmatched（pain-2 1123→857 归因勘误）；fix-first-then-annotate 调度推论；语料桥跨世代 n 虚高（方向安全，YAGNI 裁决） |
+
+**验收**：388/388（+3 C1 + 3 O-C5/C6）+ tsc 干净（并行工作树 cli.ts 除外）+ README 门禁绿。
+
+**评审流程**：docs/iter45/（00-plan → 01-math-review → 02-jeff-review → 03-synthesis → record）；残余：C2 全限定 System.* 枚举（数据裁决，top-miss 频次）；C9 impureGlobals 遮蔽守卫（安全-过近似，补入 B 表）；语料桥计数衰减（YAGNI）；标注三向失效分解吸收向回显（等第二语料）。
 
 ## 总体评估
 

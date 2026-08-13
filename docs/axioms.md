@@ -70,7 +70,7 @@
 用户「开修」覆写四方评审否决，四件按 AI 工程师方案实施（带数学家守卫）：
 
 | 件 | 机制 | 守卫 |
-|---|---|---|
+| --- | --- | --- |
 | A 模块级值绑定 | `moduleBindings`（模块级单赋值 name→类名，last-write-wins，解包 export/expression 包装）；from-import 成员分支查绑定 → resolveSymbol → kind=class → 类成员边 | 定义遮蔽赋值清除；require 排除；kind 判别 |
 | B 构造器接收者 | `RawChunk.kind`（class/function/module）；`new C()` → receiver "class:C" → resolveSymbol → kind=class → 类成员边 | kind 判别（函数不可 new）；解析失败 → `?` |
 | C 链式返回类型 | `builtinMethodReturns`（类型→方法→返回类型，语言事实）；extractor 递归 receiverTypeOf | 表外链断 → `?`；链不绕过纯度表；无跨函数 |
@@ -87,6 +87,47 @@
 3. **曲线启发序非边际最优**：标注曲线对**给定顺序**精确（逐源释放），但顺序为 UNKNOWN 密集影响面启发序——共享源 chunk 的边际释放 < 桶大小，边际最优需贪心重算（O(n²)），成本取舍，注释明示（cli.ts）。
 4. **先验永不进判定**：`suggested_prompt` 携带的先验提示是建议置信度，purity/chain/effects 判定不读语料——A7"先验不进判定通道"契约。
 5. **阈值-因子联合体**：回归风险阈值 15/35/60 是对 (权重 W, R_state 加入前) 分布的实测标定（迭代13/15 真实语料验证）；改任一因子/权重/阈值组合须重标——D 矩阵/权重基数同理（迭代14 视角 1 四序公理 + 基数裁决；R_state 迭代15 复测分布未移）。
+
+## 四·八、Iter-44 妥协最小形式化（迭代45 双评审审计，2026-08-13 落地）
+
+Iter-44 工具不完备/数据债收口的工程妥协经数学家 + Jeff Dean 双评审审计后，按「引理（S1 侧）入本文件 / 数据债方向分类入 technical-debt.md / 运营模型入 annotation-workflow-review.md」分层落档。评审发现 1 个代码级 S1 违反（C1 反例）当场修复。
+
+### 引理 L-C1′（绑定槽读取恒纯，修正版）
+
+> **前提**：C#（及 TS/Python 词法作用域下同构）裸标识符解析 = 最近包围声明（C# 规范）；绑定槽（局部变量、参数、foreach/catch 变量、字段）读取 = 内存加载，不执行用户代码；属性名不入声明收集（property_declaration 无 variable_declarator 子节点，探针实证）。
+> **结论**：`obj===null ∧ prop ∧ attr∈assigned(Caller) ∧ attr ∉ 类成员(ownerClass)` ⟹ 判纯（link.ts 分支 2 顶部早期短路）。
+> **豁免面**：四条件缺一不可——obj===null（对象成员读可能 getter）；prop=true（调用可能执行用户代码）；attr∈assigned（非遮蔽名可能是属性）；attr ∉ 类成员（**迭代45 修正**：assigned 含 assignment_expression 左值收集，C# 隐式 this 属性写后裸读若短路 → getter io 假纯，S1 违反；类 chunk 同理——assigned = 整棵类子树，方法内局部声明名污染类级字段初始化器读属性）。局部遮蔽类成员的读退回 `?`（安全，C1 前行为）。
+> **残余风险**：using-static 导入可写成员的写后裸读（memberNameExists 不可见）——与 B5 prop-miss 既有暴露同族，文档化接受，触发率 ≈0。
+> **修复锚点**：link.ts isClassMemberName（C# 限定名索引 `${cls}.${attr}` 命中；TS/JS 走 memberNameExists；仅 bareNameMeansThisInMethod 语言启用）。回归测试 iter45-c1.test.ts（3 用例：类 chunk 污染非 PURE / 局部读短路保留 / 写-读属性 IMPURE）。
+
+### 引理 L-C2（枚举成员判纯）
+
+> **前提**：C# 规范：枚举成员是编译期常量；白名单条目名称 = 语料实证的 BCL/第三方枚举类型名（StringComparison/TaskStatus/BindingFlags/AttributeTargets/Ease）；遮蔽守卫（globalClasses 优先 + assigned/moduleAssigned）在位。
+> **结论**：`obj ∈ pureGlobals` 且未遮蔽 ⟹ 成员读取判纯。
+> **豁免面**：插件同名 + 静态 getter = 表语义既有风险类（override 可修正）；全限定形态 System.X.Y（obj="System"）→ **形式强加的 `?`**（知识在 pureGlobals，键形状不匹配——非信息论必然擦除）→ 数据裁决（top-N 频次）或 frameworkPure.System 子键闭合（iter30 逐类型白名单先例形状）。
+
+### 义务 O-C5（heritage 接受集完备性）
+
+> 设 B = grammar 中 base_list 直接子节点可达类型集，A = {identifier, type_identifier, property_identifier} ∪ heritageWrapNodes ∪ typeNameNodes ∪ heritageSkipNodes ∪ {ERROR}。
+> **不变量**：B ⊆ A。
+> **违反后果**：∃t ∈ B∖A ⟹ hasDynamicExtends=true ⟹ 规则3 语言级降级（全库 C# 多态/隐式 this → unknown，安全-未知，判别力 -37% 级实测）。
+> **机检形态**：heritage-skip-completeness.test.ts（directive 族 14 节点全量入表断言 + wasm grammar 节点集对拍）；alias_qualified_name（global:: 基类）剥壳修复（extractor pushBase）。
+> **已知违反（已修）**：alias_qualified_name（D-144 实证节点存在，迭代45 补接受集）；region/endregion 不对称（迭代45 两表全量补齐）。
+
+### 义务 O-C6（排除表完备性）
+
+> 同 O-C5 检查器；违反后果 = 局部 unknown 噪音（安全-未知，非全局降级）——优先级低于 O-C5。propertyReadSkipParents 13 directive 节点全量入表（迭代45 补 line/error/warning/pragma/nullable/extern_alias）。
+
+### C8 标注生命周期命题组（V / R / O / S）
+
+> **V（决定集）**：V(A) = {c : J_M(c) ≠ J_{M+A}(c)}；v(a) = I[a ∈ V]。标注价值 = 机器判定差集；「生效」计数是决定集的**上界**（含冗余吸收——工具修复后 chunk 不再 UNKNOWN，标注应用为 no-op 仍计生效）。工具修复**不改变 chunk id**（id = hash(normText)，公理4）→ 吸收是 matched 且冗余，非 unmatched。
+> **R（引用衰减）**：id = h∘norm（公理4）；编辑 → id 变是确定性谓词（编辑改变规范化令牌流 ⟺ id 变）；编辑过程随机 ⟹ 生存函数 S(t) = P(id 稳定)，λ_eff = 编辑率 × P(id 变|编辑)，期望寿命 1/λ_eff（仅 R 子过程；记忆less 需泊松假设，git 历史可检验）。**半衰期模型只对引用性衰减成立**——操作吸收不是随机过程（发布排期驱动），无概率模型。
+> **O（操作吸收）**：确定性反事实——工具修复后重扫，吸收集 = 修复前决定 ∧ 修复后冗余；pain-2 的 1123→857（-24%）是吸收（机器证明取代人工断言，正向），非标注资产损失。
+> **S（调度）**：标注序按 E[value] = influence × S(存活|年龄) × I[机器届时 unresolved]；**fix-first-then-annotate**（工具修复先于标注轮——pain-2 的 266 条失效标注是违反该顺序的实测代价）；失效三向分解：吸收（matched ∧ 冗余）/ 引用失效（unmatched，id 消失）/ 矛盾（rejected）——吸收向现无回显（D-155/157 只覆盖后两向），是三向归因错误的根源。
+> **语料桥计数泄漏（方向安全）**：seen 双锚定只保证单世代幂等——逻辑代码改名/重构 → 新 id → 重标 → 同一 (attr,root) 格跨世代重复 bump，cell n 虚高 → 先验置信过信。先验永不进判定（A7 契约）→ 失真限于建议通道，无健全性后果。修复候选（非本轮）：cell 计数按 chunk 世代去重或计数衰减——YAGNI 裁决。
+> **工程裁决（Jeff Dean）**：数学解不落地代码（无第二语料/无扫描历史账本/唯一语料 100% 覆盖无消费者）；已够用闭环 = unmatched 回显 + 语料吸收 + seen 去重 + 台账；唯一值得的工程延伸 = unmatched 回显补失效原因分类（吸收 vs id 死亡 vs 拼写错误，标注者感知错位才是痛点本体）。
+
+## 五、残余
 
 ## 五、残余
 
