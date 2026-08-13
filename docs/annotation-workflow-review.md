@@ -62,4 +62,10 @@
 
 ## 结论
 
-工具侧残余（痛点 2）修完预估 unknown -200~-400（同文件方法 miss）；标注运营按 chunk 聚合 + 被拒反馈（痛点 1/3）可持续消化至 ~15%。建议顺序：**修痛点 2（工具）→ 实现痛点 1/3（工作台）→ 标注运营继续**。
+工具侧残余（痛点 2）修完预估 unknown -300~-500（面扩大实测：Refresh/CopySource/count/steps/conditionals/type 全族 ~300 条——同文件符号裸名 miss 的全库范围效应，非此前估计的 150 条）；标注运营按 chunk 聚合 + 被拒反馈（痛点 1/3）可持续消化至 ~15%。建议顺序：**修痛点 2（工具，面扩大需重新评估）→ 实现痛点 3（工作台）→ 标注运营继续**。
+
+## 迭代44-r3 追加（标注运营继续判定）
+
+- 台账补 IMPURE 生效计数（impureApplied）：537 PURE + 1277 IMPURE 生效——标注者首次可见 IMPURE 标注实效
+- 下一批 184 条（Linear→PURE 18 条——DOTween Ease 枚举，数据债：枚举白名单扩展；Append/Values/Refresh/CopySource→IMPURE 166 条）→ unknown 4758→4570（16.3%）
+- **新痛点**：① 痛点 2 复发面扩大（~300 条同文件符号裸名 miss——Refresh* 同文件方法/CopySource 属性 getter/count/steps 字段读——全库范围效应，需重新评估修复）② Ease 枚举数据债（DOTween 枚举成员读取——白名单只加 4 个 System 枚举）③ `x`/`actions`/`conditionals` 等混合形态（部分工具残余部分动态分派——chunk 聚合裁决）
