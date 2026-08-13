@@ -47,6 +47,18 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 	const idx = new Map<string, number>();
 	verdicts.forEach((v, i) => idx.set(v.chunk.key, i));
 
+	// 迭代52：同名族（重载/同名重定义）内部调用 = 自递归口径（C# 隐式 this 解析重载为
+	// 并集边——安全方向的保守选择，但重载星形委托会被并集边自连成人工 SCC）。
+	// 拓扑视图把族内边视作自环（不计入 knownEdges/SCC/入口），纯度传播不受影响。
+	const fam = (v: Verdict): string | null => {
+		const name = v.chunk.name;
+		return typeof name === "string" && name.length > 0 ? name : null;
+	};
+	const sameFamily = (a: Verdict, b: Verdict): boolean => {
+		const na = fam(a);
+		return na !== null && na === fam(b);
+	};
+
 	// 边提取（口径复刻 analyze runOnce）：?/悬垂排除；自环单计
 	let knownEdges = 0;
 	let unknownEdges = 0;
@@ -58,7 +70,7 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 			if (t === UNKNOWN_TARGET) continue;
 			const ti = idx.get(t);
 			if (ti === undefined) continue;
-			if (t === v.chunk.key) {
+			if (t === v.chunk.key || sameFamily(v, verdicts[ti]!)) {
 				selfLoopCount++;
 				continue;
 			}
@@ -74,7 +86,13 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 			v.chunk.key,
 			new Set(
 				[...v.chunk.calls].filter(
-					(t) => t !== UNKNOWN_TARGET && t !== v.chunk.key && byKey.has(t),
+					(t) =>
+						t !== UNKNOWN_TARGET &&
+						t !== v.chunk.key &&
+						(() => {
+							const tv = byKey.get(t);
+							return tv !== undefined && !sameFamily(v, tv);
+						})(),
 				),
 			),
 		);
@@ -93,6 +111,8 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 		const c = compOf.get(v.chunk.key)!;
 		for (const t of v.chunk.calls) {
 			if (t === UNKNOWN_TARGET || t === v.chunk.key) continue;
+			const tv = byKey.get(t);
+			if (tv === undefined || sameFamily(v, tv)) continue;
 			const tc = compOf.get(t);
 			if (tc !== undefined && tc !== c && !succComp[c]!.includes(tc))
 				succComp[c]!.push(tc);
@@ -146,6 +166,8 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 		const c = compOf.get(v.chunk.key)!;
 		for (const t of v.chunk.calls) {
 			if (t === UNKNOWN_TARGET || t === v.chunk.key) continue;
+			const tv = byKey.get(t);
+			if (tv === undefined || sameFamily(v, tv)) continue;
 			const tc = compOf.get(t);
 			if (tc === undefined || tc === c) continue;
 			let s = sccEntry.get(tc);

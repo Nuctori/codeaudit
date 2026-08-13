@@ -4,6 +4,7 @@ import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { scanProject, renderTechdebtHtml } from "../../src/index";
+import type { Verdict } from "../../src/core/types";
 
 describe("renderTechdebtHtml（迭代49 插件化）", () => {
 	it("自包含单文件：六大视图 + 零外部依赖（无 CDN/无 script src）", async () => {
@@ -115,5 +116,46 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
 		}
+	});
+
+	it("迭代52：重载同名族不列入纠缠环（并集边人工环消除）", () => {
+		// 直接构造 verdicts：重载星形（T.Track 三成员互调，C# 隐式 this 并集边场景）
+		// + 真实双入口环（A.bar ↔ B.baz，X/Y 双入口）——后者必须仍在纠缠列表。
+		const mk = (key: string, name: string, calls: string[]): Verdict =>
+			({
+				chunk: {
+					key,
+					file: `${key.split("#")[0]}.cs`,
+					startLine: 1,
+					endLine: 2,
+					name,
+					calls: new Set(calls),
+					unknownSites: 0,
+					stateWrites: [],
+					parseError: false,
+				},
+				purity: 1,
+				chain: 1,
+				chainCertain: true,
+				effects: new Set<string>(),
+				stateDeps: [],
+			}) as unknown as Verdict;
+		const html = renderTechdebtHtml(
+			[
+				mk("T.Track#1", "T.Track", ["T.Track#2", "T.Track#3"]),
+				mk("T.Track#2", "T.Track", ["T.Track#1", "T.Track#3"]),
+				mk("T.Track#3", "T.Track", ["T.Track#1", "T.Track#2"]),
+				mk("X.hit", "X.hit", ["A.bar"]),
+				mk("Y.hit", "Y.hit", ["B.baz"]),
+				mk("A.bar", "A.bar", ["B.baz"]),
+				mk("B.baz", "B.baz", ["A.bar"]),
+			],
+			{ files: 1, cycles: 0 },
+		);
+		// 真实双入口环仍是纠缠成员
+		expect(html).toMatch(/chip">A\.bar<\/span>/);
+		expect(html).toMatch(/chip">B\.baz<\/span>/);
+		// 重载族不因内部互调成为纠缠环成员
+		expect(html).not.toMatch(/chip">T\.Track<\/span>/);
 	});
 });

@@ -74,7 +74,17 @@ export function renderTechdebtHtml(
 			v.chunk.key,
 			new Set(
 				[...v.chunk.calls].filter(
-					(t) => t !== UNKNOWN_TARGET && t !== v.chunk.key && byKey.has(t),
+					(t) => {
+						if (t === UNKNOWN_TARGET || t === v.chunk.key) return false;
+						const tv = byKey.get(t);
+						if (!tv) return false;
+						// 迭代52：同名族（重载/同名重定义）内部调用 = 自环口径——重载星形委托
+						// 的并集边自连不构成纠缠环（真实方法环不受影响：限定名不同）。
+						const vn = v.chunk.name;
+						if (typeof vn === "string" && vn.length > 0 && vn === tv.chunk.name)
+							return false;
+						return true;
+					},
 				),
 			),
 		);

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Verdict } from "../../src/core/types";
 
-/** fixture：构造 Verdict（risk.test.ts v() 同款最小形状）。 */
+/** fixture：构造 Verdict（risk.test.ts v() 同款最小形状；迭代52 加 name 可选——同名族测试）。 */
 function v(
 	key: string,
 	opts: {
@@ -15,6 +15,7 @@ function v(
 		chainCertain?: boolean;
 		purity?: number;
 		unknownSites?: number;
+		name?: string;
 	} = {},
 ): Verdict {
 	return {
@@ -27,6 +28,7 @@ function v(
 			unknownSites: opts.unknownSites ?? 0,
 			stateWrites: [],
 			parseError: false,
+			...(opts.name !== undefined ? { name: opts.name } : {}),
 		},
 		purity: opts.purity ?? 0,
 		chain: opts.chain ?? 0,
@@ -181,4 +183,55 @@ describe("graphMetrics（迭代14 视角 3 实施）", () => {
 		expect(m.multiEntryScc).toBe(0);
 		expect(m.sccEntryHistogram[0]).toBe(1); // B↔C 无外部入口
 	});
-});
+
+	it("迭代52：同名族（重载星形）内部互调 = 自环口径，不构成 SCC", () => {
+		// C# 隐式 this 重载解析为并集边：Foo() 调 Foo(x)/Foo(x,y) 等——限定名相同 → 族内边。
+		const m = graphMetrics([
+			v("C.Foo#1", { calls: ["C.Foo#2", "C.Foo#3"], name: "C.Foo" }),
+			v("C.Foo#2", { calls: ["C.Foo#1", "C.Foo#3"], name: "C.Foo" }),
+			v("C.Foo#3", { calls: ["C.Foo#1", "C.Foo#2"], name: "C.Foo" }),
+		]);
+		expect(m.cyclicComponents).toBe(0); // 重载星形不是纠缠递归
+		expect(m.selfLoopCount).toBe(6); // 6 条族内边全部自环口径
+		expect(m.knownEdges).toBe(0);
+		expect(m.multiEntryScc).toBe(0);
+	});
+
+	it("迭代52：同名族过滤不影响真实环（限定名不同才过滤）", () => {
+		const m = graphMetrics([
+			v("A.bar", { calls: ["B.baz"], name: "A.bar" }),
+			v("B.baz", { calls: ["A.bar"], name: "B.baz" }),
+			v("C.Foo#1", { calls: ["C.Foo#2"], name: "C.Foo" }),
+			v("C.Foo#2", { calls: ["C.Foo#1", "C.Foo#3"], name: "C.Foo" }),
+			v("C.Foo#3", { calls: ["C.Foo#1"], name: "C.Foo" }),
+		]);
+		expect(m.cyclicComponents).toBe(1); // A.bar ↔ B.baz 仍计数
+		expect(m.multiEntryScc).toBe(0);
+		expect(m.selfLoopCount).toBe(4); // C.Foo 族内 4 边
+	});
+
+	it("迭代52：真实多入口纠缠环不受同名族过滤影响", () => {
+		const m = graphMetrics([
+			v("X.hit", { calls: ["A.bar"], name: "X.hit" }),
+			v("Y.hit", { calls: ["B.baz"], name: "Y.hit" }),
+			v("A.bar", { calls: ["B.baz"], name: "A.bar" }),
+			v("B.baz", { calls: ["A.bar"], name: "B.baz" }),
+			v("C.Foo#1", { calls: ["C.Foo#2"], name: "C.Foo" }),
+			v("C.Foo#2", { calls: ["C.Foo#1", "C.Foo#3"], name: "C.Foo" }),
+			v("C.Foo#3", { calls: ["C.Foo#1"], name: "C.Foo" }),
+		]);
+		expect(m.cyclicComponents).toBe(1); // A.bar ↔ B.baz
+		expect(m.multiEntryScc).toBe(1); // X/Y 两入口仍纠缠
+		expect(m.sccEntryHistogram[2]).toBe(1);
+	});
+
+	describe("graphMetrics 同名族（迭代52）", () => {
+		it("无 name 的旧 fixture 行为不变（无过滤）", () => {
+			const m = graphMetrics([
+				v("A", { calls: ["B"] }),
+				v("B", { calls: ["A"] }),
+			]);
+			expect(m.cyclicComponents).toBe(1); // 无 name → 按 key 全量成环（旧口径）
+		});
+	});
+	});
