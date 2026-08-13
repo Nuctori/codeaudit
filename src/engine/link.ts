@@ -189,9 +189,11 @@ export function link(
 		}
 	}
 
-	// 迭代43 r2：static-init 单元映射（类名 → 合成 chunk key）——类型加载效应独立判定。
+	// 迭代43 r2：static-init 单元映射（类名 → 合成 chunk keys 数组）——类型加载效应独立判定。
 	// 合成 chunk（name="<static-init>"，ownerClass=类名）由 extractor 生成，link 侧按名识别。
-	const staticInitKey = new Map<string, string>();
+	// **多值并集**（审计 blocker）：C# partial 类多文件 static 初始化器——单值 Map 互相覆盖
+	// 前序文件效应漏报（假纯方向 S1）；与 globalClasses 多文件同名类全候选处理（G5）对齐。
+	const staticInitKey = new Map<string, string[]>();
 	for (const fi of files.values()) {
 		for (const rc of fi.facts.chunks) {
 			if (rc.name === "<static-init>" && rc.ownerClass) {
@@ -199,7 +201,12 @@ export function link(
 					const c = fi.chunkByKey.get(key);
 					return c?.ownerClass === rc.ownerClass;
 				});
-				if (k) staticInitKey.set(`${fi.pack.name}\u0000${rc.ownerClass}`, k);
+				if (k) {
+					const kk = `${fi.pack.name}\u0000${rc.ownerClass}`;
+					const arr = staticInitKey.get(kk) ?? [];
+					arr.push(k);
+					staticInitKey.set(kk, arr);
+				}
 			}
 		}
 	}
@@ -960,7 +967,7 @@ function resolveCtorCall(
 	hasSubclass: ReadonlySet<string>,
 	langHasDynamicExtends: ReadonlySet<string>,
 	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>,
-	staticInitKey: ReadonlyMap<string, string>,
+	staticInitKey: ReadonlyMap<string, string[]>,
 	sink: Sink,
 ): boolean {
 	const rule = Object.hasOwn(pack.impureGlobals, t)
@@ -1016,10 +1023,12 @@ function resolveCtorCall(
 				// **必须计入 bodyEdges**（工程评审 E2：隐式纯分支 1000-1007 在 bodyEdges>0 时提前 return——
 				// 否则 `class C { static int X = ReadFile(); }` + new C() 翻 PURE 假纯）。
 				// 仅静态拆分语言（C# staticModifiers 存在）；其他语言 class chunk 已含类体调用。
-				const sk = staticInitKey.get(`${pack.name}\u0000${c}`);
-				if (sk) {
-					sink.addEdge(sk);
-					bodyEdges++;
+				const sks = staticInitKey.get(`${pack.name}\u0000${c}`);
+				if (sks) {
+					for (const sk of sks) {
+						sink.addEdge(sk);
+						bodyEdges++;
+					}
 				}
 			}
 		}
@@ -1065,7 +1074,7 @@ function resolveObjDispatch(
 	hasSubclass: ReadonlySet<string>,
 	langHasDynamicExtends: ReadonlySet<string>,
 	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>,
-	staticInitKey: ReadonlyMap<string, string>,
+	staticInitKey: ReadonlyMap<string, string[]>,
 	sink: Sink,
 ): boolean {
 	// 调用方已保证 call.obj !== null（裸名走 impureBuiltins 分支）——此处收窄类型
@@ -1259,10 +1268,12 @@ function resolveObjDispatch(
 		const hasStaticSplit = (pack.staticModifiers?.length ?? 0) > 0;
 		for (const c of ancestorClosureOf(call.obj, pack, superMap)) {
 			if (hasStaticSplit) {
-				const sk = staticInitKey.get(`${pack.name}\u0000${c}`);
-				if (sk) {
-					sink.addEdge(sk);
-					loadEdges++;
+				const sks = staticInitKey.get(`${pack.name}\u0000${c}`);
+				if (sks) {
+					for (const sk of sks) {
+						sink.addEdge(sk);
+						loadEdges++;
+					}
 				}
 				continue;
 			}
@@ -1283,9 +1294,6 @@ function resolveObjDispatch(
 		// 必须落 ?（否则类初始化器全纯时 UNKNOWN→PURE 假纯，audit 侧判定变化 + 门禁放行）。
 		// 读取形态结算（读取不执行未知代码，类型加载效应即全部；loadEdges=0 时走下方 propMissIsPure 判纯）。
 		if (loadEdges > 0 && call.prop) return true;
-		// M1（审计）：成员 miss（调用形态）+ 类型加载效应——不结算：边已保留（效应传播）但成员未知
-		// 必须落 ?（否则类初始化器全纯时 UNKNOWN→PURE 假纯，audit 侧判定变化 + 门禁放行）。
-		// 读取形态结算（读取不执行未知代码，类型加载效应即全部；loadEdges=0 时走下方 propMissIsPure 判纯）。
 		// 迭代40 B5/M6：项目类成员 miss + 属性读取 → 纯（C# 静态语义 propMissIsPure / TS-JS
 		// memberNames 字段清单；partial 类已由 same 全文件并集覆盖）
 		if (
@@ -1363,7 +1371,7 @@ function resolveCall(
 	hasSubclass: ReadonlySet<string>,
 	langHasDynamicExtends: ReadonlySet<string>,
 	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>,
-	staticInitKey: ReadonlyMap<string, string>,
+	staticInitKey: ReadonlyMap<string, string[]>,
 	sink: Sink,
 ): void {
 	const pack = fi.pack;

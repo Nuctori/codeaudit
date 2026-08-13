@@ -50,9 +50,9 @@ export class Extractor {
 			const smods = this.pack.staticModifiers ?? EMPTY_SHAPES;
 			if (
 				smods.length > 0 &&
-				((node.type === "field_declaration" ||
+				(node.type === "field_declaration" ||
 					node.type === "constructor_declaration") &&
-					node.children.some((c) => smods.includes(c.text)))
+				node.children.some((c) => smods.includes(c.text))
 			)
 				return;
 			// CJS 导出函数 chunk（迭代15 解构 require 盲区）：exports.handler = function(){} /
@@ -537,9 +537,9 @@ export class Extractor {
 								// RHS identifier → handler；RHS 调用形态（Factory()）真实执行于字段初始化——
 								// 保留调用边（callOf 通道），不并入订阅边语义（数学修正 2）。
 								// C# 形态（探针实证）：初始化器在 equals_value_clause 子节点（无 value 命名字段）
-								const rhs = vd?.children
-									.find((c) => c.type === "equals_value_clause")
-									?.namedChildren[0];
+								const rhs = vd?.children.find(
+									(c) => c.type === "equals_value_clause",
+								)?.namedChildren[0];
 								if (rhs && rhs.type === "identifier")
 									info.handlers.push(rhs.text);
 								cls[en.text] = info;
@@ -650,7 +650,9 @@ export class Extractor {
 							}
 							if (target) {
 								collect(target, sic);
-								parts.push(node.text);
+								// 审计 blocker：normText 必须去注释（公理4 内容身份稳定）——
+								// node.text 含注释 → id 随注释漂移；normalizeCode 与 class chunk 同款
+								parts.push(normalizeCode(node));
 							}
 							return;
 						}
@@ -752,7 +754,7 @@ export class Extractor {
 			if (
 				pp &&
 				shapesOf(this.pack, "declNodes").includes(pp.type) &&
-					pp.children[0]?.id === p2?.id &&
+				pp.children[0]?.id === p2?.id &&
 				(this.pack.patternNameNodes ?? EMPTY_SHAPES).includes(p2?.type ?? "")
 			)
 				return [];
