@@ -1224,4 +1224,49 @@ describe("C# 语言包（迭代19）", () => {
 		expect(use!.purity).toBe(0); // 闭包零原始调用 → 不加边 → 零变化
 		expect(use2!.purity).toBe(1); // 裸名 Compute(1) 未解析 → 类型加载闭包含 ? → UNKNOWN（诚实非 PURE）
 	});
+
+	it("迭代42 H1：静态构造器体 io 传染静态访问路径（reviewer 探针实证，活假纯 S1）", async () => {
+		const root = project("staticctor42", {
+			"Q.cs": [
+				"using System.IO;",
+				"public class Q {",
+				'    static Q() { File.ReadAllText("static-ctor"); }',
+				"    public static int Get() { return 1; }",
+				"}",
+				"public class User {",
+				"    public int Use() { return Q.Get(); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		expect(r.stats.parseErrors).toBe(0);
+		const use = by(r).get("Q.cs::User.Use") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		expect(use).toBeDefined();
+		// 修复前：静态构造器体是独立 constructor chunk（不进 class chunk）→ Q.Get() 判 PURE=0；
+		// 修复后：类型加载闭包并集 ctor chunk → fs 效应传播
+		expect(use!.purity).toBe(2);
+		expect(use!.effects.has("fs")).toBe(true);
+	});
+
+	it("迭代42 M1：成员 miss + 类型加载效应不结算——? 保留（防 UNKNOWN→PURE 假纯）", async () => {
+		const root = project("staticmiss42", {
+			"R.cs": [
+				"public class R {",
+				"    public static int W = Math.Max(1, 2);", // 纯初始化器调用——class chunk 有效应但纯
+				"    public static int Get() { return 1; }",
+				"}",
+				"public class User {",
+				"    public int Use() { return R.UnknownMethod(); }", // 成员 miss
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const use = by(r).get("R.cs::User.Use") as { purity: number } | undefined;
+		expect(use).toBeDefined();
+		// 修复前：any=false + loadEdges>0 → return true 结算 = 仅 Math.Max 纯 → PURE=0 假纯；
+		// 修复后：不结算 → 落 ? → UNKNOWN=1（边保留 + 未知诚实）
+		expect(use!.purity).toBe(1);
+	});
 });

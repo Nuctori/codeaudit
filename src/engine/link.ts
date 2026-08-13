@@ -1222,11 +1222,6 @@ function resolveObjDispatch(
 		// 闭包内 class chunk 的原始调用（静态/实例字段初始化器）并入调用闭包，
 		// 与 L5 ctor 合并同构（S2 过近似方向安全）。纯静态工具类（闭包零原始调用）不加边——零变化。
 		// 实证（iter42/02-jeff-review P1）：C.Get() 判 PURE 而类型加载执行 File.ReadAllText（活假纯洞）。
-		// 范围：静态字段初始化器已闭合；C# 静态构造器体是独立 constructor chunk（不进 class chunk）
-		// ——静态访问路径仍漏报，延后 iter43-r2 候选2（static-init 独立建模 + 此位置改指）。
-		// 闭包内 class chunk 的原始调用（静态/实例字段初始化器 + 静态构造器体）并入调用闭包，
-		// 与 L5 ctor 合并同构（S2 过近似方向安全）。纯静态工具类（闭包零原始调用）不加边——零变化。
-		// 实证（iter42/02-jeff-review P1）：C.Get() 判 PURE 而类型加载执行 File.ReadAllText（活假纯洞）。
 		let loadEdges = 0;
 		for (const c of ancestorClosureOf(call.obj, pack, superMap)) {
 			const entries = globalClasses.get(c);
@@ -1239,13 +1234,30 @@ function resolveObjDispatch(
 					sink.addEdge(e.key);
 					loadEdges++;
 				}
+				// H1（reviewer 探针实证）：C# 静态构造器是独立 constructor chunk（qualified 类名.类名，
+				// 不在 class chunk 内）——类型加载闭包必须并集它，否则 `static Q() { ReadFile() }` +
+				// Q.Get() 漏报（活假纯 S1）。并集含实例构造器（静态访问不执行）→ S2 过近似，与 L5 同族。
+				// 形态隔离：`${c}.${c}` 只命中 C# 构造器（TS constructor / Python __init__ 不同名不命中）。
+				const ctorKeys = tf?.byQualifiedAll.get(`${c}.${c}`);
+				if (ctorKeys) {
+					for (const ck of ctorKeys) {
+						const crc = tf?.chunkByKey.get(ck);
+						if (crc && crc.calls.length > 0) {
+							sink.addEdge(ck);
+							loadEdges++;
+						}
+					}
+				}
 			}
 		}
-		// 审计 note（iter42）：any=false（成员 miss，如 C.UnknownMethod()）但 loadEdges>0 时同样
-		// return true——原本落 ?（audit 当不纯 / dev 当纯），现在结算为确定类型加载效应。
-		// 区间坍缩论证：类型加载是 C 被访问时的确定事件（非可能性），dev 计入它正确；
-		// 成员未知的 ? 被吞只损失 chainCertain/标注信号，判定方向保持（audit 不变，dev 上界抬高 = 模型修正）。
-		if (any || loadEdges > 0) return true;
+		if (any) return true;
+		// M1（审计）：成员 miss（调用形态）+ 类型加载效应——不结算：边已保留（效应传播）但成员未知
+		// 必须落 ?（否则类初始化器全纯时 UNKNOWN→PURE 假纯，audit 侧判定变化 + 门禁放行）。
+		// 读取形态结算（读取不执行未知代码，类型加载效应即全部；loadEdges=0 时走下方 propMissIsPure 判纯）。
+		if (loadEdges > 0 && call.prop) return true;
+		// M1（审计）：成员 miss（调用形态）+ 类型加载效应——不结算：边已保留（效应传播）但成员未知
+		// 必须落 ?（否则类初始化器全纯时 UNKNOWN→PURE 假纯，audit 侧判定变化 + 门禁放行）。
+		// 读取形态结算（读取不执行未知代码，类型加载效应即全部；loadEdges=0 时走下方 propMissIsPure 判纯）。
 		// 迭代40 B5/M6：项目类成员 miss + 属性读取 → 纯（C# 静态语义 propMissIsPure / TS-JS
 		// memberNames 字段清单；partial 类已由 same 全文件并集覆盖）
 		if (
