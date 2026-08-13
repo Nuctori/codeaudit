@@ -1884,6 +1884,15 @@ function flattenCallTarget(node: SyntaxNode, pack: LangPack): string | null {
 		}
 		return null;
 	}
+	// 迭代52 P5：C# 括号表达式接收者（`(x).Foo()` / `(await f()).Bar()`）——括号无运行时语义，
+	// 剥壳递归内层。仅接收者位（member obj / 调用目标）到达——`(Type)(expr)` 强制转换不在此位
+	//（是表达式包装非调用目标）；带转换语义的 parenthesized 内层是 cast_expression 节点类型，
+	// 剥壳后仍返回 null → ? 诚实（不假纯）。
+	if (node.type === "parenthesized_expression") {
+		const inner = node.children.find((c) => c.isNamed) ?? null;
+		if (inner) return flattenCallTarget(inner, pack);
+		return null;
+	}
 	// 迭代44 候选3（双评审）：两漏网形态可拍平——generic_name（`Foo<int>(1)` 调用目标，
 	// 剥壳先例 ctorTypeName L1836）与 alias_qualified_name（`global::System.X`——剥 global
 	// 前缀递归内层，与 propertyReadSkipParents 的 alias_qualified_name 排除同源实证）。
