@@ -860,6 +860,7 @@ export const csharpPack: LangPack = {
 	interfaceNodes: ["interface_declaration"], // P0-3 漏网：接口方法无条件 virtual
 	eventFieldNodes: ["event_field_declaration"], // 迭代43 B：事件声明节点
 	eventSubscribeOps: ["+="], // 迭代43 B：事件订阅运算符
+	staticModifiers: ["static"], // 迭代43 r2：static 初始化器单元拆分
 	valueWrapNodes: ["equals_value_clause"], // P0-3 漏网：C# 赋值 value 包装解包
 	incDecTokens: ["++", "--"], // P0-3 漏网：增减操作符（writeUnary 只认增减）
 	nestingNodes,

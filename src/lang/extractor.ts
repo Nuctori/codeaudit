@@ -1,7 +1,13 @@
 import { createHash } from "node:crypto";
 import type Parser from "web-tree-sitter";
 import type { SyntaxNode } from "./pack";
-import type { LangPack, RawCall, RawChunk, RawFileFacts, FileEventInfo } from "./pack";
+import type {
+	LangPack,
+	RawCall,
+	RawChunk,
+	RawFileFacts,
+	FileEventInfo,
+} from "./pack";
 import { UNRESOLVED_TARGET } from "./pack";
 
 /**
@@ -38,6 +44,17 @@ export class Extractor {
 		const stack: MutableChunk[] = [moduleChunk];
 
 		const visit = (node: SyntaxNode): void => {
+			// 迭代43 r2：static 初始化器子树跳过（静态字段 value + 静态构造器体）——
+			// 归 static-init 合成 chunk（staticInitOf 独立收集），class chunk 不含类型加载调用
+			//（否则双计 + 过近似不消除）。声明名/修饰符对 class chunk 无消费（C# 裸名读走 propMissIsPure）。
+			const smods = this.pack.staticModifiers ?? EMPTY_SHAPES;
+			if (
+				smods.length > 0 &&
+				((node.type === "field_declaration" ||
+					node.type === "constructor_declaration") &&
+					node.children.some((c) => smods.includes(c.text)))
+			)
+				return;
 			// CJS 导出函数 chunk（迭代15 解构 require 盲区）：exports.handler = function(){} /
 			// module.exports.handler = fn → 建命名 chunk（名 = 成员名），from-import 语义
 			// （imported="handler"）可解析；否则导出函数只有 <module> 伪 chunk，解构 require 回调全落 ?
@@ -123,6 +140,9 @@ export class Extractor {
 		moduleChunk.assigned = this.assignedNames(root);
 
 		chunks.unshift(moduleChunk as RawChunk);
+		// 迭代43 r2：static 初始化器单元（合成 chunk）——追加到 chunks（link 侧按 name 识别建映射）
+		const staticInit = this.staticInitOf(root);
+		if (staticInit) chunks.push(...staticInit);
 		const ce = this.classExtendsOf(root); // 迭代38 A：继承边（单次遍历，避免双走）
 		const mn = this.memberNamesOf(root); // 迭代40 M6：类字段名（TS/JS 无 getter 字段判纯）
 		return {
@@ -158,11 +178,13 @@ export class Extractor {
 			// Python 表达式语句（expression_statement→assignment）。
 			// 迭代40 P0-3：export 容器/声明节点判定走 pack 表（exportStmtNodes/declNodes）
 			let stmt: SyntaxNode = stmt0;
-			if (stmtWraps.includes(stmt.type) && shapesOf(this.pack, "exportStmtNodes").includes(stmt.type)) {
+			if (
+				stmtWraps.includes(stmt.type) &&
+				shapesOf(this.pack, "exportStmtNodes").includes(stmt.type)
+			) {
 				const decl = stmt.children.find((c) => decls.includes(c.type));
 				if (decl)
-					stmt =
-						decl.children.find((c) => decls.includes(c.type)) ?? stmt;
+					stmt = decl.children.find((c) => decls.includes(c.type)) ?? stmt;
 			} else if (stmtWraps.includes(stmt.type)) {
 				const inner = stmt.children[0];
 				if (inner && assigns.includes(inner.type)) stmt = inner;
@@ -291,7 +313,8 @@ export class Extractor {
 		if (ctorCalls.includes(value.type) && typeField !== undefined) {
 			// 迭代38 规则7：JS/TS 构造器可 return 任意对象 → 不产 trusted 绑定（假纯洞 B2）
 			if (this.pack.trustedCtor === false) return null;
-			const ctor = value.childForFieldName(typeField) ?? value.children[1] ?? null;
+			const ctor =
+				value.childForFieldName(typeField) ?? value.children[1] ?? null;
 			if (ctor) return ctorTypeName(ctor, this.pack);
 			return null;
 		}
@@ -334,9 +357,7 @@ export class Extractor {
 						) {
 							bases.push(c.text);
 						} else if (
-							(this.pack.heritageWrapNodes ?? EMPTY_SHAPES).includes(
-								c.type,
-							)
+							(this.pack.heritageWrapNodes ?? EMPTY_SHAPES).includes(c.type)
 						) {
 							// 迭代39：TS class_heritage 内包一层 extends_clause（extends 表达式）；
 							// 迭代40 P0-3：包装节点走 pack 数据
@@ -361,9 +382,10 @@ export class Extractor {
 						if (sup) for (const c of sup.children) if (c.isNamed) pushBase(c);
 					} else {
 						// C# base_list / TS class_heritage 是子节点（探针实证）——heritageNodes 表查找
-						const bl = n.children.find((c) =>
-							shapesOf(this.pack, "heritageNodes").includes(c.type),
-						) ?? null;
+						const bl =
+							n.children.find((c) =>
+								shapesOf(this.pack, "heritageNodes").includes(c.type),
+							) ?? null;
 						if (bl) for (const c of bl.children) if (c.isNamed) pushBase(c);
 					}
 					if (bases.length > 0) map[name.text] = bases;
@@ -453,8 +475,7 @@ export class Extractor {
 						if (memberNodes.includes(node.type)) {
 							const nm = node.children.find(
 								(c) =>
-									c.type === "property_identifier" ||
-									c.type === "identifier",
+									c.type === "property_identifier" || c.type === "identifier",
 							);
 							if (nm) (out[name.text] ??= []).push(nm.text);
 							return;
@@ -515,8 +536,12 @@ export class Extractor {
 								// 初始化器订阅（数学 §2a）：`= HandleInit` 在构造序早期注册 → 属 sub_static。
 								// RHS identifier → handler；RHS 调用形态（Factory()）真实执行于字段初始化——
 								// 保留调用边（callOf 通道），不并入订阅边语义（数学修正 2）。
-								const rhs = vd?.childForFieldName("value")?.namedChildren[0];
-								if (rhs && rhs.type === "identifier") info.handlers.push(rhs.text);
+								// C# 形态（探针实证）：初始化器在 equals_value_clause 子节点（无 value 命名字段）
+								const rhs = vd?.children
+									.find((c) => c.type === "equals_value_clause")
+									?.namedChildren[0];
+								if (rhs && rhs.type === "identifier")
+									info.handlers.push(rhs.text);
 								cls[en.text] = info;
 							}
 							return;
@@ -524,17 +549,14 @@ export class Extractor {
 						if (
 							node.type === "assignment_expression" &&
 							node.children.some(
-								(c) =>
-									c.type === "assignment_operator" && ops.includes(c.text),
+								(c) => c.type === "assignment_operator" && ops.includes(c.text),
 							)
 						) {
 							// 订阅点（探针实证）：C# 事件 += 是 assignment_expression（含 assignment_operator
 							// 匿名子节点），非 augmented_assignment。left/right 字段兜底 children 索引。
-							const left =
-								node.childForFieldName("left") ?? node.children[0];
+							const left = node.childForFieldName("left") ?? node.children[0];
 							const right =
-								node.childForFieldName("right") ??
-								node.namedChildren[1];
+								node.childForFieldName("right") ?? node.namedChildren[1];
 							if (left && right) {
 								if (left.type === "identifier") {
 									const ev = cls[left.text];
@@ -560,6 +582,91 @@ export class Extractor {
 		};
 		visit(root);
 		return Object.keys(out).length > 0 ? out : null;
+	}
+
+	/** 迭代43 r2：static 初始化器单元提取（C# static 字段初始化器 value + 静态构造器体 → 合成 chunk
+	 *  "<static-init>"，ownerClass=类名——类型加载效应独立判定单元）。主 visit 已跳过这些子树
+	 *  （class chunk 不含类型加载调用），此处独立收集（callNodes → callOf；属性读取 → propertyReadOf，
+	 *  与主 visit 同通道）。normText = 静态成员文本拼接（内容寻址稳定：类内方法变化不漂移 static-init id）。 */
+	private staticInitOf(root: SyntaxNode): RawChunk[] | null {
+		const smods = this.pack.staticModifiers ?? EMPTY_SHAPES;
+		if (smods.length === 0) return null;
+		const out: MutableChunk[] = [];
+		const isStatic = (n: SyntaxNode): boolean =>
+			n.children.some((c) => smods.includes(c.text));
+		const collect = (node: SyntaxNode, chunk: MutableChunk): void => {
+			const walkC = (n: SyntaxNode): void => {
+				if (this.pack.callNodes.includes(n.type)) {
+					chunk.calls.push(this.callOf(n));
+				} else if (
+					this.pack.propertyReadNodes?.includes(n.type) &&
+					this.isPropertyRead(n)
+				) {
+					chunk.calls.push(this.propertyReadOf(n));
+				}
+				for (const c of n.children) walkC(c);
+			};
+			walkC(node);
+		};
+		const visit = (n: SyntaxNode): void => {
+			if (this.pack.classNodes.includes(n.type)) {
+				const name = n.childForFieldName("name");
+				if (name) {
+					const sic = fresh(
+						"<static-init>",
+						n.startPosition.row + 1,
+						n.endPosition.row + 1,
+						"",
+						name.text,
+						"function",
+					);
+					const parts: string[] = [];
+					const walk = (node: SyntaxNode): void => {
+						if (node !== n && this.pack.classNodes.includes(node.type)) return;
+						if (
+							(node.type === "field_declaration" ||
+								node.type === "constructor_declaration") &&
+							isStatic(node)
+						) {
+							let target: SyntaxNode | null = null;
+							if (node.type === "field_declaration") {
+								// C# 形态（探针实证）：field_declaration → variable_declaration → variable_declarator
+								// → equals_value_clause（初始化器在 equals_value_clause 子节点，无 value 命名字段）
+								const vdecl = node.children.find(
+									(c) => c.type === "variable_declaration",
+								);
+								const vd = vdecl?.children.find(
+									(c) => c.type === "variable_declarator",
+								);
+								const evc = vd?.children.find(
+									(c) => c.type === "equals_value_clause",
+								);
+								target = evc ?? null;
+							} else {
+								target =
+									node.childForFieldName("body") ??
+									node.children[node.children.length - 1] ??
+									null;
+							}
+							if (target) {
+								collect(target, sic);
+								parts.push(node.text);
+							}
+							return;
+						}
+						for (const c of node.children) walk(c);
+					};
+					for (const c of n.children) walk(c);
+					if (parts.length > 0) {
+						sic.normText = parts.join(" ");
+						out.push(sic);
+					}
+				}
+			}
+			for (const c of n.children) visit(c);
+		};
+		visit(root);
+		return out.length > 0 ? out : null;
 	}
 
 	/** 状态写位置提取（迭代8 视角2）：self.x= / this.x= / global、nonlocal 声明 → 位置列表（空 = 非写）。
@@ -636,25 +743,22 @@ export class Extractor {
 			//    简单名（var q=1）已被 assigned 覆盖（迭代25c），本规则对其冗余无害；真收益 = pattern 名。
 			if (
 				p2 &&
-				(shapesOf(this.pack, "declNodes").includes(p2.type) &&
-					p2.children[0]?.id === node.id)
+				shapesOf(this.pack, "declNodes").includes(p2.type) &&
+				p2.children[0]?.id === node.id
 			)
 				return [];
 			// ③ pattern 名（迭代40 P0-3 H15）：声明名位置 pattern 的直接 identifier 子节点
 			const pp = p2?.parent;
 			if (
 				pp &&
-				(shapesOf(this.pack, "declNodes").includes(pp.type) &&
+				shapesOf(this.pack, "declNodes").includes(pp.type) &&
 					pp.children[0]?.id === p2?.id &&
-					(this.pack.patternNameNodes ?? EMPTY_SHAPES).includes(p2?.type ?? ""))
+				(this.pack.patternNameNodes ?? EMPTY_SHAPES).includes(p2?.type ?? "")
 			)
 				return [];
 			// ④ foreach 变量（迭代40 P0-3 H07）：foreach 节点的裸 identifier 直接子节点，
 			//    且位于 `in` token 之前（其后同名 identifier 是集合——真读，不得抑制）
-			if (
-				p2 &&
-				(this.pack.foreachNodes ?? EMPTY_SHAPES).includes(p2.type)
-			) {
+			if (p2 && (this.pack.foreachNodes ?? EMPTY_SHAPES).includes(p2.type)) {
 				const kids = p2.children;
 				const inIdx = kids.findIndex(
 					(c) => c.type === this.pack.foreachInToken,
@@ -733,7 +837,8 @@ export class Extractor {
 				null;
 		}
 		if (!obj || !attrNode) return [];
-		if (this.pack.selfNames.includes(obj.text)) // 迭代40 P0-3 H05：自引用名走 pack.selfNames 表（原硬编码 self/cls/this）
+		if (this.pack.selfNames.includes(obj.text))
+			// 迭代40 P0-3 H05：自引用名走 pack.selfNames 表（原硬编码 self/cls/this）
 			return [`self.${attrNode.text}`];
 		if (obj.type === "identifier") {
 			if (chunk.params.includes(obj.text) || !chunk.assigned.includes(obj.text))
@@ -820,8 +925,7 @@ export class Extractor {
 						const c0 = n.children[0] ?? null;
 						if (
 							c0 &&
-							(c0.type === "identifier" ||
-								c0.type === "property_identifier")
+							(c0.type === "identifier" || c0.type === "property_identifier")
 						) {
 							out.push(c0.text);
 							return;
@@ -829,8 +933,7 @@ export class Extractor {
 					} else if (slot === "__firstIdentifier") {
 						const id = n.children.find(
 							(c) =>
-								c.type === "identifier" ||
-								c.type === "property_identifier",
+								c.type === "identifier" || c.type === "property_identifier",
 						);
 						if (id) {
 							out.push(id.text);
@@ -850,9 +953,7 @@ export class Extractor {
 				}
 			}
 			const named =
-				n.childForFieldName("name") ??
-				n.childForFieldName("pattern") ??
-				null;
+				n.childForFieldName("name") ?? n.childForFieldName("pattern") ?? null;
 			if (
 				named &&
 				(named.type === "identifier" || named.type === "property_identifier")
@@ -887,8 +988,7 @@ export class Extractor {
 						name =
 							c.children.find(
 								(x) =>
-									x.type === "identifier" ||
-									x.type === "property_identifier",
+									x.type === "identifier" || x.type === "property_identifier",
 							) ?? null;
 						break;
 					}
@@ -1030,7 +1130,8 @@ export class Extractor {
 			attr: string | null | undefined,
 		): string | null => {
 			if (!obj || !attr) return null;
-			if (this.pack.selfNames.includes(obj.text)) // 迭代40 P0-3 H05：自引用名走 pack.selfNames 表
+			if (this.pack.selfNames.includes(obj.text))
+				// 迭代40 P0-3 H05：自引用名走 pack.selfNames 表
 				return `self.${attr}`;
 			if (
 				obj.type === "identifier" &&
@@ -1479,8 +1580,7 @@ export class Extractor {
 					if (slot === "__firstIdentifier") {
 						const id = n.children.find(
 							(c) =>
-								c.type === "identifier" ||
-								c.type === "property_identifier",
+								c.type === "identifier" || c.type === "property_identifier",
 						);
 						if (id) {
 							out.push(id.text);

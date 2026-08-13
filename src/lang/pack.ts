@@ -103,7 +103,9 @@ export interface RawFileFacts {
 	readonly memberNames?: Readonly<Record<string, readonly string[]>>;
 	/** 迭代43 B：类事件表（类名 → 事件名 → 订阅信息）。事件触发时 handler 效应传播到触发方
 	 *  （S2 过近似：可能执行 = 效应传播；非 private / 集合不完整 → 触发端附加 ?）。 */
-	readonly events?: Readonly<Record<string, Readonly<Record<string, FileEventInfo>>>>;
+	readonly events?: Readonly<
+		Record<string, Readonly<Record<string, FileEventInfo>>>
+	>;
 }
 
 /** 迭代43 B：单个事件（类事件表的条目）。
@@ -306,8 +308,11 @@ export interface LangPack {
 	 *  H03。 */
 	readonly virtualModifiers?: readonly string[];
 	/** sealed 修饰符 token（C# sealed——不可再覆写 → 静态分派精确）。H03。 */
-	/** sealed 修饰符 token（C# sealed——不可再覆写 → 静态分派精确）。H03。 */
 	readonly sealedModifiers?: readonly string[];
+	/** static 修饰符 token（C# "static"）。迭代43 r2：static 初始化器单元（静态字段初始化器 +
+	 *  静态构造器体 → 合成 chunk "<static-init>"，类型加载效应独立判定）。其他语言不填 →
+	 *  不拆分（类体/静态块调用留在 class chunk，现状语义）。 */
+	readonly staticModifiers?: readonly string[];
 	/** 事件声明节点（C# event_field_declaration）。迭代43 B。 */
 	readonly eventFieldNodes?: readonly string[];
 	/** 事件订阅运算符 token（C#/JS "+="）。迭代43 B：订阅 = 注册义务（触发端展开 handler），

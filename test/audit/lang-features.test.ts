@@ -1293,4 +1293,40 @@ describe("维度26: 阴影守卫对称化（迭代41，数学家探针实证的�
 		const b = by(await scanProject(root));
 		expect(b.get("f.ts::g")!.purity).toBe(Purity.UNKNOWN);
 	});
+
+	it("迭代43 r2 L1：TS 静态访问路径类型加载（static 字段初始化器 io 传染——H1 路径语言无关）", async () => {
+		const root = project("static-ts43", {
+			"t.ts": [
+				'import { readFileSync } from "node:fs";',
+				"export class T {",
+				'  static x = readFileSync("a").length;',
+				"  static get() { return T.x; }",
+				"}",
+				"export function use() { return T.get(); }",
+				"",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root, { useCache: false }));
+		// TS 无 staticModifiers → class chunk 并集（static 字段初始化器在 class chunk）→ 类型加载传染
+		expect(b.get("t.ts::use")!.purity).toBe(Purity.IMPURE);
+	});
+
+	it("迭代43 r2 L1：Python 静态访问路径类型加载（类体赋值 io 传染——H1 路径语言无关）", async () => {
+		const root = project("static-py43", {
+			"p.py": [
+				"class P:",
+				'    x = open("a").read()',
+				"    @classmethod",
+				"    def get(cls):",
+				"        return cls.x",
+				"",
+				"def use():",
+				"    return P.get()",
+				"",
+			].join("\n"),
+		});
+		const b = by(await scanProject(root, { useCache: false }));
+		// Python 类体在 import 时执行（类型加载）→ class chunk 并集 → P.get() 传染
+		expect(b.get("p.py::use")!.purity).toBe(Purity.IMPURE);
+	});
 });

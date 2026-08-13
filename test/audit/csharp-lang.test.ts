@@ -1338,7 +1338,7 @@ describe("C# 语言包（迭代19）", () => {
 				"public class Pub2 {",
 				"    public event Action<int> OnChanged;",
 				"    public void Wire() { OnChanged += Handle; }",
-				"    void Handle(int x) { Console.WriteLine(\"io\"); }",
+				'    void Handle(int x) { Console.WriteLine("io"); }',
 				"    public void Fire() { OnChanged(1); }",
 				"}",
 			].join("\n"),
@@ -1350,7 +1350,9 @@ describe("C# 语言包（迭代19）", () => {
 		// 非 private 事件：handler io 确定传播（展开边）→ IMPURE（修复前：事件不建模 → 触发落 ? →
 		// UNKNOWN——效应归因缺失）；可见性守卫 ? 在 handler 纯时体现（把 PURE 抬到 UNKNOWN，防假纯）
 		expect(fire!.purity).toBe(2);
-		expect((fire as unknown as { effects: Set<string> }).effects.has("io")).toBe(true);
+		expect(
+			(fire as unknown as { effects: Set<string> }).effects.has("io"),
+		).toBe(true);
 	});
 
 	it("迭代43 B：可见性守卫——public 事件 + 纯 handler 触发端 ?（防假 PURE）", async () => {
@@ -1370,5 +1372,49 @@ describe("C# 语言包（迭代19）", () => {
 		// handler 纯但事件 public：外部订阅不可见 → 触发端 ?（UNKNOWN）——
 		// 守卫公式 sub_static(e) ∪ {?}；private 事件则确定 PURE（测试 1）
 		expect(fire!.purity).toBe(1);
+	});
+
+	it("迭代43 r2：static-init 单元——隐式纯反例（static init io + 无显式 ctor + new C() 不得翻 PURE）", async () => {
+		const root = project("staticinit43", {
+			"S.cs": [
+				"using System.IO;",
+				"public class S {",
+				'    public static int X = File.ReadAllText("a").Length;',
+				"}",
+				"public class User {",
+				"    public void Make() { new S(); }",
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const make = by(r).get("S.cs::User.Make") as
+			| { purity: number; effects: Set<string> }
+			| undefined;
+		expect(make).toBeDefined();
+		// 工程评审 E2：staticInit 边必须计入 bodyEdges——隐式纯分支（闭包零调用才判纯）
+		// 被提前 return 保护；否则 new C() 翻 PURE 假纯（S1）
+		expect(make!.purity).toBe(2);
+		expect(make!.effects.has("fs")).toBe(true);
+	});
+
+	it("迭代43 r2：static-init 单元——实例字段初始化器不执行于静态访问（过近似消除）", async () => {
+		const root = project("staticinit-precise43", {
+			"Q.cs": [
+				"using System.IO;",
+				"public class Q {",
+				'    public int y = File.ReadAllText("b").Length;', // 实例字段初始化器
+				"    public static int Get() { return 1; }",
+				"}",
+				"public class User {",
+				"    public int Use() { return Q.Get(); }", // 静态访问不实例化
+				"}",
+			].join("\n"),
+		});
+		const r = await scanProject(root, { useCache: false });
+		const use = by(r).get("Q.cs::User.Use") as { purity: number } | undefined;
+		expect(use).toBeDefined();
+		// 拆分前：class chunk 并集含实例字段初始化器 → Use IMPURE（S2 过近似）；
+		// 拆分后：静态访问只并 static-init 单元 → 实例初始化器不执行 → Use PURE（精确）
+		expect(use!.purity).toBe(0);
 	});
 });

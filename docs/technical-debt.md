@@ -204,6 +204,16 @@ A6 的 S1 是**模型相对**的（"实际效应定义在模型真值上"）。�
 
 **评审流程**：docs/iter43/（00-plan → 01-math-review → 02-jeff-review → 03-synthesis）；延后项：static-init side table + L1 跨语言测试（iter43-r2）、A1 真实感 C# 合成大库回归网（iter43-r3，B/C 后校准）、A2/--state 输出 defer。残余：跨实例触发（x.evt(...)）保持 ?（接收者类型不可证）；UnityEvent 模型外派发（M_out）；事件不可标注（无 chunk/公理4 id）。
 
+## 迭代 43-r2 清空项（static-init 单元精确化）
+
+| 项 | 类型 | 闭合方式 |
+| --- | --- | --- |
+| **static-init 单元拆分（候选C）** | 过近似精确化 | 合成 chunk `<static-init>`（C# static 字段初始化器 + 静态构造器体）+ staticInitKey 映射 + 三消费点改指：L5 new C() 并集 staticInit（计入 bodyEdges 防隐式纯假纯）、候选7 静态访问只并 staticInit（实例初始化器不执行于静态访问——H1 lumped 过近似消除）、其他语言保持 class chunk 并集 |
+| **eventsOf 初始化器订阅隐性失效** | 正确性（探针实证） | C# variable_declarator 初始化器在 equals_value_clause 子节点（无 value 命名字段）——staticInitOf + eventsOf 双双修复 |
+| **L1 跨语言测试** | 覆盖缺口 | TS static 字段初始化器 / Python 类体赋值 → 静态访问路径 IMPURE |
+
+**验收**：366/366（+4）+ tsc 0 + essence 8/8 + README 门禁绿（362→366）。残余：static-init 标注 id 迁移发布动作（静态 ctor chunk id 消失）；A1 回归网排 iter43-r3（分布稳定后校准）。
+
 ## 总体评估
 
 - **形式正确性**：核心（SCC/效应格/A6/A7/内容寻址/前缀回退/语言隔离）全部有证明或复审闭环；A1-A7 已修复并测试。

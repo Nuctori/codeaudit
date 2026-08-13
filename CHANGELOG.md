@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — 迭代 43-r2（static-init 单元精确化：类型加载效应独立判定 + L1 跨语言覆盖）
+
+### 新增
+
+- static-init 单元拆分（候选C，iter43-r2）：C# 静态字段初始化器 value + 静态构造器体 → 合成 chunk `<static-init>`（ownerClass=类名）——类型加载效应独立判定单元；主 visit 跳过 static 子树（class chunk 不再含类型加载调用）
+- staticInitKey 映射（link 建索引时按名识别）+ 三消费点改指：L5 new C() 闭包并集 staticInit（**计入 bodyEdges**——隐式纯分支保护，防 `static int X = ReadFile()` + new C() 翻 PURE 假纯）；候选7 静态访问闭包 C# 精确版只并 staticInit（实例初始化器/实例 ctor 不执行于静态访问——H1 lumped 过近似消除）；其他语言保持 class chunk 并集（现状语义）
+- LangPack.staticModifiers 数据表（C# ["static"]；其他语言不填 → 不拆分）——P0-3 纪律
+- 探针实证修正：C# variable_declarator 初始化器在 equals_value_clause 子节点（无 value 命名字段）——staticInitOf + eventsOf 双双修复（eventsOf 初始化器订阅此前为隐性失效，测试碰巧通过）
+- L1 跨语言测试（reviewer L1）：TS static 字段初始化器 / Python 类体赋值 → 静态访问路径 IMPURE（H1 路径语言无关性验证）
+- 测试 +4（隐式纯反例 / 实例初始化器过近似消除 / TS / Python）：366/366
+
+### 修复
+
+- eventsOf 初始化器订阅隐性 bug（childForFieldName("value") 恒 undefined → handler 静默丢失——空展开 + private 守卫碰巧同判定）
+- README 362→366 测试数同步（C4 门禁绿）
+
+### 已知残余
+
+- static-init 标注 id 迁移发布动作（class chunk id 稳定；静态 ctor chunk id 消失；语料 calls 明细变化 → 标注/语料重扫）；A1 真实感 C# 合成大库回归网（iter43-r3/iter44，分布稳定后校准）
+
 ## [Unreleased] — 迭代 43（B4/M1 事件订阅建模闭合：间接层 + 订阅/触发双通道 + 可见性守卫）
 
 ### 新增

@@ -40,7 +40,9 @@ interface FileIndex {
 	readonly moduleAssigned: ReadonlySet<string>;
 	readonly chunkByKey: Map<string, RawChunk>;
 	/** 迭代43 B：类事件表（类名 → 事件名 → 订阅信息）——事件触发通道（fireEvent）消费。 */
-	readonly events?: Readonly<Record<string, Readonly<Record<string, FileEventInfo>>>>;
+	readonly events?: Readonly<
+		Record<string, Readonly<Record<string, FileEventInfo>>>
+	>;
 }
 
 /** 迭代39：类层次上下文（import 解析通道复用 resolveClassMember 的参数束）。 */
@@ -184,6 +186,21 @@ export function link(
 			const arr = globalClasses.get(rc.name) ?? [];
 			arr.push({ file, key: keys[0]!, lang: fi.pack.name });
 			globalClasses.set(rc.name, arr);
+		}
+	}
+
+	// 迭代43 r2：static-init 单元映射（类名 → 合成 chunk key）——类型加载效应独立判定。
+	// 合成 chunk（name="<static-init>"，ownerClass=类名）由 extractor 生成，link 侧按名识别。
+	const staticInitKey = new Map<string, string>();
+	for (const fi of files.values()) {
+		for (const rc of fi.facts.chunks) {
+			if (rc.name === "<static-init>" && rc.ownerClass) {
+				const k = fi.bySimple.get(rc.name)?.find((key) => {
+					const c = fi.chunkByKey.get(key);
+					return c?.ownerClass === rc.ownerClass;
+				});
+				if (k) staticInitKey.set(`${fi.pack.name}\u0000${rc.ownerClass}`, k);
+			}
 		}
 	}
 
@@ -347,6 +364,7 @@ export function link(
 					hasSubclass,
 					langHasDynamicExtends,
 					virtualMembers,
+					staticInitKey,
 					{
 						addEdge: (k) => calls.add(k),
 						addEffect: (e) => direct.add(e),
@@ -942,6 +960,7 @@ function resolveCtorCall(
 	hasSubclass: ReadonlySet<string>,
 	langHasDynamicExtends: ReadonlySet<string>,
 	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>,
+	staticInitKey: ReadonlyMap<string, string>,
 	sink: Sink,
 ): boolean {
 	const rule = Object.hasOwn(pack.impureGlobals, t)
@@ -993,6 +1012,15 @@ function resolveCtorCall(
 					sink.addEdge(e.key);
 					bodyEdges++;
 				}
+				// 迭代43 r2：static-init 单元（类型加载效应）——new C() 触发类型加载 → 并集 staticInit；
+				// **必须计入 bodyEdges**（工程评审 E2：隐式纯分支 1000-1007 在 bodyEdges>0 时提前 return——
+				// 否则 `class C { static int X = ReadFile(); }` + new C() 翻 PURE 假纯）。
+				// 仅静态拆分语言（C# staticModifiers 存在）；其他语言 class chunk 已含类体调用。
+				const sk = staticInitKey.get(`${pack.name}\u0000${c}`);
+				if (sk) {
+					sink.addEdge(sk);
+					bodyEdges++;
+				}
 			}
 		}
 		if (r === "edges" || bodyEdges > 0) {
@@ -1037,6 +1065,7 @@ function resolveObjDispatch(
 	hasSubclass: ReadonlySet<string>,
 	langHasDynamicExtends: ReadonlySet<string>,
 	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>,
+	staticInitKey: ReadonlyMap<string, string>,
 	sink: Sink,
 ): boolean {
 	// 调用方已保证 call.obj !== null（裸名走 impureBuiltins 分支）——此处收窄类型
@@ -1222,12 +1251,21 @@ function resolveObjDispatch(
 			const tf = files.get(c.file);
 			if (tf && addUnionEdges(tf, q, sink)) any = true;
 		}
-		// 迭代42 候选7：类型加载效应闭合——静态成员访问（C.Get()/C.X）触发类型加载，
-		// 闭包内 class chunk 的原始调用（静态/实例字段初始化器）并入调用闭包，
-		// 与 L5 ctor 合并同构（S2 过近似方向安全）。纯静态工具类（闭包零原始调用）不加边——零变化。
-		// 实证（iter42/02-jeff-review P1）：C.Get() 判 PURE 而类型加载执行 File.ReadAllText（活假纯洞）。
+		// 迭代42 候选7 + 迭代43 r2：类型加载效应闭合——静态成员访问（C.Get()/C.X）触发类型加载。
+		// C# 精确版（staticModifiers 存在）：只并 static-init 单元（静态字段初始化器 + 静态构造器体；
+		// 实例初始化器/实例 ctor 不执行于静态访问——数学修正 1 同时替换 H1 的 ctor 并集与 class chunk 并集）。
+		// 其他语言（无 staticModifiers）：class chunk 并集（类体/静态块调用在 class chunk，现状语义）。
 		let loadEdges = 0;
+		const hasStaticSplit = (pack.staticModifiers?.length ?? 0) > 0;
 		for (const c of ancestorClosureOf(call.obj, pack, superMap)) {
+			if (hasStaticSplit) {
+				const sk = staticInitKey.get(`${pack.name}\u0000${c}`);
+				if (sk) {
+					sink.addEdge(sk);
+					loadEdges++;
+				}
+				continue;
+			}
 			const entries = globalClasses.get(c);
 			if (!entries) continue;
 			for (const e of entries) {
@@ -1237,20 +1275,6 @@ function resolveObjDispatch(
 				if (rc && rc.calls.length > 0) {
 					sink.addEdge(e.key);
 					loadEdges++;
-				}
-				// H1（reviewer 探针实证）：C# 静态构造器是独立 constructor chunk（qualified 类名.类名，
-				// 不在 class chunk 内）——类型加载闭包必须并集它，否则 `static Q() { ReadFile() }` +
-				// Q.Get() 漏报（活假纯 S1）。并集含实例构造器（静态访问不执行）→ S2 过近似，与 L5 同族。
-				// 形态隔离：`${c}.${c}` 只命中 C# 构造器（TS constructor / Python __init__ 不同名不命中）。
-				const ctorKeys = tf?.byQualifiedAll.get(`${c}.${c}`);
-				if (ctorKeys) {
-					for (const ck of ctorKeys) {
-						const crc = tf?.chunkByKey.get(ck);
-						if (crc && crc.calls.length > 0) {
-							sink.addEdge(ck);
-							loadEdges++;
-						}
-					}
 				}
 			}
 		}
@@ -1339,6 +1363,7 @@ function resolveCall(
 	hasSubclass: ReadonlySet<string>,
 	langHasDynamicExtends: ReadonlySet<string>,
 	virtualMembers: ReadonlyMap<string, ReadonlySet<string>>,
+	staticInitKey: ReadonlyMap<string, string>,
 	sink: Sink,
 ): void {
 	const pack = fi.pack;
@@ -1366,6 +1391,7 @@ function resolveCall(
 			hasSubclass,
 			langHasDynamicExtends,
 			virtualMembers,
+			staticInitKey,
 			sink,
 		);
 		return;
@@ -1677,6 +1703,7 @@ function resolveCall(
 				hasSubclass,
 				langHasDynamicExtends,
 				virtualMembers,
+				staticInitKey,
 				sink,
 			)
 		)
@@ -1736,7 +1763,8 @@ function resolveCall(
 
 	// 事件对象触发（evt.Invoke() / evt?.Invoke()——obj 为裸事件名，attr 为 Invoke；
 	// 跨实例/链式接收者（x.evt / this.evt / C.evt）保持 markDynamic ?（数学 §2b：接收者类型不可证）
-	if (call.attr === "Invoke" && !call.obj.includes(".") && fireEvent(call.obj)) return;
+	if (call.attr === "Invoke" && !call.obj.includes(".") && fireEvent(call.obj))
+		return;
 	sink.addUnknownCall(call);
 	sink.markDynamic();
 }
