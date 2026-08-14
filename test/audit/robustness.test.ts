@@ -468,5 +468,17 @@ describe("步骤1：指纹 / memo / 路径裁剪（三方评审落地）", () =>
 		const r5 = run(["recheck", jsonPath, "--topology"]);
 		expect(r5.code).toBe(2);
 		expect(r5.out).toContain("缺少 stats");
+		// verdicts 元素缺 chunk.calls → 友好报错 exit 2（iter54-r5：元素级形状校验）
+		writeFileSync(
+			jsonPath,
+			JSON.stringify({
+				root: "/x",
+				stats: { files: 1 },
+				verdicts: [{ chunk: { calls: ["a"], direct: "io" } }], // direct 应为数组
+			}),
+		);
+		const r6 = run(["recheck", jsonPath, "--topology"]);
+		expect(r6.code).toBe(2);
+		expect(r6.out).toContain("缺 chunk.calls/direct");
 	});
 });

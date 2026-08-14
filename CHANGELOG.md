@@ -1,5 +1,25 @@
 # Changelog
 
+## [Unreleased] — 迭代 54（InitDeity 重构会话痛点驱动：使用可观测性 + 验证回路秒级化）
+
+### 新增
+
+- **recheck <json> 子命令**（iter54-r3）：加载 `scan --json` 输出（Set→数组、Infinity→"Infinity" 反序列化）复用全部视图（拓扑/HTML/治理/--changed/--gate/--sources）——改工具逻辑后对旧数据秒级重算，验证回路 10-20min → <1s（会话实证：手写脚本解析 216MB JSON 曾 120s 超时）
+- 扫描可观测性（iter54）：扫描开始/完成统计（文件/chunks/缓存命中/跳过/解析错误/耗时——cachedFiles 早已统计从未输出）；`stats.scannedAt` + HTML 报告头部元数据（扫描时间非生成时间/版本/缓存命中）；纠缠环成员 chips 空格分隔（原无分隔符拼接 "Event.TrackEvent.TrackEvent" 误导）；伪影过滤说明（同名族/方法组实参 iter52/53）
+- stale-dist 警告（iter54-r2）：dev 场景递归比较 src 最新 .ts mtime vs dist（目录 mtime 检测不到深层文件改动——iter54-r2 自审计修复）
+- 错误可排查性（iter54 + r2）：错误消息裁剪绝对路径（防泄露契约不变）但附加相对 root 的失败点；扫描根本身失败显式提示「扫描根目录不存在或不可访问」（原 "scandir '.'" 无法区分 cwd/root 问题）
+- 缓存写失败警告（iter54-r2）：写失败不再静默（会话实证：Assets/.codeaudit 空 = 写失败被吞 → 误判无缓存 → 每次全量重扫 10min）
+- help 示例 4 行（iter54-r2：会话实证 agent 猜 CLI 语法）
+
+### 修复
+
+- iter54-r4 自审计：recheck 形状校验（合法 JSON 缺 verdicts/stats → 友好报错 exit 2 而非 TypeError 崩溃）
+- iter54-r2 自审计：F2 目录 mtime 漏报、F1 root 失败区分度
+
+### 测试
+
+- 420/420（iter54 系列 +5：chips 分隔/头部元数据/recheck 一致性+坏 JSON+形状）
+
 ## [Unreleased] — 迭代 44（工具不完备/数据债数学最小性收口：局部读判纯 + System 枚举 + <unresolved> 漏网）
 
 ### 新增

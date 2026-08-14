@@ -324,6 +324,22 @@ function loadReport(file: string): ScanReport {
 	if (!raw.stats || typeof raw.stats !== "object" || typeof raw.stats.files !== "number") {
 		throw new Error(`recheck: ${file} 缺少 stats（需 codeaudit scan --json 的完整输出）`);
 	}
+	// 元素级形状校验：verdicts 元素缺 chunk.calls/direct 会静默变空 Set（new Set(undefined)=空）——
+	// 判定失真不可见；显式报错（iter54-r5 自审计）
+	for (const [i, v] of raw.verdicts.entries()) {
+		if (
+			!v ||
+			typeof v !== "object" ||
+			!v.chunk ||
+			typeof v.chunk !== "object" ||
+			!Array.isArray(v.chunk.calls) ||
+			!Array.isArray(v.chunk.direct)
+		) {
+			throw new Error(
+				`recheck: ${file} 第 ${i} 条 verdict 缺 chunk.calls/direct 数组（需完整 --json 输出）`,
+			);
+		}
+	}
 	const verdicts: Verdict[] = raw.verdicts.map((v) => ({
 		...v,
 		chunk: {

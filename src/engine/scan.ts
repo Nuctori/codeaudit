@@ -383,11 +383,17 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	// 迭代55：行粒度降级——流解析器错误恢复只影响 ERROR 节点之后的解析；ERROR 之前的 chunk 解析可靠，
 	// 不再整文件降级（InitDeity QuestProgressionManager 中文标识符 ERROR 曾致 90 chunk 误降级）。
 	const errLineOf = (file: string) => parseErrFiles.get(file) ?? 1;
+	// 迭代55 语义修正（iter54-r5 审计）：`c.line >= errLine` 漏掉"chunk 覆盖 ERROR"的形态——
+	// 函数从 ERROR 前一行的 def/声明开始、body 含 ERROR（如未闭合字符串）→ 内容被错误恢复吞边，
+	// 不降级 = 假纯回归（迭代2 H1 修复的洞复活，lang-features parsedeck 实证）。
+	// 正确判据：chunk **完全在**最小 ERROR 行之前（endLine < errLine）才保留；覆盖 ERROR 或在其后 → 降级。
+	const errLineAfter = (c: { file: string; line?: number; endLine?: number }) =>
+		parseErrFiles.has(c.file) && !((c.endLine ?? c.line ?? 1) < errLineOf(c.file));
 	const chunks2 =
 		parseErrFiles.size === 0
 			? chunks
 			: chunks.map((c) =>
-					parseErrFiles.has(c.file) && (c.line ?? 0) >= errLineOf(c.file)
+					errLineAfter(c)
 						? !c.calls.has(UNKNOWN_TARGET)
 							? {
 									...c,
@@ -450,7 +456,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 					// H1 守卫（迭代3 #1，迭代4 F2 放宽）：parseError chunk 的 `?` 是内容信任标记（body 可能被
 					// 错误恢复吞边），标注协议以函数体为准——而 body 本身不可信 → PURE 标注不可撤销降级；
 					// IMPURE 标注是保守方向（只增 io）→ 仍放行
-					if (parseErrFiles.has(c.file) && (c.line ?? 0) >= errLineOf(c.file)) return c;
+					if (errLineAfter(c)) return c;
 					if (!c.calls.has(UNKNOWN_TARGET)) return c;
 					const calls = new Set(c.calls);
 					calls.delete(UNKNOWN_TARGET);

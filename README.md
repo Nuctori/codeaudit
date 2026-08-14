@@ -21,7 +21,7 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 389 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 继承/多态反例 + 形状契约 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 421 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 继承/多态反例 + 形状契约 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
@@ -35,6 +35,8 @@ node dist/cli.js scan ./src --strict                   # 存在 IMPURE 时退出
 node dist/cli.js scan ./src --changed a.ts --gate      # 合入门禁：回归风险 grade ≥ high 时退出码 1
 node dist/cli.js scan ./src --effect-table overrides.json   # 效应表注入（不改库代码；{ 语言: { 表: 值 } }，读文件/校验失败 exit 2）
 node dist/cli.js scan ./src --html report.html   # 技术债 HTML 可视化（自包含单文件：健康度/模块/治理/复杂度/未知形态/效应源）
+node dist/cli.js scan ./src --json out.json      # 导出完整 JSON（供 recheck/compare 复用——改工具后免重扫）
+node dist/cli.js recheck out.json --topology --html r.html  # 秒级重算：加载 JSON 复用全部视图（迭代54：验证回路 10-20min → <1s）
 
 编程式 API：
 
@@ -161,7 +163,7 @@ src/
 
 ## 测试
 
-389 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
+421 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。

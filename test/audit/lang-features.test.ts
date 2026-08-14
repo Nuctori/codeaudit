@@ -749,6 +749,27 @@ describe("公理审计修复：健全性缺口（A6 形式化后的通道闭合�
 		expect(b.get("a.ts::f")!.purity).toBe(Purity.IMPURE); // 修复前 PURE（new_expression 不是 call 节点）
 	});
 
+	it("H1 行粒度（迭代55 + iter54-r5 语义修正）：ERROR 前的独立 chunk 保留、覆盖 ERROR 的 chunk 降级", async () => {
+		// 场景1（迭代55 收益）：ERROR（L5 中文标识符）之前的独立函数 g 解析可靠 → 保留原判定
+		const r1 = await scanProject(
+			project("h1-row", {
+				"a.py":
+					"def g():\n    return 42\ndef h():\n    x = \u8349\u6728\u4e4b\u68ee\n    return x\n",
+			}),
+		);
+		const b1 = by(r1);
+		expect(b1.get("a.py::g")!.purity).toBe(Purity.PURE); // ERROR 前、独立 chunk → 不降级
+		// 场景2（iter54-r5 修正）：函数从 ERROR 前一行开始、body 含 ERROR（未闭合字符串）→
+		// chunk 覆盖 ERROR → 必须降级（假纯回归防护——迭代2 H1 语义）
+		const r2 = await scanProject(
+			project("h1-cover", {
+				"a.py": 'def f():\n    return "unterminated\nimport os\nos.system("ls")\n',
+			}),
+		);
+		const b2 = by(r2);
+		expect(b2.get("a.py::f")!.purity).toBe(Purity.UNKNOWN); // 覆盖 ERROR → 降级
+	});
+
 	it("时钟读取跨形态（迭代3 语言）：Date()/new Date() → UNKNOWN；Date.now → IMPURE；Date.parse → PURE", async () => {
 		const root = project("tsdate", {
 			"a.ts":
