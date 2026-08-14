@@ -443,7 +443,7 @@ export function renderModuleGraphPanel(
 				.join("")
 		: '<div class="sub">无环——模块间无逆向依赖</div>';
 	const expandHint = Object.keys(children).length
-		? ` · 可展开 ${Object.keys(children).length} 个目录（点节点上 <b style="color:#fff">+</b> 下钻到模块级）`
+		? ` · 可展开 ${Object.keys(children).length} 个目录（<b style="color:#fff">白描边节点</b>点击直接下钻）`
 		: "";
 	return `<div class="panel">
 <h3>🗺 项目模块有向边图（第一方口径 · ${g.nodes.length} 模块 · ${g.edges.length} 边——悬停看明细；第三方折叠为单节点${expandHint}）</h3>
@@ -528,10 +528,18 @@ function depgraphRender(data, holder, path, parentPath) {
 		var fill = ring ? '#e5484d' : (isolated ? '#6b7280' : (n.selfCalls > 0 ? '#d29922' : '#4c8dff'));
 		var stroke = isolated ? '#9ca3af' : '#1a1b1e';
 		var dash = isolated ? ' stroke-dasharray="5,4"' : '';
-		var tip = n.label + '\\nchunks ' + n.chunks + ' · 出→入 ' + n.outDeg + '→' + n.inDeg + ' · 内部调用 ' + n.selfCalls + (ring ? '（环内模块）' : '') + (isolated ? '\\n⚠ 无跨模块边——静态盲区（未知调用 ?/反射/事件驱动）或真实孤立' : '');
-		var child = window.__DEPGRAPH_DATA.children && window.__DEPGRAPH_DATA.children[n.id];
-		var plus = child ? '<circle cx="' + p.x.toFixed(1) + '" cy="' + (p.y - r - 14).toFixed(1) + '" r="13" fill="#e5484d" stroke="#fff" stroke-width="2" style="cursor:pointer" onclick="depgraphNav(\\'' + n.id + '\\',\\'' + path + '\\')"><title>点击展开 ' + n.id + ' 的模块级子图</title></circle><text x="' + p.x.toFixed(1) + '" y="' + (p.y - r - 8).toFixed(1) + '" text-anchor="middle" font-size="17" font-weight="bold" fill="#fff" style="cursor:pointer;pointer-events:none">+</text>' : '';
-		svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"' + dash + '><title>' + tip + '</title></circle>' + plus;
+		// 只有 base 级渲染可展开（子图内同名根节点不可再点——防无限自展开）
+		var child = data === window.__DEPGRAPH_DATA.base
+			? (window.__DEPGRAPH_DATA.children && window.__DEPGRAPH_DATA.children[n.id])
+			: null;
+		// 可展开节点：白色粗描边 + 手型光标 + 点击节点直接下钻（迭代58-r10：去掉 + 徽标，交互即节点本身）
+		var click = child
+			? ' style="cursor:pointer" onclick="depgraphNav(\\'' + n.id + '\\',\\'' + path + '\\')"'
+			: '';
+		var ringStroke = child ? '#fff' : stroke;
+		var ringW = child ? 3 : 1.5;
+		var tip = n.label + '\\nchunks ' + n.chunks + ' · 出→入 ' + n.outDeg + '→' + n.inDeg + ' · 内部调用 ' + n.selfCalls + (ring ? '（环内模块）' : '') + (isolated ? '\\n⚠ 无跨模块边——静态盲区（未知调用 ?/反射/事件驱动）或真实孤立' : '') + (child ? '\\n🖱 点击展开 ' + n.id + ' 的模块级子图' : '');
+		svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + fill + '" stroke="' + ringStroke + '" stroke-width="' + ringW + '"' + dash + click + '><title>' + tip + '</title></circle>';
 		var label0 = n.label.split('/').pop() || n.label;
 		var label = label0.length > 16 ? label0.slice(0, 15) + '…' : label0;
 		svg += '<text x="' + p.x.toFixed(1) + '" y="' + (p.y + r + 14).toFixed(1) + '" text-anchor="middle" font-size="13" fill="var(--fg)"><title>' + tip + '</title>' + label + '</text>';
@@ -557,7 +565,7 @@ function depgraphBack() {
 }
 depgraphRender(window.__DEPGRAPH_DATA.base, document.getElementById('depgraph-holder'), '目录级', null);
 </script>
-<div class="sub" style="margin-top:8px"><span style="color:#e5484d">● 深红 = 逆行边（强度 ≥20% 真实纠缠）</span> · <span style="color:#e58a8d">● 浅红 = 逆行边（强度 &lt;20% 单点回边）</span>（实线 = 主方向，虚线 = 反向——悬停看 ×N 与逆行强度 %） · <span style="color:#d29922">● 黄 = 模块内部调用 &gt; 0</span> · <span style="color:#4c8dff">● 蓝 = 普通模块</span> · <span style="color:#6b7280">◌ 灰虚线 = 无跨模块边（静态盲区：未知调用 ?/反射/事件驱动，非真实孤立；或真实孤立）</span> · 箭头方向 = 调用方向（A→B 表示 A 调 B） · 线宽 = 调用边数 · <span style="color:#e5484d">＋</span> = 可下钻目录（点 + 看模块级子图）</div>
+<div class="sub" style="margin-top:8px"><span style="color:#e5484d">● 深红 = 逆行边（强度 ≥20% 真实纠缠）</span> · <span style="color:#e58a8d">● 浅红 = 逆行边（强度 &lt;20% 单点回边）</span>（实线 = 主方向，虚线 = 反向——悬停看 ×N 与逆行强度 %） · <span style="color:#d29922">● 黄 = 模块内部调用 &gt; 0</span> · <span style="color:#4c8dff">● 蓝 = 普通模块</span> · <span style="color:#6b7280">◌ 灰虚线 = 无跨模块边（静态盲区：未知调用 ?/反射/事件驱动，非真实孤立；或真实孤立）</span> · 箭头方向 = 调用方向（A→B 表示 A 调 B） · 线宽 = 调用边数 · <b style="color:#fff">白描边</b> = 可下钻目录（点击节点看模块级子图）</div>
 <h3 style="margin-top:14px">模块级环（逆行边来源，聚合 ${g.nodes.length} 模块口径）</h3>
 ${ringList}
 </div>`;
