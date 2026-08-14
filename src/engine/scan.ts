@@ -355,7 +355,9 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	if (opts.useCache && cachePath && opts.cacheDir) {
 		try {
 			mkdirSync(opts.cacheDir, { recursive: true });
-			const tmp = cachePath + ".tmp";
+			// iter54-r8（reviewer L3）：tmp 名加随机后缀——并发扫描同项目时固定名 tmp 交错
+			// 写+rename 可能把半写文件落盘（自愈但性能损失）；随机名消除竞态窗口
+			const tmp = cachePath + ".tmp-" + Math.random().toString(36).slice(2, 10);
 			writeFileSync(tmp, JSON.stringify(nextCache));
 			renameSync(tmp, cachePath); // 原子替换：防半写/符号链接劫持
 		} catch (e) {

@@ -14,7 +14,15 @@ export interface GraphMetrics {
 	/** ΣunknownSites（F6；多重性口径，与 risk.ts evidence.missingSiteRate 分子同源——不构成与 knownEdges 的总量恒等，calls 的 ? 单槽 vs unknownSites 多重性）。 */
 	readonly unknownEdges: number;
 	/** F4：calls 含自身 key 的 chunk 数（现有 cycleCount 只计 |SCC|>1，自环是单点 SCC——盲区，单列覆盖）。 */
+	/** F4：calls 含自身 key 的 chunk 数（现有 cycleCount 只计 |SCC|>1，自环是单点 SCC——盲区，单列覆盖）。 */
 	readonly selfLoopCount: number;
+	/** 回边数：u→v 且 u、v 同 SCC（每条同分量边都在某个环上——强连通 ⇒ v 可达 u 加上 u→v 成环）。
+	 * 自环/族内边不计（selfLoopCount 单列）；DAG 上恒 0。 */
+	readonly backEdges: number;
+	/** 入度直方图：下标=入度 → chunk 数（自环/族内边不计；Σ i·h[i] = knownEdges 恒等式，h[0]=源节点数）。 */
+	readonly inDegreeHistogram: readonly number[];
+	/** 出度直方图（同口径；h[0]=汇节点数）。 */
+	readonly outDegreeHistogram: readonly number[];
 	/** SCC 大小>1 个数 === stats.cycles（同边口径，由构造保证）。 */
 	readonly cyclicComponents: number;
 	/** 迭代46 C：外部入边进入 >1 个不同节点的 SCC 数（多入口=纠缠递归，Hecht-Ullman 可规约性）。 */
@@ -64,6 +72,8 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 	let unknownEdges = 0;
 	let selfLoopCount = 0;
 	const succ: number[][] = verdicts.map(() => []);
+	const inDeg = new Array<number>(n).fill(0);
+	const outDeg = new Array<number>(n).fill(0);
 	for (const v of verdicts) {
 		unknownEdges += v.chunk.unknownSites;
 		for (const t of v.chunk.calls) {
@@ -75,6 +85,8 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 				continue;
 			}
 			succ[idx.get(v.chunk.key)!]!.push(ti);
+			outDeg[idx.get(v.chunk.key)!]!++;
+			inDeg[ti]!++;
 			knownEdges++;
 		}
 	}
@@ -105,6 +117,17 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 	comps.forEach((comp, c) => comp.forEach((k) => compOf.set(k, c)));
 	const cyclicComponents = comps.filter((c) => c.length > 1).length;
 
+	// 回边 = 同 SCC 成员间边（有向环的显式计数；跨分量边/DAG 边不计）
+	let backEdges = 0;
+	for (const v of verdicts) {
+		const c = compOf.get(v.chunk.key)!;
+		for (const t of v.chunk.calls) {
+			if (t === UNKNOWN_TARGET || t === v.chunk.key) continue;
+			const tv = byKey.get(t);
+			if (tv === undefined || sameFamily(v, tv)) continue;
+			if (compOf.get(t) === c) backEdges++;
+		}
+	}
 	// 分量级边集 + 深度（逆拓扑：扫 0..c-1，后继分量下标更小 → 已算）
 	const succComp: number[][] = comps.map(() => []);
 	for (const v of verdicts) {
@@ -158,6 +181,14 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 
 	const density = n > 1 ? knownEdges / (n * (n - 1)) : 0;
 
+	// 出入度直方图（Σ i·h[i] = knownEdges 恒等式——与边提取同口径）
+	const inDegreeHistogram: number[] = [];
+	const outDegreeHistogram: number[] = [];
+	for (let i = 0; i < n; i++) {
+		inDegreeHistogram[inDeg[i]!] = (inDegreeHistogram[inDeg[i]!] ?? 0) + 1;
+		outDegreeHistogram[outDeg[i]!] = (outDegreeHistogram[outDeg[i]!] ?? 0) + 1;
+	}
+
 	// 迭代46 C：SCC 外部入口数（可规约性——Hecht-Ullman：单入口=结构化递归，多入口=纠缠递归）。
 	// 入口 = 来自其他分量的边进入该 SCC 的**不同目标节点**数（跨分量边终点；自环/内部边不计）。
 	// 只统计真 SCC（>1，与 cyclicComponents 同口径）；孤立递归团（无外部入口）落入口 0 桶。
@@ -198,6 +229,9 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 		knownEdges,
 		unknownEdges,
 		selfLoopCount,
+		backEdges,
+		inDegreeHistogram,
+		outDegreeHistogram,
 		cyclicComponents,
 		multiEntryScc,
 		sccEntryHistogram,

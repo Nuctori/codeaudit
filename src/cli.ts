@@ -27,6 +27,17 @@ import {
 	type ScanReport,
 	type ScanStats,
 } from "./core/types";
+
+/** Effect 闭合联合的字符串集合（recheck 形状校验用——scan 模式内部保证，recheck 的 JSON 不可信）。 */
+const EFFECT_SET: ReadonlySet<string> = new Set([
+	"io",
+	"net",
+	"fs",
+	"db",
+	"random",
+	"clock",
+	"state",
+]);
 import {
 	annotationBudget,
 	annotationCurve,
@@ -311,6 +322,10 @@ function loadReport(file: string): ScanReport {
 		}>;
 	};
 	try {
+		// iter54-r8（reviewer L2）：JSON.parse 前大小上限——与 cache.json/corpus 同款守卫
+		// （V8 堆耗尽不可捕获；recheck 输入是第三方/历史产物，GB 级文件会 OOM 全进程）
+		if (statSync(file).size > 64 * 1024 * 1024)
+			throw new Error("recheck 输入过大（>64MB）");
 		raw = JSON.parse(readFileSync(file, "utf8"));
 	} catch {
 		throw new Error(`recheck: 无法解析 ${file}（需 --json 输出文件）`);
@@ -325,7 +340,11 @@ function loadReport(file: string): ScanReport {
 	// 截断检测（iter54-r7，reviewer 4d40012e Low）：`scan --json --top N` 截断 verdicts——
 	// recheck 该文件会静默计算不完整视图；stats.chunks 是全量数，verdicts.length 是截断后数，
 	// 不等即不完整 → 警告（不阻断——可能是用户刻意 --top 截断，但视图数字会与 stats 矛盾）
-	if (raw.stats && typeof raw.stats.chunks === "number" && raw.verdicts.length < raw.stats.chunks) {
+	if (
+		raw.stats &&
+		typeof raw.stats.chunks === "number" &&
+		raw.verdicts.length < raw.stats.chunks
+	) {
 		console.error(
 			`codeaudit: ⚠ recheck 输入 ${file} 的 verdicts（${raw.verdicts.length}）少于 stats.chunks（${raw.stats.chunks}）——可能来自 --top 截断，视图为不完整计算`,
 		);
@@ -353,6 +372,21 @@ function loadReport(file: string): ScanReport {
 			throw new Error(
 				`recheck: ${file} 第 ${i} 条 verdict 缺 chunk.calls/direct 数组（需完整 --json 输出）`,
 			);
+		}
+		// iter54-r8（reviewer M1 stored XSS 纵深防御）：effects 元素必须 ∈ Effect 闭合联合
+		// （scan 模式内部保证；recheck 的 JSON 是第三方/历史产物，不可信——非闭合值会直通
+		// htmlreport badge 插值，虽有 esc() 兜底但形状校验让污染在源头失败）
+		if (v.effects !== undefined) {
+			if (!Array.isArray(v.effects)) {
+				throw new Error(`recheck: ${file} 第 ${i} 条 verdict 的 effects 应为数组`);
+			}
+			for (const e of v.effects) {
+				if (typeof e !== "string" || !EFFECT_SET.has(e)) {
+					throw new Error(
+						`recheck: ${file} 第 ${i} 条 verdict 的 effects 含非法值 ${JSON.stringify(e)}（须 ∈ {io,net,fs,db,random,clock,state}）`,
+					);
+				}
+			}
 		}
 	}
 	const verdicts: Verdict[] = raw.verdicts.map((v) => ({
@@ -781,6 +815,11 @@ async function main(): Promise<void> {
 				console.log(
 					`  ➜ ${t.cyclicComponents} 个循环依赖（SCC>1——初始化/销毁顺序风险）`,
 				);
+			// 有向形态（迭代55）：源/汇 + 回边（同 SCC 内边——每条都在某个环上；自环已在首行单列）
+			console.log(
+				`  ➜ 有向形态：源 ${t.inDegreeHistogram[0] ?? 0} 个 / 汇 ${t.outDegreeHistogram[0] ?? 0} 个 / ` +
+					`回边 ${t.backEdges}（同 SCC 内边，环内冗余）`,
+			);
 			// 迭代46 C：可规约性（Hecht-Ullman——单入口=结构化递归、多入口=纠缠递归）
 			if (t.multiEntryScc > 0)
 				console.log(
@@ -925,6 +964,9 @@ async function main(): Promise<void> {
 		if (args.compare) {
 			// 迭代44-r4：重构前后对比（复用 compareReports 库 API）——判定翻转 + unknown 变化摘要
 			try {
+				// iter54-r8（reviewer L2）：JSON.parse 前大小上限（与 cache/corpus/recheck 同款）
+				if (statSync(args.compare).size > 64 * 1024 * 1024)
+					throw new Error("compare 输入过大（>64MB）");
 				const before = JSON.parse(readFileSync(args.compare, "utf8")) as {
 					verdicts: Array<{
 						chunk: { key: string; file: string; name: string };

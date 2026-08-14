@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased] — 迭代 55（有向拓扑指标）
+
+### 新增
+
+- **有向拓扑指标**（graphMetrics）：`backEdges`（同 SCC 内边——每条都在某个环上，DAG 恒 0）+ `inDegreeHistogram`/`outDegreeHistogram`（下标=度→节点数；自环/族内边不计，Σ i·h[i] = knownEdges 恒等式；h[0]=源/汇数）。`--topology` text 摘要新增「有向形态：源/汇/回边」行；recheck 重算自动生效。
+
 ## [Unreleased] — 迭代 54（InitDeity 重构会话痛点驱动：使用可观测性 + 验证回路秒级化）
 
 ### 新增

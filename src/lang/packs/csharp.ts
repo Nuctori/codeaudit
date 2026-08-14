@@ -444,10 +444,26 @@ const builtinMutators: Record<string, ReadonlySet<string>> = {
 	List: new Set(["Add", "Remove", "RemoveAt", "Clear", "Insert", "Sort"]),
 	Dictionary: new Set(["Add", "Remove", "Clear"]),
 	// 迭代52 P1：S1 红线成对——StringBuilder/Queue/Stack/HashSet 变异方法（与 builtinTypeEffects 同步）
-	StringBuilder: new Set(["Append", "AppendLine", "AppendFormat", "Insert", "Remove", "Replace", "Clear"]),
+	StringBuilder: new Set([
+		"Append",
+		"AppendLine",
+		"AppendFormat",
+		"Insert",
+		"Remove",
+		"Replace",
+		"Clear",
+	]),
 	Queue: new Set(["Enqueue", "Dequeue", "Clear"]),
 	Stack: new Set(["Push", "Pop", "Clear"]),
-	HashSet: new Set(["Add", "Remove", "Clear", "UnionWith", "IntersectWith", "ExceptWith", "SymmetricExceptWith"]),
+	HashSet: new Set([
+		"Add",
+		"Remove",
+		"Clear",
+		"UnionWith",
+		"IntersectWith",
+		"ExceptWith",
+		"SymmetricExceptWith",
+	]),
 };
 
 const builtinMethodReturns: Record<string, Record<string, string>> = {

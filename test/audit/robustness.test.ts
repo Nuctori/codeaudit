@@ -459,7 +459,10 @@ describe("步骤1：指纹 / memo / 路径裁剪（三方评审落地）", () =>
 		expect(r3.code).toBe(2);
 		expect(r3.out).toContain("无法解析");
 		// 合法 JSON 但缺 verdicts → 友好报错 exit 2（recheck 自审计 iter54-r4：形状校验）
-		writeFileSync(jsonPath, JSON.stringify({ root: "/x", stats: { files: 1 } }));
+		writeFileSync(
+			jsonPath,
+			JSON.stringify({ root: "/x", stats: { files: 1 } }),
+		);
 		const r4 = run(["recheck", jsonPath, "--topology"]);
 		expect(r4.code).toBe(2);
 		expect(r4.out).toContain("缺少 verdicts");

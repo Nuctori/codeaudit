@@ -312,17 +312,17 @@ export function renderTechdebtHtml(
 		.slice(0, 15);
 
 	// 拓扑健康度：层分布/链分布/入口分布条形
-	const layerMax = Math.max(...g.layerHistogram, 1);
+	const layerMax = Math.max(1, ...g.layerHistogram.filter((x): x is number => typeof x === "number")); // filter 去稀疏洞（reviewer L1：Math.max(...稀疏)=NaN）
 	const layerRows = g.layerHistogram
 		.map((c, i) => bar(`层 ${i}`, c, layerMax, "var(--acc)"))
 		.filter((_, i) => g.layerHistogram[i]! > 0)
 		.join("");
-	const chainMax = Math.max(...g.chainHistogram, g.chainInf, 1);
+	const chainMax = Math.max(1, ...g.chainHistogram.filter((x): x is number => typeof x === "number"), g.chainInf);
 	const chainRows =
 		g.chainHistogram
 			.map((c, i) => bar(`chain=${i}`, c, chainMax, "var(--fg)"))
 			.join("") + bar("chain=∞(PURE)", g.chainInf, chainMax, "var(--pure)");
-	const entryMax = Math.max(...g.sccEntryHistogram, 1);
+	const entryMax = Math.max(1, ...g.sccEntryHistogram.filter((x): x is number => typeof x === "number"));
 	const entryRows = g.sccEntryHistogram
 		.map((c, i) => bar(`入口 ${i}`, c ?? 0, entryMax, "var(--unk)"))
 		.join("");
@@ -364,7 +364,7 @@ td{padding:6px 8px;border-bottom:1px solid var(--br);color:var(--fg);white-space
 .chain-path{font-size:11px;color:var(--dim);font-family:ui-monospace,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style></head><body>
 <h1>${esc(opts.title ?? "codeaudit 技术债报告")}</h1>
-<div class="sub">${esc(opts.sub ?? "")} · ${n} chunks · ${stats.files} 文件 · ${stats.cycles} 环 · ${opts.scannedAt ?? new Date().toISOString().slice(0, 19)}${opts.version ? ` · v${opts.version}` : ""}${opts.cachedFiles !== undefined ? ` · 缓存命中 ${opts.cachedFiles} 文件` : ""}</div>
+<div class="sub">${esc(opts.sub ?? "")} · ${n} chunks · ${stats.files} 文件 · ${esc(String(stats.cycles))} 环 · ${esc(opts.scannedAt ?? new Date().toISOString().slice(0, 19))}${opts.version ? ` · v${esc(opts.version)}` : ""}${opts.cachedFiles !== undefined ? ` · 缓存命中 ${esc(String(opts.cachedFiles))} 文件` : ""}</div>
 
 <h2>健康度总览</h2>
 <div class="grid">
@@ -477,7 +477,7 @@ ${shapeTop.map(([k, n2]) => bar(esc(k), n2, shapeMax, "var(--unk)")).join("")}
 <h2>效应源（背锅者 top 15——chain=0 直接引入副作用）</h2>
 <div class="panel">
 <table><tr><th>函数</th><th>位置</th><th>效应</th><th>调用点</th></tr>
-${sources.map((v) => `<tr><td>${esc(v.chunk.name)}</td><td>${esc(v.chunk.file)}</td><td>${[...v.effects].map((e) => `<span class="badge b-${e}">${e}</span>`).join("")}</td><td>${v.chunk.calls.size}</td></tr>`).join("")}
+${sources.map((v) => `<tr><td>${esc(v.chunk.name)}</td><td>${esc(v.chunk.file)}</td><td>${[...v.effects].map((e) => `<span class="badge b-${esc(e)}">${esc(e)}</span>`).join("")}</td><td>${v.chunk.calls.size}</td></tr>`).join("")}
 </table>
 </div>
 <div class="sub" style="margin-top:24px">codeaudit renderTechdebtHtml · 全量纲独立可视化不混合 · 数据内嵌零外部依赖</div>

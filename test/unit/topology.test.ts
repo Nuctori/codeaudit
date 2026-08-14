@@ -221,8 +221,41 @@ describe("graphMetrics（迭代14 视角 3 实施）", () => {
 			v("C.Foo#3", { calls: ["C.Foo#1"], name: "C.Foo" }),
 		]);
 		expect(m.cyclicComponents).toBe(1); // A.bar ↔ B.baz
+		expect(m.cyclicComponents).toBe(1); // A.bar ↔ B.baz
 		expect(m.multiEntryScc).toBe(1); // X/Y 两入口仍纠缠
 		expect(m.sccEntryHistogram[2]).toBe(1);
+	});
+
+	it("迭代55：有向指标——出入度直方图 + 回边（同 SCC 内边）", () => {
+		// 边：A→B, A→C, B→C, B→D, C→B, X→A（6 条）；SCC：{B,C}（B↔C）、{A}、{D}、{X}
+		const m = graphMetrics([
+			v("A", { calls: ["B", "C"] }),
+			v("B", { calls: ["C", "D"] }),
+			v("C", { calls: ["B"] }),
+			v("D"),
+			v("X", { calls: ["A"] }),
+		]);
+		expect(m.cyclicComponents).toBe(1); // B↔C
+		expect(m.backEdges).toBe(2); // B→C、C→B 同分量
+		expect(m.inDegreeHistogram).toEqual([1, 2, 2]); // X 入度 0；A/D 入度 1；B/C 入度 2
+		expect(m.outDegreeHistogram).toEqual([1, 2, 2]); // D 出度 0；C/X 出度 1；A/B 出度 2
+		// 恒等式：Σ i·h[i] = knownEdges（与边提取同口径）
+		const sum = (h: readonly number[]): number =>
+			h.reduce((a, c, i) => a + c * i, 0);
+		expect(sum(m.inDegreeHistogram)).toBe(m.knownEdges);
+		expect(sum(m.outDegreeHistogram)).toBe(m.knownEdges);
+	});
+
+	it("迭代55：DAG 链无回边，源/汇各 1", () => {
+		const m = graphMetrics([
+			v("A", { calls: ["B"] }),
+			v("B", { calls: ["C"] }),
+			v("C", { calls: ["D"] }),
+			v("D"),
+		]);
+		expect(m.backEdges).toBe(0);
+		expect(m.inDegreeHistogram[0]).toBe(1); // A 源
+		expect(m.outDegreeHistogram[0]).toBe(1); // D 汇
 	});
 
 	describe("graphMetrics 同名族（迭代52）", () => {
@@ -234,4 +267,4 @@ describe("graphMetrics（迭代14 视角 3 实施）", () => {
 			expect(m.cyclicComponents).toBe(1); // 无 name → 按 key 全量成环（旧口径）
 		});
 	});
-	});
+});

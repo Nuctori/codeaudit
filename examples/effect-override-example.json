@@ -1,9 +1,9 @@
 {
   "csharp": {
     "impureGlobals": {
-      "NetCall": "net",
-      "BuglyAgent": "io",
-      "SDKUtil": "net"
+      "NetClient": "net",
+      "TelemetryAgent": "io",
+      "SdkHelper": "net"
     },
     "pureGlobals": [
       "MathUtility",

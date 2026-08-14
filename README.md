@@ -21,13 +21,13 @@
 ```bash
 npm install
 npm run build        # node node_modules/typescript/bin/tsc
-npm test             # 422 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 继承/多态反例 + 形状契约 + 数学层回归（开发需 Node ≥20，vitest 4）
+npm test             # 424 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 继承/多态反例 + 形状契约 + 数学层回归（开发需 Node ≥20，vitest 4）
 
 # 扫描
 node dist/cli.js scan ./src
 node dist/cli.js scan ./src --format json
 node dist/cli.js scan ./src --top 20            # 治理清单前 N（量纲内排序：直接调用者数降序——被最多人引用的非纯优先）
-node dist/cli.js scan ./src --topology          # 拓扑健康度（密度/环/深度/自环/多入口纠缠环/桥/割点 + 人类解读）
+node dist/cli.js scan ./src --topology          # 拓扑健康度（密度/环/深度/自环/多入口纠缠环/桥/割点/源汇/回边 + 人类解读）
 node dist/cli.js scan ./src --sources           # 效应源清单（chain=0 IMPURE——直接调 io/net/random/state 的"背锅者"）
 node dist/cli.js scan ./src --state             # 状态耦合图（写方按读者数排序——谁写、谁读、扩散面最大的共享状态）
 node dist/cli.js scan ./src --unknowns unknowns.json   # 导出未知符号供 AI 标注
@@ -163,7 +163,7 @@ src/
 
 ## 测试
 
-422 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
+424 个测试，五层验证（32 维交叉审计见 [AUDIT.md](AUDIT.md)，另有数学层回归组）：
 
 - **单元**：tarjan 环/自环/逆拓扑契约/5 万深链；analyze 种子传播/环终止/区间/字典序；hash 稳定性。
 - **多语言 E2E**：pyshop（Python 传染链 + 跨文件环 + 未知库）、tsapp（桶文件再导出 + this 方法 + console 效应）、jsapp（CommonJS require）。
