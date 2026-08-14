@@ -39,6 +39,11 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 				"圈复杂度",
 				"未知点形态",
 				"效应源",
+				"标注证明完整度",
+				"测试盲区",
+				"重复代码",
+				"疑似死代码",
+				"状态耦合",
 			])
 				expect(html).toContain(section);
 			expect(html).toContain("hub"); // 治理 top 含被调用者
@@ -125,13 +130,18 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 			({
 				chunk: {
 					key,
+					id: `id-${key}`,
 					file: `${key.split("#")[0]}.cs`,
+					line: 1,
 					startLine: 1,
 					endLine: 2,
 					name,
 					calls: new Set(calls),
 					unknownSites: 0,
+					unknownCalls: [],
 					stateWrites: [],
+					stateReads: [],
+					direct: new Set<string>(),
 					parseError: false,
 				},
 				purity: 1,
@@ -155,8 +165,13 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 		// 真实双入口环仍是纠缠成员
 		expect(html).toMatch(/chip">A\.bar<\/span>/);
 		expect(html).toMatch(/chip">B\.baz<\/span>/);
-		// 重载族不因内部互调成为纠缠环成员
-		expect(html).not.toMatch(/chip">T\.Track<\/span>/);
+		// 重载族不因内部互调成为纠缠环成员（断言限定在纠缠环分区——标注证明完整度分区
+		// 同样渲染同名 chips，全局反断言会误伤：迭代57 新增分区后改为 scoped）
+		const ringSection = html.slice(
+			html.indexOf("拓扑治理优先级"),
+			html.indexOf("圈复杂度"),
+		);
+		expect(ringSection).not.toMatch(/chip">T\.Track<\/span>/);
 		// 成员 chips 有分隔（iter54 审计：无分隔符拼接曾误导读者——"Event.TrackEvent.TrackEvent"
 		// 被误读为单节点名）
 		expect(html).toMatch(/chip">[^<]*<\/span> <span class="chip">/);
@@ -189,13 +204,18 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 			({
 				chunk: {
 					key,
+					id: `id-${key}`,
 					file: `${key.split("#")[0]}.cs`,
+					line: 1,
 					startLine: 1,
 					endLine: 2,
 					name,
 					calls: new Set(calls),
 					unknownSites: 0,
+					unknownCalls: [],
 					stateWrites: [],
+					stateReads: [],
+					direct: new Set<string>(),
 					parseError: false,
 				},
 				purity,

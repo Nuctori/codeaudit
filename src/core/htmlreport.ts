@@ -1,21 +1,38 @@
-import type { Verdict } from "./types";
+import type { Verdict, ScanStats } from "./types";
 import { UNKNOWN_TARGET } from "./types";
 import { graphMetrics, reverseDepCounts } from "./topology";
 import { dependencySkeleton, bridgesOf } from "./skeleton";
 import { moduleSummary } from "./module";
 import { tarjan } from "./tarjan";
+import { proofCompleteness } from "./proof";
+import { duplicateGroups, testCoverage, deadChunks } from "./gov";
+import { stateCouplingOf } from "./state";
 
 /**
- * 技术债 HTML 可视化（迭代49 插件化：通用报告渲染器；迭代50 全量纲补全）。
+ * 技术债 HTML 可视化（迭代49 插件化：通用报告渲染器；迭代50 全量纲补全；
+ * 迭代57 接入治理派生能力：证明完整度/测试盲区/重复代码/死代码/状态耦合 + stats 元数据）。
  * 纯函数：verdicts + stats → 自包含单文件 HTML（零依赖、无 CDN、数据内嵌）。
  * 全部量纲独立可视化（迭代48 纪律：量纲不混合，各视图各自排序）：
  *   健康度卡片 / 拓扑健康度（密度/深度/自环/层分布/链分布/图完整度）/ 模块级 /
  *   治理清单 / 纠缠环（可规约性）/ 桥与割点（模块边界）/ 骨架差异（最小化）/
- *   圈复杂度 / 未知形态 / 效应源。
+ *   圈复杂度 / 未知形态 / 效应源 / 证明完整度（Θ/标注预算序）/ 治理派生三视图
+ *   （测试盲区/重复代码/疑似死代码）/ 状态耦合。
  */
 export function renderTechdebtHtml(
 	verdicts: readonly Verdict[],
-	stats: { files: number; cycles: number },
+	stats: { files: number; cycles: number } & Partial<
+		Pick<
+			ScanStats,
+			| "skippedFiles"
+			| "parseErrors"
+			| "annotationRejected"
+			| "annotationUnmatched"
+			| "impureApplied"
+			| "staleEdges"
+			| "invariantViolations"
+			| "provenance"
+		>
+	>,
 	opts: {
 		title?: string;
 		sub?: string;
@@ -320,6 +337,133 @@ export function renderTechdebtHtml(
 		.sort((a, b) => b.chunk.calls.size - a.chunk.calls.size)
 		.slice(0, 15);
 
+	// —— 迭代57 接入治理派生能力（全部复用 verdicts 数据，零新增扫描）——
+	// 标注证明完整度：非加权 = annotationCurve 同口径 O(n) 廉价（加权需对每个 UNKNOWN
+	// chunk 跑 forwardClosure，大项目开销高，报告不启用）。
+	const proof = proofCompleteness(verdicts, { targetTheta: 0.95 });
+	const proofBudget =
+		proof.budgetToTarget === null ? "∞（不可达）" : `${proof.budgetToTarget} 个`;
+	// 治理派生三视图（迭代56：测试盲区/重复代码/疑似死代码）
+	const tc = testCoverage(verdicts);
+	const dupsAll = duplicateGroups(verdicts);
+	const dups = dupsAll.slice(0, 15);
+	const deadAll = deadChunks(verdicts);
+	// 展示序：高置信（静态图确定无引用）优先，再按文件/行——与 CLI 的文件序不同（HTML 是治理视角）
+	const dead = [...deadAll]
+		.sort(
+			(a, b) =>
+				(a.confidence === "high" ? 0 : 1) - (b.confidence === "high" ? 0 : 1) ||
+				a.file.localeCompare(b.file) ||
+				a.line - b.line,
+		)
+		.slice(0, 15);
+	// 状态耦合（迭代23 D-127：写方按读者数——"哪个写方扩散面最大"）
+	const stateTop = stateCouplingOf(verdicts).slice(0, 15);
+	const annotated = verdicts.filter((v) => v.provenance === "annotated").length;
+	const derived = verdicts.filter((v) => v.provenance === "derived").length;
+	const chainUncertain = verdicts.filter((v) => !v.chainCertain).length;
+	const tcMax = Math.max(...tc.uncovered.map((u) => u.callers), 1);
+	const scMax = Math.max(...stateTop.map((s) => s.readers), 1);
+
+	// —— 预渲染新分区（避免 return 大模板内深层嵌套）——
+	const warnItems: string[] = [];
+	if (stats.parseErrors)
+		warnItems.push(`${stats.parseErrors} 个文件解析失败（tree-sitter 错误恢复可能吞边）`);
+	if (stats.skippedFiles)
+		warnItems.push(`${stats.skippedFiles} 个文件跳过（大小超限/读取失败）`);
+	if (stats.staleEdges)
+		warnItems.push(`${stats.staleEdges} 条陈旧调用边（缓存漂移——图不完整）`);
+	if (stats.invariantViolations)
+		warnItems.push(`${stats.invariantViolations} 处传播不变量违规`);
+	if ((stats.annotationRejected ?? []).length > 0)
+		warnItems.push(
+			`${stats.annotationRejected!.length} 条标注被拒（PURE 标注未生效）`,
+		);
+	if ((stats.annotationUnmatched ?? []).length > 0)
+		warnItems.push(
+			`${stats.annotationUnmatched!.length} 条标注未匹配（内容已变/拼写错误）`,
+		);
+	const warnPanel =
+		warnItems.length === 0
+			? ""
+			: `<div class="panel" style="border-color:var(--imp);margin-top:10px"><h3 style="color:var(--imp)">⚠ 扫描警告</h3>${warnItems
+					.map((w) => `<div class="sub">· ${esc(w)}</div>`)
+					.join("")}</div>`;
+
+	const proofSection = `<h2>标注证明完整度（Θ = 1 − 剩余 UNKNOWN/总数——会计层可验证性）</h2>
+<div class="panel">
+<h3>标注优先序 top 15（未知 chunk 按影响面贪心序——次模近似，非最小集）</h3>
+${proof.order.slice(0, 15).map((k) => `<span class="chip">${esc(nameOf(k))}</span>`).join(" ") || '<div class="sub">无未知 chunk——全部已判定</div>'}
+<div class="sub" style="margin-top:8px">达到目标 Θ=0.95 需标注 ${proofBudget}；优先序 = 释放的 UNKNOWN 依赖数降序 → 影响面降序（公理5 确定性 tiebreak）。</div>
+</div>`;
+
+	const uncoveredRows = tc.uncovered
+		.slice(0, 15)
+		.map((u) =>
+			bar(
+				`${esc(u.name)} <span style="color:var(--dim)">· ${esc(u.file.split("/").pop() ?? "")}</span>`,
+				u.callers,
+				tcMax,
+				"var(--acc)",
+			),
+		)
+		.join("");
+	const dupRows = dups
+		.map(
+			(d) =>
+				`<tr><td>${esc(d.name)}</td><td>${esc(d.file)}${d.line ? `:${d.line}` : ""}</td><td>${d.instances}</td><td>${d.sites
+					.slice(0, 4)
+					.map(
+						(s) =>
+							`<span class="chip">${esc(s.file.split("/").pop() ?? s.file)}:${s.line}</span>`,
+					)
+					.join(" ")}${d.sites.length > 4 ? ` <span style="color:var(--dim)">…${d.sites.length - 4}</span>` : ""}</td></tr>`,
+		)
+		.join("");
+	const deadRows = dead
+		.map(
+			(d) =>
+				`<tr><td><span class="badge" style="${d.confidence === "high" ? "background:#3a1f1f;color:#f85149" : "background:#2f2a1f;color:#d29922"}">${d.confidence === "high" ? "高" : "疑"}</span></td><td>${esc(d.name)}</td><td>${esc(d.file)}${d.line ? `:${d.line}` : ""}</td></tr>`,
+		)
+		.join("");
+	const stateRows = stateTop
+		.map((s) =>
+			bar(
+				`${esc(s.name)} <span style="color:var(--dim)">· ${esc(s.file.split("/").pop() ?? "")}</span> <span style="color:var(--dim)">写 ${esc(s.writes.join(", "))}</span>`,
+				s.readers,
+				scMax,
+				"var(--imp)",
+			),
+		)
+		.join("");
+	const tcCoverage =
+		tc.production > 0
+			? `${(tc.coverage * 100).toFixed(1)}%（${tc.covered}/${tc.production}）`
+			: "无生产 chunk";
+
+	const govDerivedSection = `<h2>治理派生视图（复用 verdicts 数据 · 零新增扫描）</h2>
+<div class="panel">
+<h3>🧪 测试盲区（生产 chunk 未被 Tests/ 引用——覆盖 ${tcCoverage}；测试链间接引用也算覆盖）</h3>
+${uncoveredRows || '<div class="sub">生产代码全部被测试链覆盖</div>'}
+<div class="sub" style="margin-top:8px">动作：从调用者最多的盲区开始补测试。</div>
+</div>
+<div class="panel">
+<h3>📋 重复代码 top 15（同内容哈希多实例 = 复制粘贴 · 公理4 · 共 ${dupsAll.length} 组）</h3>
+${dups.length === 0 ? '<div class="sub">无重复代码组</div>' : `<table><tr><th>代表实例</th><th>位置</th><th>实例数</th><th>全部站点</th></tr>${dupRows}</table>`}
+<div class="sub" style="margin-top:8px">动作：实例数最高的组优先合并（复制粘贴是缺陷放大因子——修一处漏 N 处）。</div>
+</div>
+<div class="panel">
+<h3>🗑 疑似死代码 top 15（零调用者 · 共 ${deadAll.length} 条）</h3>
+${dead.length === 0 ? '<div class="sub">无零调用者 chunk</div>' : `<table><tr><th>置信</th><th>函数</th><th>位置</th></tr>${deadRows}</table>`}
+<div class="sub" style="margin-top:8px">high = 非 public 零调用者（静态图内确定无引用，可删）；suspected = public 零调用者（反射/外部可能引用）。已排除 Unity 生命周期/特性入口误报。</div>
+</div>`;
+
+	const stateSection = `<h2>状态耦合 top 15（写方 → 读者数——哪个写方扩散面最大）</h2>
+<div class="panel">
+${stateRows || '<div class="sub">无跨 chunk 状态读写链</div>'}
+<div class="sub" style="margin-top:8px">盲区只漏报不假报（下标写/调用结果写不可见）；零读者写方不列。动作：读者最多的写方改造成不可变/局部状态。</div>
+</div>`;
+
 	// 拓扑健康度：层分布/链分布/入口分布条形
 	const layerMax = Math.max(
 		1,
@@ -365,6 +509,7 @@ h3{font-size:13px;margin:16px 0 6px;color:var(--fg)}
 .bar-row{display:flex;align-items:center;gap:10px;margin:6px 0}
 .bar-label{width:38%;font-size:12px;color:var(--fg);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bar-track{flex:1;background:var(--panel2);border-radius:4px;height:14px;overflow:hidden}
+.bar-track.ring{height:auto;overflow:visible;background:transparent;display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:2px 0}
 .bar-fill{height:100%;border-radius:4px}
 .bar-val{width:70px;text-align:right;font-size:12px;color:var(--dim);white-space:nowrap}
 .seg{display:flex}.seg-pure{background:var(--pure);height:100%}.seg-unk{background:var(--unk);height:100%}.seg-imp{background:var(--imp);height:100%}
@@ -403,7 +548,11 @@ ${card(
 )}
 ${card("深度", g.dagDepth, "凝聚 DAG 最长路径", "var(--acc)")}
 ${card("自递归", g.selfLoopCount, "自我调用 chunk", "var(--acc)")}
+${card("证明完整度 Θ", `${(proof.theta * 100).toFixed(1)}%`, `达到 95% 还需 ${proofBudget}`, "var(--pure)")}
+${card("标注台账", `${annotated} 生效 / ${derived} 派生`, "PURE 判定来源（其余为 static 机器证明）", "var(--acc)")}
+${card("链不确定", chainUncertain, "结论依赖未知符号——标注工作输入", "var(--unk)")}
 </div>
+${warnPanel}
 
 <h2>拓扑健康度</h2>
 <div class="panel">
@@ -436,7 +585,7 @@ ${deepChainRows.length === 0 ? '<div class="sub">无非纯传播链</div>' : dee
 
 <h2>治理清单 top 25（量纲：直接调用者数（限定名聚合——同名重载族计一次，去重引用）——被最多人引用的非纯优先）</h2>
 <div class="panel">
-${gov.map((v) => bar(`${esc(v.name)} ${v.count > 1 ? `<span style="color:var(--dim)">· ${v.count} 重载</span>` : ""} <span style="color:var(--dim)">· ${esc([...v.files].slice(0, 2).join(", "))}</span>`, inDegQ.get(v.name) ?? 0, govMax, "var(--imp)")).join("")}
+${gov.map((v) => bar(`${esc(v.name)} ${v.count > 1 ? `<span style="color:var(--dim)">· ${v.count} 重载</span>` : ""} <span style="color:var(--dim)">· ${esc([...v.files].slice(0, 2).join(", "))}</span> <span style="color:var(--dim)">· 最近源 ${v.chain} 跳</span>`, inDegQ.get(v.name) ?? 0, govMax, "var(--imp)")).join("")}
 </div>
 
 <h2>拓扑治理优先级（结构热点 → 动作清单 · 量纲各自排序不混合）</h2>
@@ -448,7 +597,7 @@ ${
 		: ringRows
 				.map(
 					(r) =>
-						`<div class="bar-row"><div class="bar-label" style="width:44%">${r.entries} 入口 × ${r.names.length} 成员</div><div class="bar-track" style="background:transparent">${r.names.map((nm) => `<span class="chip">${esc(nm)}</span>`).join(" ")}</div><div class="bar-val">影响 ${r.impact}</div></div>`,
+						`<div class="bar-row"><div class="bar-label" style="width:44%">${r.entries} 入口 × ${r.names.length} 成员</div><div class="bar-track ring">${r.names.map((nm) => `<span class="chip">${esc(nm)}</span>`).join(" ")}</div><div class="bar-val">影响 ${r.impact}</div></div>`,
 				)
 				.join("")
 }
@@ -495,10 +644,17 @@ ${shapeTop.map(([k, n2]) => bar(esc(k), n2, shapeMax, "var(--unk)")).join("")}
 
 <h2>效应源（背锅者 top 15——chain=0 直接引入副作用）</h2>
 <div class="panel">
-<table><tr><th>函数</th><th>位置</th><th>效应</th><th>调用点</th></tr>
-${sources.map((v) => `<tr><td>${esc(v.chunk.name)}</td><td>${esc(v.chunk.file)}</td><td>${[...v.effects].map((e) => `<span class="badge b-${esc(e)}">${esc(e)}</span>`).join("")}</td><td>${v.chunk.calls.size}</td></tr>`).join("")}
+<table><tr><th>函数</th><th>位置</th><th>效应</th><th>调用点</th><th>圈复杂度</th></tr>
+${sources.map((v) => `<tr><td>${esc(v.chunk.name)}</td><td>${esc(v.chunk.file)}${v.chunk.line ? `:${v.chunk.line}` : ""}</td><td>${[...v.effects].map((e) => `<span class="badge b-${esc(e)}">${esc(e)}</span>`).join("")}</td><td>${v.chunk.calls.size}</td><td>${v.chunk.complexity ?? "—"}</td></tr>`).join("")}
 </table>
 </div>
+
+${proofSection}
+
+${govDerivedSection}
+
+${stateSection}
+
 <div class="sub" style="margin-top:24px">codeaudit renderTechdebtHtml · 全量纲独立可视化不混合 · 数据内嵌零外部依赖</div>
 </body></html>`;
 }
