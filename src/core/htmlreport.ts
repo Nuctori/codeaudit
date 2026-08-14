@@ -7,6 +7,7 @@ import { tarjan } from "./tarjan";
 import { proofCompleteness } from "./proof";
 import { duplicateGroups, testCoverage, deadChunks } from "./gov";
 import { stateCouplingOf } from "./state";
+import { moduleGraph, renderModuleGraphPanel } from "./depgraph";
 
 /**
  * 技术债 HTML 可视化（迭代49 插件化：通用报告渲染器；迭代50 全量纲补全；
@@ -277,6 +278,19 @@ export function renderTechdebtHtml(
 		.slice(0, 15);
 
 	// —— 拓扑治理优先级（三类结构热点各自按影响面排序 + 动作建议；量纲不混合）——
+	// 模块级有向边图（迭代58：全项目聚合图——逆行边红色高亮）
+	// 主图 = 第一方口径（第三方折叠为单桶，逆行边 = 第一方可解耦的真实环）；
+	// 全量口径单独取逆行 top 列表（第三方互环只可升级不可重构）
+	const modGraph = moduleGraph(verdicts, { firstPartyOnly: true });
+	const modGraphAll = moduleGraph(verdicts);
+	const modRevAll = modGraphAll.edges
+		.filter((e) => e.reverse)
+		.slice(0, 8)
+		.map(
+			(e) =>
+				`<div class="bar-row"><div class="bar-label" style="width:44%">${esc(e.from)} ⇄ ${esc(e.to)}</div><div class="bar-track"><div class="bar-fill" style="width:${Math.max(Math.round((e.count / Math.max(...modGraphAll.edges.map((x) => x.count), 1)) * 100), 1)}%;background:var(--imp)"></div></div><div class="bar-val">×${e.count}</div></div>`,
+		)
+		.join("");
 	// 纠缠环：影响 = 入口数 × 环成员数（解耦收益 = 打断多少个外部入口 × 环体量）
 	const ringRows = entangled
 		.map((e) => ({
@@ -342,7 +356,9 @@ export function renderTechdebtHtml(
 	// chunk 跑 forwardClosure，大项目开销高，报告不启用）。
 	const proof = proofCompleteness(verdicts, { targetTheta: 0.95 });
 	const proofBudget =
-		proof.budgetToTarget === null ? "∞（不可达）" : `${proof.budgetToTarget} 个`;
+		proof.budgetToTarget === null
+			? "∞（不可达）"
+			: `${proof.budgetToTarget} 个`;
 	// 治理派生三视图（迭代56：测试盲区/重复代码/疑似死代码）
 	const tc = testCoverage(verdicts);
 	const dupsAll = duplicateGroups(verdicts);
@@ -368,7 +384,9 @@ export function renderTechdebtHtml(
 	// —— 预渲染新分区（避免 return 大模板内深层嵌套）——
 	const warnItems: string[] = [];
 	if (stats.parseErrors)
-		warnItems.push(`${stats.parseErrors} 个文件解析失败（tree-sitter 错误恢复可能吞边）`);
+		warnItems.push(
+			`${stats.parseErrors} 个文件解析失败（tree-sitter 错误恢复可能吞边）`,
+		);
 	if (stats.skippedFiles)
 		warnItems.push(`${stats.skippedFiles} 个文件跳过（大小超限/读取失败）`);
 	if (stats.staleEdges)
@@ -393,7 +411,12 @@ export function renderTechdebtHtml(
 	const proofSection = `<h2>标注证明完整度（Θ = 1 − 剩余 UNKNOWN/总数——会计层可验证性）</h2>
 <div class="panel">
 <h3>标注优先序 top 15（未知 chunk 按影响面贪心序——次模近似，非最小集）</h3>
-${proof.order.slice(0, 15).map((k) => `<span class="chip">${esc(nameOf(k))}</span>`).join(" ") || '<div class="sub">无未知 chunk——全部已判定</div>'}
+${
+	proof.order
+		.slice(0, 15)
+		.map((k) => `<span class="chip">${esc(nameOf(k))}</span>`)
+		.join(" ") || '<div class="sub">无未知 chunk——全部已判定</div>'
+}
 <div class="sub" style="margin-top:8px">达到目标 Θ=0.95 需标注 ${proofBudget}；优先序 = 释放的 UNKNOWN 依赖数降序 → 影响面降序（公理5 确定性 tiebreak）。</div>
 </div>`;
 
@@ -417,7 +440,9 @@ ${proof.order.slice(0, 15).map((k) => `<span class="chip">${esc(nameOf(k))}</spa
 						(s) =>
 							`<span class="chip">${esc(s.file.split("/").pop() ?? s.file)}:${s.line}</span>`,
 					)
-					.join(" ")}${d.sites.length > 4 ? ` <span style="color:var(--dim)">…${d.sites.length - 4}</span>` : ""}</td></tr>`,
+					.join(
+						" ",
+					)}${d.sites.length > 4 ? ` <span style="color:var(--dim)">…${d.sites.length - 4}</span>` : ""}</td></tr>`,
 		)
 		.join("");
 	const deadRows = dead
@@ -587,6 +612,11 @@ ${deepChainRows.length === 0 ? '<div class="sub">无非纯传播链</div>' : dee
 <div class="panel">
 ${gov.map((v) => bar(`${esc(v.name)} ${v.count > 1 ? `<span style="color:var(--dim)">· ${v.count} 重载</span>` : ""} <span style="color:var(--dim)">· ${esc([...v.files].slice(0, 2).join(", "))}</span> <span style="color:var(--dim)">· 最近源 ${v.chain} 跳</span>`, inDegQ.get(v.name) ?? 0, govMax, "var(--imp)")).join("")}
 </div>
+
+${renderModuleGraphPanel(modGraph)}
+${modRevAll ? `<div class="panel"><h3>全量口径逆行边 top（含第三方——只可升级不可重构，解耦价值低）</h3>${modRevAll}</div>` : ""}
+
+<h2>拓扑治理优先级（结构热点 → 动作清单 · 量纲各自排序不混合）</h2>
 
 <h2>拓扑治理优先级（结构热点 → 动作清单 · 量纲各自排序不混合）</h2>
 <div class="panel">
