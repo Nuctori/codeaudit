@@ -1517,8 +1517,18 @@ export class Extractor {
 	private isPropertyRead(node: SyntaxNode): boolean {
 		const p = node.parent;
 		if (p === null) return false;
-		// 形态排除：调用目标链 / 赋值左值 / ++/-- 目标（已有各自通道）
-		if (this.pack.propertyReadSkipMorphs?.includes(p.type)) return false;
+		// 形态排除：调用目标链 / 赋值左值 / ++/-- 目标（已有各自通道）——**但 parent 形态整类跳过会把
+		// 赋值 RHS 成员读也吞掉**（第五轮对抗审计 law:minimality：`r = this.Status` / `r = o.secret`
+		// 的 RHS 是运行时读取——C# 项目 getter 读假纯 S1、TS/JS 动态属性读漏报；同一表达式
+		// `return o.secret` 判 ? 而 `r = o.secret` 判 PURE 自相矛盾）。赋值形态改为位置判定：
+		// 仅 LHS（左值）跳过（stateWritePos 通道承接），RHS 继续走后续检查。
+		if (this.pack.propertyReadSkipMorphs?.includes(p.type)) {
+			const isAssign = shapesOf(this.pack, "writeAssigns").includes(p.type);
+			if (!isAssign) return false;
+			const left = p.childForFieldName("left") ?? p.children[0] ?? null;
+			if (left !== null && left.id === node.id) return false;
+			// RHS 成员读：保留（继续 skipParents/name slots 检查）
+		}
 		// 声明/类型位排除（C# 声明、类型参数、特性、标签、cast/is/as 等——无运行时读取）
 		if (this.pack.propertyReadSkipParents?.includes(p.type)) return false;
 		// 迭代53：裸 identifier 实参位（方法组引用）——只停发 identifier 形态（member_access 实参

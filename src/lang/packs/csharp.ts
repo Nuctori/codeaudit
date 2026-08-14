@@ -1132,7 +1132,13 @@ export const csharpPack: LangPack = {
 	eventFieldNodes: ["event_field_declaration"], // 迭代43 B：事件声明节点
 	eventSubscribeOps: ["+="], // 迭代43 B：事件订阅运算符
 	staticModifiers: ["static"], // 迭代43 r2：static 初始化器单元拆分
-	compileTimeOps: ["typeof", "default", "nameof"], // 迭代44-r2：编译期操作符（实参不提取）
+	compileTimeOps: ["nameof"], // 迭代44-r2：编译期操作符（实参不提取）。第五轮审计 law:minimality：
+	// 门只认 invocation_expression + identifier fn——typeof(T) 是 type_of_expression、default(T) 是
+	// default_expression（探针实证）→ 两条目在门处不可达（死条目）；其类型实参抑制已由
+	// propertyReadSkipParents（typeof_expression/default_expression）承接，删除零行为变化。
+	catchDeclNodes: ["catch_declaration"], // 迭代40 P0-3 B01：类型化 catch（第五轮审计：此前全语言
+	// 无生产者 → 死机制——catch (IOException e) 坍缩 "*" → throwsTypes 过度减法，方向不安全；
+	// catch_declaration 的 type 字段探针实证存在）
 	heritageSkipNodes: [
 		// 迭代44-r3：继承提取跳过（痛点2 根因数据化）；迭代45 O-C5 机检全量补齐
 		"predefined_type", // 枚举底层类型（enum X : int）

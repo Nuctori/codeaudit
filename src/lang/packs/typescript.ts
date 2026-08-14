@@ -489,7 +489,10 @@ export const typescriptPack: LangPack = {
 		"augmented_assignment_expression",
 		"update_expression",
 	],
-	memberNameNodes: ["public_field_definition"], // 类字段声明（name 提取）
+	memberNameNodes: ["public_field_definition", "field_definition"], // 类字段声明（name 提取）——
+	// 第五轮审计 law:minimality：tree-sitter-javascript 的类字段是 field_definition（TS 是
+	// public_field_definition，探针实证）——只列 TS 节点 → JS 类字段读（C.x）memberNameExists 恒 false
+	// → UNKNOWN vs TS PURE 同族分叉；field_definition 补入后 JS/TS 同判（TS grammar 不产该节点，零影响）
 	nestedFnBoundaryNodes: [
 		"function_declaration",
 		"generator_function_declaration",
