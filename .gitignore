@@ -10,6 +10,7 @@ dist/
 report.html
 # 大型扫描产物（InitDeity 级 317MB——--json 落地物，git 不跟踪；可用 recheck 消费）
 initdeity-audit.json
+initdeity-audit.html
 initdeity-report.html
 # 个人审计探针脚本（并行会话/历史会话产物，含本机绝对路径——防误提交；auditor 参考项 2026-08-14）
 scripts/copy-generated.cjs
