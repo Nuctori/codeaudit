@@ -551,8 +551,12 @@ function depgraphRender(data, holder, path, parentPath) {
 		var stroke = isolated ? '#9ca3af' : '#1a1b1e';
 		var dash = isolated ? ' stroke-dasharray="5,4"' : '';
 		// 只有 base 级渲染可展开（子图内同名根节点不可再点——防无限自展开）
+		// Object.hasOwn：children 经 JSON round-trip 后是普通对象，__proto__/constructor
+		// 目录名读取走原型链（truthy）→ 误判可点击 → 点击后 depgraphRender(Object.prototype) 崩
 		var child = data === window.__DEPGRAPH_DATA.base
-			? (window.__DEPGRAPH_DATA.children && window.__DEPGRAPH_DATA.children[n.id])
+			? (Object.hasOwn(window.__DEPGRAPH_DATA.children, n.id)
+				? window.__DEPGRAPH_DATA.children[n.id]
+				: null)
 			: null;
 		// 可展开节点：白色粗描边 + 手型光标 + 点击节点直接下钻（迭代58-r10：去掉 + 徽标，交互即节点本身）
 		var click = child
@@ -575,6 +579,7 @@ function depgraphRender(data, holder, path, parentPath) {
 	var crumb = parentPath ? '<a href="javascript:void(0)" onclick="depgraphBack()" style="color:var(--acc)">‹ 返回上级</a> · ' : '';
 	holder.innerHTML = '<div style="margin-bottom:6px;font-size:12px">' + crumb + '<b>' + dgEsc(path) + '</b></div><svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;background:var(--panel);border-radius:8px;border:1px solid var(--br)" xmlns="http://www.w3.org/2000/svg"><g>' + labels + '</g>' + svg + '</svg>';
 }
+function depgraphNav(id, parentPath) {
 	var rawId = decodeURIComponent(id), rawPath = decodeURIComponent(parentPath);
 	window.__DEPGRAPH_STACK.push({ data: window.__DEPGRAPH_DATA.base, path: rawPath });
 	window.__DEPGRAPH_DATA.current = window.__DEPGRAPH_DATA.children[rawId];

@@ -617,7 +617,6 @@ ${modRevAll ? `<div class="panel"><h3>全量口径逆行边 top（含第三方�
 
 <h2>拓扑治理优先级（结构热点 → 动作清单 · 量纲各自排序不混合）</h2>
 <div class="panel">
-<div class="panel">
 <h3>🔗 纠缠环优先解耦序（影响 = 外部入口数 × 环成员数——打断哪个环收益最大）</h3>
 ${
 	ringRows.length === 0

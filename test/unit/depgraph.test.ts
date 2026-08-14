@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import vm from "node:vm";
 import {
 	moduleGraph,
 	moduleKeyOf,
@@ -286,16 +287,32 @@ describe("render", () => {
 		expect(g.nodes.some((n) => n.id === "第三方")).toBe(false);
 	});
 
-	it("目录名 __proto__ 不触发原型污染（DoS 回归）", () => {
-		// 普通对象赋值 children["__proto__"] 走原型 setter → 数据丢失 + 客户端 TypeError
+	it("内嵌脚本语法有效且 __proto__ 目录名不崩（执行回归）", () => {
+		// 覆盖两类回归：脚本语法错误（new Function 编译期 SyntaxError）与
+		// 客户端 pos/rep 普通对象时 __proto__ 节点走原型 setter（运行期 TypeError）。
+		// 修复前：pos["__proto__"] 设置原型 → 渲染时 p.x.toFixed 崩；
+		// 修复后：Object.create(null) 下为 own property，正常渲染。
 		const verdicts = [
 			v("__proto__/B.cs", "B", []),
 			v("__proto__/C.cs", "C", []),
 			v("__proto__/D.cs", "D", []),
 		];
 		const html = renderModuleGraphPanel(verdicts);
-		// Object.create(null) 下 __proto__ 是 own property，JSON 序列化可见
-		expect(html).toContain('"__proto__"');
-		expect(html).toContain("depgraphRender(window.__DEPGRAPH_DATA.base");
+		const m = html.match(/<script>([\s\S]*?)<\/script>/);
+		expect(m).not.toBeNull();
+		const holder: { innerHTML: string } = { innerHTML: "" };
+		const win: Record<string, unknown> = {};
+		// 编译 + 执行渲染（stub document/window，vm 沙箱）：语法错误编译期抛（vm.Script），
+		// 原型污染执行期抛（runInNewContext）——两类回归都会让测试红
+		const script = new vm.Script(m![1]!);
+		expect(() =>
+			script.runInNewContext({ window: win, document: { getElementById: () => holder } }),
+		).not.toThrow();
+		expect(win.__DEPGRAPH_DATA).toBeDefined();
+		expect(holder.innerHTML).toContain("__proto__");
+		// children 为空时 __proto__ 节点不可点击：修复前 children["__proto__"] 走原型链
+		// truthy → onclick 出现 → 点击后 depgraphRender(Object.prototype) TypeError；
+		// Object.hasOwn 修复后无 onclick（红绿分明）
+		expect(holder.innerHTML).not.toContain("onclick=\"depgraphNav");
 	});
 });
