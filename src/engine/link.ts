@@ -393,6 +393,13 @@ export function link(
 							}),
 						addArgEdges: (names, hof, unconditional = false) => {
 							for (const n of names) {
+								// 迭代46 A6 S1（ct-adversarial6 law:poset-monotonicity）：HOF 实参解析遮蔽守卫——
+								// 局部/参数遮蔽顶层同名函数或 import 时按文件级符号解析 = 错边（假纯实证：
+								// const f = evil; [1].map(f) 且顶层有纯 f → PURE）。修复分两级：
+								// ① 嵌套候选优先：caller 行区间内的同名 chunk（局部箭头/lambda/局部函数）= 真绑定；
+								// ② 无嵌套候选且名被 assigned 遮蔽 → 不落回文件级符号（bySimple/import），
+								//    落回无条件未知（hofAlwaysArgs）或跳过（条件 HOF）。
+								const shadowed = rc.assigned.includes(n);
 								// 成员形回调：this.log / self.render → 当前类的同名方法（HOF 成员形假纯修复）
 								const dotIdx = n.indexOf(".");
 								if (
@@ -415,44 +422,57 @@ export function link(
 									continue;
 								}
 								const local = fi.bySimple.get(n);
-								if (local && local.length > 0) {
-									calls.add(local[0]!);
+								const nested =
+									local?.filter((k) => {
+										const c = fi.chunkByKey.get(k)!;
+										return c.line >= rc.line && c.endLine <= rc.endLine;
+									}) ?? [];
+								if (nested.length > 0) {
+									for (const k of nested) calls.add(k);
 									continue;
 								}
-								const imp = fi.importMap.get(n);
-								if (
-									imp &&
-									imp.imported !== null &&
-									imp.imported !== "default" &&
-									imp.imported !== "*"
-								) {
-									const target = resolveMod(fi.pack, imp.module, fi.facts.file);
-									if (target !== null) {
-										const hit = resolveSymbol(target, imp.imported, 0);
-										if (hit !== null) {
-											calls.add(hit);
-											continue;
+								if (!shadowed) {
+									if (local && local.length > 0) {
+										// 迭代37 P1-3 并集边：同名多定义 → 全候选（与分支 2 同语义，禁单候选定选）
+										for (const k of local) calls.add(k);
+										continue;
+									}
+									const imp = fi.importMap.get(n);
+									if (
+										imp &&
+										!fi.moduleAssigned.has(n) &&
+										imp.imported !== null &&
+										imp.imported !== "default" &&
+										imp.imported !== "*"
+									) {
+										const target = resolveMod(fi.pack, imp.module, fi.facts.file);
+										if (target !== null) {
+											const hit = resolveSymbol(target, imp.imported, 0);
+											if (hit !== null) {
+												calls.add(hit);
+												continue;
+											}
 										}
 									}
-								}
-								// 迭代53：C# 隐式 this 裸名方法组实参（Enumerable.ForEach(xs, Save)）——
-								// HOF 回调边通道补齐：此前靠参数位 prop-read 误发射兜底（iter30-32 测试依赖），
-								// 参数位 prop-read 停发后此处必须自持；edges=已解析、unknown=落回下方无条件未知。
-								if (fi.pack.implicitThis && rc.ownerClass) {
-									const r = resolveClassMember(
-										rc.ownerClass,
-										n,
-										fi.pack,
-										files,
-										globalClasses,
-										superMap,
-										hasSubclass,
-										langHasDynamicExtends,
-										virtualMembers,
-										{ addEdge: (k: string) => calls.add(k) } as unknown as Sink,
-										true,
-									);
-									if (r === "edges") continue;
+									// 迭代53：C# 隐式 this 裸名方法组实参（Enumerable.ForEach(xs, Save)）——
+									// HOF 回调边通道补齐：此前靠参数位 prop-read 误发射兜底（iter30-32 测试依赖），
+									// 参数位 prop-read 停发后此处必须自持；edges=已解析、unknown=落回下方无条件未知。
+									if (fi.pack.implicitThis && rc.ownerClass) {
+										const r = resolveClassMember(
+											rc.ownerClass,
+											n,
+											fi.pack,
+											files,
+											globalClasses,
+											superMap,
+											hasSubclass,
+											langHasDynamicExtends,
+											virtualMembers,
+											{ addEdge: (k: string) => calls.add(k) } as unknown as Sink,
+											true,
+										);
+										if (r === "edges") continue;
+									}
 								}
 								// 无条件调用实参的 HOF（map/filter/forEach…）：实参未解析 → 记未知（防假纯，
 								// 如 const f = writeFileSync; [1].map(f)）；条件调用（sorted key=/Array.from cb）
@@ -558,6 +578,7 @@ function resolveNamespaceImport(
 	call: RawCall,
 	caller: RawChunk,
 	fi: FileIndex,
+	files: ReadonlyMap<string, FileIndex>,
 	pack: LangPack,
 	imp: RawImport,
 	resolveMod: (
@@ -566,6 +587,8 @@ function resolveNamespaceImport(
 		fromFile: string,
 	) => string | null,
 	resolveSymbol: (file: string, name: string, depth: number) => string | null,
+	hctx: HierarchyCtx,
+	staticInitKey: ReadonlyMap<string, string[]>,
 	sink: Sink,
 ): boolean {
 	const member = call.obj !== null ? call.attr : null;
@@ -607,6 +630,28 @@ function resolveNamespaceImport(
 		return true;
 	}
 	if (sink.effectFromModule(imp.module, null)) return true;
+	// 迭代46（ct-adversarial6 law:minimality）：别名目标类名通道回退——别名注册后
+	// `using File = System.IO.File; File.ReadAllText(x)` 从类名表直击（别名未注册时的意外路径）
+	// 改为 module 通道咨询，未中时按别名文本走 resolveObjDispatch（globalClasses/impureGlobals/
+	// pureGlobals——别名文本通常 = 目标类名；项目类同名由 globalClasses 优先，纯名单不越权）。
+	// 完全委托 = 别名未注册时代的既有通道，判别力零回归。
+	if (
+		resolveObjDispatch(
+			call,
+			caller,
+			fi,
+			files,
+			pack,
+			hctx.globalClasses,
+			hctx.superMap,
+			hctx.hasSubclass,
+			hctx.langHasDynamicExtends,
+			hctx.virtualMembers,
+			staticInitKey,
+			sink,
+		)
+	)
+		return true;
 	sink.missTable(`module:${imp.module}`); // 迭代21 B：module 咨询未中 = 补表候选
 	sink.addUnknownCall(call);
 	sink.markUnknown();
@@ -745,6 +790,7 @@ function resolveImport(
 		fromFile: string,
 	) => string | null,
 	hctx: HierarchyCtx,
+	staticInitKey: ReadonlyMap<string, string[]>,
 	sink: Sink,
 ): boolean {
 	const pack = fi.pack;
@@ -760,10 +806,13 @@ function resolveImport(
 				call,
 				caller,
 				fi,
+				files,
 				pack,
 				imp,
 				resolveMod,
 				resolveSymbol,
+				hctx,
+				staticInitKey,
 				sink,
 			);
 		}
@@ -1037,6 +1086,17 @@ function resolveCtorCall(
 		sink.hitTable(`ctor:${t}`);
 		return true;
 	}
+	// 迭代46 A6 S1（ct-adversarial6 law:poset-monotonicity）：using 别名（using Uri = MyUri）——
+	// new Uri() 指向别名目标类型（C# 别名优先于同名类型），按别名文本命中 pureCtor/项目类 = 假纯
+	//（目标类型构造可带 io；Roslyn 实证有效 C#）。别名目标外部不可解析 → 诚实 ?。
+	// 位置：impureGlobals 之后（`using Debug = X; new Debug()` 保守 io 保留），项目类解析之前（别名优先）。
+	const aliasImp = fi.importMap.get(t);
+	if (aliasImp && aliasImp.imported === null) {
+		sink.missTable(`ctor:${t}`);
+		sink.addUnknownCall(call);
+		sink.markUnknown();
+		return true;
+	}
 	// 项目类构造（优先于 pureCtor——防假纯）：边到 ctor chunk（含基类构造器并集——C# 基类 ctor 必执行；
 	// Python 不自动调基类 __init__ 但并集是过近似方向安全，迭代38 A）。
 	if (!caller.assigned.includes(t) && !fi.moduleAssigned.has(t)) {
@@ -1099,7 +1159,11 @@ function resolveCtorCall(
 			return true;
 		}
 	}
-	if (pack.pureCtor && pack.pureCtor.has(t)) {
+	if (pack.pureCtor && pack.pureCtor.has(t) && !caller.assigned.includes(t) && !fi.moduleAssigned.has(t)) {
+		// 迭代46 A6 S1（ct-adversarial6）：pureCtor 回落加遮蔽守卫——与 resolveObjDispatch pureGlobals
+		// 守卫对称：名字被局部/参数/module 级绑定遮蔽时，类型位置不可信（项目类解析已被守卫跳过，
+		// 此处不得无条件放行纯名单——`var Uri = 5; new Uri(x)` 实证假纯，Roslyn 证类型上下文
+		// 不受局部遮蔽影响，运行时构造器真实执行）。遮蔽 → 落 missTable ? 诚实。
 		sink.hitTable(`ctor:${t}:p`);
 		return true;
 	}
@@ -1767,6 +1831,7 @@ function resolveCall(
 			resolveSymbol,
 			resolveMod,
 			hctx,
+			staticInitKey,
 			sink,
 		)
 	)

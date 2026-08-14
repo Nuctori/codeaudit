@@ -153,9 +153,12 @@ export class Extractor {
 			if (pushed) stack.pop();
 		};
 		visit(root);
-		// 模块级遮蔽守卫：module chunk 的 assigned = 文件级绑定（函数内重绑由各 chunk 自己的 assigned 管；
-		// 模块级重绑影响所有消费者——如 from db import conn 后被 conn = other 重绑）
-		moduleChunk.assigned = this.assignedNames(root);
+		// 模块级遮蔽守卫：module chunk 的 assigned = 模块作用域绑定（函数内重绑由各 chunk 自己的
+		// assigned 管；模块级重绑影响所有消费者——如 from db import conn 后被 conn = other 重绑）。
+		// 迭代46（ct-adversarial6 law:poset-monotonicity）：此前的 assignedNames(root) 全文件收集——
+		// 方法局部变量污染 moduleAssigned → 同文件其他方法的枚举读（L-C2 豁免面）与 import 解析被
+		// 误挡（实证：m 的 var StringComparison 使兄弟方法 n 的枚举读 UNKNOWN）。只收模块作用域。
+		moduleChunk.assigned = this.moduleAssignedNames(root);
 
 		chunks.unshift(moduleChunk as RawChunk);
 		// 迭代43 r2：static 初始化器单元（合成 chunk）——追加到 chunks（link 侧按 name 识别建映射）
@@ -416,6 +419,20 @@ export class Extractor {
 									(k) => k.isNamed && k.type !== "identifier",
 								) ?? c.children.filter((k) => k.isNamed).at(-1); // 迭代47 审计 Low：global::Base 单段（无命名空间）时无非 identifier 具名子 → fallback 末位具名（identifier "Base"）
 							if (inner) pushBase(inner);
+							else dynamic = true;
+						} else if (
+							(this.pack.heritageCtorBaseNodes ?? EMPTY_SHAPES).includes(
+								c.type,
+							)
+						) {
+							// 迭代46 O-C5 机检对拍（ct-adversarial6）：C# 12 主构造基类（record R(int x) : Base(x)）——
+							// primary_constructor_base_type 是 base_list 直接子节点（探针实证），此前 ∉ 接受集 →
+							// dynamic=true → 语言级降级（全库多态/隐式 this → unknown，-37% 级，义务 O-C5 违反）。
+							// 剥壳 = 末位具名非 argument_list 子节点（类型名）；ERROR（错误恢复残缺名）由 pushBase 顶部跳过。
+							const typeChild = c.children
+								.filter((k) => k.isNamed && k.type !== "argument_list")
+								.at(-1);
+							if (typeChild) pushBase(typeChild);
 							else dynamic = true;
 						} else {
 							dynamic = true; // 动态 heritage：member_expression / 调用 / subscript 等
@@ -1687,6 +1704,55 @@ export class Extractor {
 
 	/** 函数内绑定名（赋值目标 + 参数名——参数同样遮蔽外层 import；遮蔽守卫用）。流不敏感保守收集。
 	 *  迭代40 P0-3 H11/H18：参数名槽位/参数列表节点走 pack 数据。 */
+	private moduleAssignedNames(root: SyntaxNode): string[] {
+		// 迭代46：模块作用域绑定收集——嵌套容器（函数/类/方法/lambda）子树内的赋值不遮蔽
+		// 模块级/其他方法的解析。边界集 = chunkNodes 容器形态（variable_declarator 除外——
+		// TS/JS const x = fn 是绑定本身，须收集；其箭头体由 arrow_function 边界截断）
+		// ∪ fnLiteralNodes（C# lambda/anonymous_method——非 chunk 的嵌套作用域）。
+		// 参数/foreach/catch 不可能出现在模块级（收集逻辑天然不触发）。
+		const boundary = new Set([
+			...this.pack.chunkNodes.filter((t) => t !== "variable_declarator"),
+			...(this.pack.fnLiteralNodes ?? EMPTY_SHAPES),
+		]);
+		const out: string[] = [];
+		const walk = (n: SyntaxNode): void => {
+			if (n !== root && boundary.has(n.type)) return;
+			if (this.pack.assignmentTargets.includes(n.type)) {
+				// 与 assignedNames 同款：require 导入声明（const x = require(...)）不是遮蔽——
+				// importMap 已登记该绑定（迭代40 P0-3 H12：require 名走 pack 数据，仅 JS 族）
+				let isRequireDecl = false;
+				if (n.type === "variable_declarator") {
+					const val = n.childForFieldName("value");
+					const fn = val
+						? (val.childForFieldName("function") ?? val.children[0])
+						: null;
+					isRequireDecl =
+						!!fn &&
+						fn.type === "identifier" &&
+						(this.pack.requireFnNames ?? EMPTY_SHAPES).includes(fn.text);
+				}
+				if (!isRequireDecl) {
+					// 与 assignedNames 同款左值提取
+					const left =
+						n.childForFieldName("left") ??
+						n.childForFieldName("name") ??
+						n.children[0] ??
+						null;
+					if (
+						left &&
+						(left.type === "identifier" ||
+							left.type === "property_identifier")
+					) {
+						out.push(left.text);
+					}
+				}
+			}
+			for (const c of n.children) walk(c);
+		};
+		for (const c of root.children) walk(c);
+		return out;
+	}
+
 	private assignedNames(root: SyntaxNode): string[] {
 		const out: string[] = [];
 		const pushParam = (n: SyntaxNode): void => {

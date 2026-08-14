@@ -958,6 +958,8 @@ const propertyReadSkipParents = [
 	"type_parameter_list",
 	"type_parameter",
 	"base_list",
+	"primary_constructor_base_type", // 迭代46 O-C6 对拍：主构造基类（record R(x) : Base(x)）的
+	// 类型名位——B5 identifier 通道不得把 Base 当运行时读（类型位置，无用户代码）
 	"using_directive",
 	"attribute_list",
 	"attribute",
@@ -1074,9 +1076,20 @@ export function extractCSharpImports(root: SyntaxNode): RawImport[] {
 					(c) => c.type === "identifier" || c.type === "qualified_name",
 				);
 			// using X = Y：别名绑定 → 本地名 X 指向模块 Y（调用 X.fn 走 effectFromModule(Y, fn)）
-			if (n.children.some((c) => c.text === "=")) {
-				const eqIdx = n.children.findIndex((c) => c.text === "=");
-				const alias = n.children[eqIdx - 1];
+			// 迭代46（ct-adversarial6 law:minimality）：grammar 实证别名形状 = name_equals 包裹
+			// "X ="（children 无顶层 "="）——原 "=" 直查死机制（别名永不注册 → new Uri() 走
+			// pureCtor 假纯洞；extractCSharpImports 零消费者测试）。name_equals 无 name 字段
+			// （探针实证）→ 首具名子 = 别名。
+			const eqIdx = n.children.findIndex(
+				(c) => c.type === "name_equals" || c.text === "=",
+			);
+			if (eqIdx !== -1) {
+				const eq = n.children[eqIdx]!;
+				const alias =
+					eq.type === "name_equals"
+						? (eq.childForFieldName("name") ??
+								eq.children.find((k) => k.isNamed))
+						: n.children[eqIdx - 1];
 				const target = n.children[eqIdx + 1];
 				if (alias && target) {
 					out.push({ local: alias.text, module: target.text, imported: null });
@@ -1157,6 +1170,12 @@ export const csharpPack: LangPack = {
 		"pragma_directive_repeat", // grammar 变体（iter45 O-C5 机检实证）
 		"nullable_directive",
 		"extern_alias_directive",
+	],
+	heritageCtorBaseNodes: [
+		// 迭代46 O-C5 机检对拍（ct-adversarial6）：C# 12 主构造基类（record R(int x) : Base(x)）——
+		// base_list 直接子节点 primary_constructor_base_type（parse 驱动对拍实证），剥壳=末位具名
+		// 非 argument_list 子节点（类型名）；漏任一 → dynamic=true → 语言级降级。
+		"primary_constructor_base_type",
 	],
 	complexityNodes: [
 		// 迭代44-r4：MCCabe 分支节点（C# 控制流形态）

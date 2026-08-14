@@ -336,6 +336,10 @@ export interface LangPack {
 	/** 继承提取跳过节点（迭代44-r3 痛点2 根因：C# 枚举底层类型 predefined_type + 预处理
 	 *  7 节点被误判动态 heritage → 语言级降级——数据化对齐 P0-3；ERROR 由解析层兜底）。 */
 	readonly heritageSkipNodes?: readonly string[];
+	/** 主构造基类剥壳节点（迭代46 O-C5 对拍：C# 12 record R(int x) : Base(x) 的
+	 *  primary_constructor_base_type——base_list 直接子节点，剥壳 = 末位具名非
+	 *  argument_list 子节点（类型名）；漏任一 → dynamic=true → 语言级降级）。 */
+	readonly heritageCtorBaseNodes?: readonly string[];
 	/** 圈复杂度分支节点（迭代44-r4：MCCabe 近似——if/for/while/switch/case/catch/三元等
 	 *  控制流分支 +1；逻辑运算符 &&/||/?? 由 complexityOps 计）。跨语言节点名有差异。 */
 	readonly complexityNodes?: readonly string[];
