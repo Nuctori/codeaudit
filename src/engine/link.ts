@@ -1495,7 +1495,28 @@ function resolveCall(
 			sink.markUnknown();
 			return;
 		}
+		// 迭代52-r3 G1（数学家健全性 blocker）：receiver 分支补 builtinMutators 检查——
+		// 返回链表补全后 `sb.Append(a).Append(b)` 第二环 receiver=StringBuilder 命中 pure 前
+		// 必须拦截变异（参数共享容器变异 = S1 假纯；ptype 分支 L1216 已有此检查，此处镜像）。
+		// 豁免①：字面量 receiver（Python list/dict/set/str、C# string/array——每次求值新建，
+		// 变异不可观察外部状态；'x'.strip / [].append 纯，迭代38 测试锚定）。
+		// 豁免②：局部构造绑定 receiver（var sb = new StringBuilder()——局部新建不可共享，
+		// 变异只影响局部对象；与 ptype 参数分支的共享语义区分）。
+		// 注：链式 receiver（obj=null）**不豁免**——参数共享链 sb.Append(x).Append(y) 第二环
+		// 变异对象来自参数（外部共享），豁免即 S1 违约；局部链第二环误报 state = 方向安全过近似。
 		const rule = pack.builtinTypeEffects[call.receiver]?.[call.attr];
+		const isLocalCtor =
+			call.obj !== null && caller.localBindings?.[call.obj] !== undefined;
+		if (
+			pack.builtinMutators?.[call.receiver]?.has(call.attr) &&
+			!(pack.literalMutatorExempt ?? []).includes(call.receiver) &&
+			!isLocalCtor
+		) {
+			sink.addEffect("state");
+			sink.addStateWrite(call.obj ?? "");
+			sink.hitTable(`mutate:${call.receiver}.${call.attr}`);
+			return;
+		}
 		if (rule === "hof") {
 			sink.addArgEdges(call.argFns, call.attr);
 			return;

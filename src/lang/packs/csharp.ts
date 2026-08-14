@@ -470,6 +470,43 @@ const builtinMethodReturns: Record<string, Record<string, string>> = {
 		ToUpperInvariant: "string",
 		ToString: "string",
 	},
+	// 迭代52-r3（数学家实证 urlBuilder_ 1150 站）：StringBuilder 链式返回（.Append(x).Append(y)——
+	// 变异方法返回自身；ToString 断链为 string）。与 builtinTypeEffects/builtinMutators 成对。
+	StringBuilder: {
+		Append: "StringBuilder",
+		AppendLine: "StringBuilder",
+		AppendFormat: "StringBuilder",
+		Insert: "StringBuilder",
+		Remove: "StringBuilder",
+		Replace: "StringBuilder",
+		Clear: "StringBuilder",
+		ToString: "string",
+		Length: "number",
+	},
+	Queue: {
+		Enqueue: "Queue",
+		Dequeue: "Queue",
+		Peek: "number",
+		ToArray: "array",
+		Count: "number",
+	},
+	Stack: {
+		Push: "Stack",
+		Pop: "Stack",
+		Peek: "number",
+		ToArray: "array",
+		Count: "number",
+	},
+	HashSet: {
+		Add: "HashSet",
+		Remove: "HashSet",
+		Clear: "HashSet",
+		UnionWith: "HashSet",
+		IntersectWith: "HashSet",
+		ExceptWith: "HashSet",
+		ToArray: "array",
+		Count: "number",
+	},
 	array: {
 		ToList: "List",
 		ToArray: "array",
@@ -1153,6 +1190,7 @@ export const csharpPack: LangPack = {
 		exportStmtNodes: [],
 	},
 	literalReceivers,
+	literalMutatorExempt: ["string", "array"], // 迭代52-r3 G1：字面量接收者变异豁免（str/数组字面量不可共享）
 	builtinTypeEffects,
 	builtinMethodReturns,
 	implicitThis: true, // C# 类内裸名方法调用 = this 方法（迭代19）

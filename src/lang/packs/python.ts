@@ -390,6 +390,10 @@ const literalReceivers: Record<string, string> = {
 	set: "set",
 };
 
+/** 迭代52-r3 G1：字面量 receiver 变异豁免（list/dict/set/str——字面量每次求值新建，
+ *  [].append / 'x'.strip 变异不可观察外部状态；参数/变量绑定不豁免——共享容器变异 = state）。 */
+const literalMutatorExempt = ["list", "dict", "set", "str"];
+
 // 内建类型方法效应：只放硬纯（无参数协议分派——不含 format/join/translate（__format__/__iter__）、
 // list.index/count（__eq__）、dict.get（__hash__）等）；表外 → ?（F9）
 const builtinTypeEffects: Record<string, Record<string, "pure" | "hof">> = {
@@ -568,6 +572,7 @@ export const pythonPack: LangPack = {
 		exportStmtNodes: [],
 	},
 	literalReceivers,
+	literalMutatorExempt,
 	builtinTypeEffects,
 	builtinMethodReturns,
 	implicitThis: false,

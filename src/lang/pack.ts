@@ -315,6 +315,9 @@ export interface LangPack {
 	readonly ctorMarkNodes?: readonly string[];
 	/** 迭代52 P2：typeof(X) 节点（type_of_expression）——反射链根（返回 System.Type，元数据读纯）。 */
 	readonly typeOfNodes?: readonly string[];
+	/** 迭代52-r3 G1：字面量 receiver 变异豁免键（Python list/dict/set/str、C# string/array——
+	 *  每次求值新建不可共享，变异不可观察外部状态；变量绑定/参数接收者不豁免）。 */
+	readonly literalMutatorExempt?: readonly string[];
 	/** virtual 族修饰符 token（C# virtual/override/abstract；其他语言不填 → 无 virtual 族）。
 	 *  H03。 */
 	readonly virtualModifiers?: readonly string[];

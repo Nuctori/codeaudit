@@ -18,6 +18,9 @@ import { UNRESOLVED_TARGET } from "./pack";
  */
 export class Extractor {
 	private readonly parser: Parser;
+	/** 迭代52-r3：当前 chunk 的局部单赋值构造绑定（localBindingsOf 结果）——receiverTypeOf
+	 *  identifier 根查询用（`var sb = new StringBuilder(); sb.Append(x).Append(y)` 链式）。 */
+	private _chunkLocalBindings: Record<string, string> | undefined = undefined;
 
 	constructor(
 		ParserCtor: typeof Parser,
@@ -88,6 +91,7 @@ export class Extractor {
 					mc.params = this.paramNames(node);
 					mc.paramTypes = this.paramTypesOf(node); // 迭代35 A1：参数显式类型绑定
 					mc.localBindings = this.localBindingsOf(node, mc.params); // 迭代37 P1-2：局部单赋值构造绑定
+					this._chunkLocalBindings = mc.localBindings; // 迭代52-r3：receiverTypeOf identifier 根
 					chunks.push(mc as RawChunk);
 					stack.push(mc);
 					pushed = true;
@@ -1469,7 +1473,10 @@ export class Extractor {
 					if (r !== null)
 						return {
 							target: UNRESOLVED_TARGET,
-							obj: null,
+							// 迭代52-r3 G1：保留 obj（接收者表达式文本——局部变量名如 "sb"）——
+							// link 侧 mutator 守卫需区分局部构造绑定（豁免）vs 参数/外部（state）。
+							// receiver 优先消费，obj 仅辅助局部性判定，不改变既有解析语义。
+							obj: obj.type === "identifier" ? obj.text : null,
 							attr: attr.text,
 							receiver: r,
 							argFns,
@@ -1574,6 +1581,17 @@ export class Extractor {
 	private receiverTypeOf(obj: SyntaxNode): string | null {
 		const lit = literalReceiverType(obj, this.pack);
 		if (lit !== null) return lit;
+		// 迭代52-r3（数学家实证 2248 站根因）：identifier 根查局部单赋值构造绑定——
+		// `var sb = new StringBuilder(); sb.Append(x).Append(y)` 的 sb 根：localBindings 已绑
+		// StringBuilder（提取期），receiverTypeOf 缺此分支导致链第二环 flatten 失败落 <unresolved>。
+		// 内建类型键（StringBuilder/List 等）→ 链解；项目类名（new MyClass()）→ class: 前缀由
+		// 既有 ctor 分支语义承接（此处只返回绑定类型名，消费侧 globalClasses 判定）。
+		if (
+			obj.type === "identifier" &&
+			this._chunkLocalBindings?.[obj.text] !== undefined
+		) {
+			return this._chunkLocalBindings[obj.text]!;
+		}
 		// 迭代52 P2（数学家 F 类实证 236 站）：C# typeof(X) = type_of_expression——返回 System.Type
 		// 实例（反射元数据读，纯）。作为链根：typeof(X).GetMethod(...) → builtinMethodReturns["Type"]。
 		// 节点名走 pack 数据（typeOfNodes 顶层字段）——P2-1 纪律。
