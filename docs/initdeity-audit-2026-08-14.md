@@ -70,7 +70,7 @@
 |---|---|---|
 | **重复代码** | 648 组第一方（×24 `BaseIndexPlayCombatAnimation.OnUpdate`、×20 `BootAssetUpdatePlan.Reason`、×18 `PreCheckEquipLevel.IsComplete`、×16 `CheckAncientEnergy.OnQuestStart` 居首） | 复制粘贴热点——OnUpdate/OnAwake/OnExecute 模式暗示行为脚本模板化 |
 | **测试盲区** | 568/16925 生产 chunk 被 Tests/ 引用（覆盖仅 **3.4%**）；`Debugger.LogError`(229 调用者)、`UI.Destroy`(158)、`NetCall.WithRetry`(140) 高危但零测试引用 | 测试投入与风险倒挂——最高频基础设施无任何测试覆盖 |
-| **疑似死代码** | 8046 个第一方零调用者（902 高置信：`<static-init>`、私有方法）；`ApiClientHelper` 全类无引用 | 静态图盲区（反射/事件/Unity 回调）已排除生命周期方法；高置信项可直接删或补引用 |
+| **疑似死代码** | 8027 个第一方零调用者（883 高置信：私有方法）；`ApiClientHelper` 全类无引用 | 静态图盲区（反射/事件/Unity 回调）已排除生命周期方法与合成 chunk（`<static-init>` 等）；高置信项可直接删或补引用 |
 
 用法：`codeaudit recheck initdeity-audit.json --dups --test-coverage --dead --first-party`（`--first-party` 排除 LocalPackages/Plugins/生成代码——否则 top 被 UniRx ×105/API.g.cs ×47 噪音主导）。
 

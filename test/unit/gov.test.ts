@@ -188,4 +188,25 @@ describe("deadChunks（疑似死代码）", () => {
 		expect(dead).toHaveLength(1);
 		expect(dead[0]!.name).toBe("Api.RealMethod");
 	});
+
+	it("Python 一律 suspected（reviewer Medium-1：模块级零调用者可能是框架/入口）", () => {
+		const verdicts = [
+			v("src/mod.py::h", "S1", "src/mod.py", "handle_request"),
+			v("src/a.cs::h", "S2", "src/A.cs", "_privateHelper"),
+		];
+		const dead = deadChunks(verdicts);
+		expect(dead.find((d) => d.file.endsWith(".py"))!.confidence).toBe(
+			"suspected",
+		);
+		expect(dead.find((d) => d.file.endsWith(".cs"))!.confidence).toBe("high");
+	});
+
+	it("纯测试仓库 coverage=0（reviewer Low-5：空生产集不报 100% 误导）", () => {
+		const verdicts = [
+			v("Tests/t::h", "T1", "Tests/T.cs", "t"),
+		];
+		const tc = testCoverage(verdicts);
+		expect(tc.production).toBe(0);
+		expect(tc.coverage).toBe(0);
+	});
 });

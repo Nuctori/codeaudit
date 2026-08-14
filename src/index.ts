@@ -115,5 +115,6 @@ export {
 	testCoverage,
 	deadChunks,
 	isTestFile,
+	isFirstParty,
 } from "./core/gov";
 export type { DupGroup, TestCoverageView, DeadChunk } from "./core/gov";

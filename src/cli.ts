@@ -246,7 +246,7 @@ function printHelp(): void {
   --gate               与 --changed 联用：grade ≥ high（风险≥35）时退出码 1（合入门禁；invalid 不放行）
   --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
   --html <file>        技术债 HTML 可视化（自包含单文件：健康度卡片/模块分段/治理清单/复杂度/未知形态/效应源）
-	  recheck <json>       重算模式：加载 --json 输出重算全部视图（改工具后秒级验证，免 10-20min 重扫）
+  recheck <json>       重算模式：加载 --json 输出重算全部视图（改工具后秒级验证，免 10-20min 重扫）
   --dups               重复代码：同内容哈希多实例（复制粘贴，公理4 直接支撑）
   --test-coverage      测试盲区：生产 chunk 未被 Tests/ 引用（按调用者数排序）
   --dead               疑似死代码：零调用者（排除 Unity 生命周期/反射入口误报）
@@ -464,6 +464,8 @@ function loadReport(file: string): ScanReport {
 		// Medium-1（reviewer 5620f02d）：chain/chainDev 形状校验——非整数（2.5）或超大整数
 		// （1e9）会经 graphMetrics new Array(chain+1) 触发 RangeError/V8 堆耗尽不可捕获 OOM
 		// （351B 恶意 JSON 即可复现）。scan 模式内部保证有限非负整数；recheck 输入不可信。
+		// 上限 65536 与 topology maxFinite 桶对齐（reviewer Low-4：chain>65536 需 >65536 chunks
+		// 的项目——InitDeity 42758 chunks 未触达；极端规模项目自拒时按此提示调 maxFinite）。
 		for (const f of ["chain", "chainDev"] as const) {
 			const c = (v as Record<string, unknown>)[f];
 			if (
@@ -898,7 +900,11 @@ async function main(): Promise<void> {
 		if (args.jsonOut) {
 			// G1 修复：--json <file> 写文件（README/help 文档语义）——此前纯布尔导致
 			// 文件名被当扫描目录、产物从未生成（"审计触发失败，产物未过审"）。
-			writeFileSync(args.jsonOut, jsonStr);
+			// reviewer Low-4：原子写（tmp+rename 复用语料模式）——防 kill/并发写截断产物
+			mkdirSync(dirname(args.jsonOut), { recursive: true });
+			const tmp = args.jsonOut + ".tmp";
+			writeFileSync(tmp, jsonStr);
+			renameSync(tmp, args.jsonOut);
 			console.error(
 				`JSON -> ${args.jsonOut}（${(jsonStr.length / 1024).toFixed(0)} KB，供 recheck/compare 复用）`,
 			);

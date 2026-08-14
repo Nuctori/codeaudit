@@ -146,13 +146,18 @@ export function duplicateGroups(verdicts: readonly Verdict[]): DupGroup[] {
 		for (const m of members) byKey.set(m.chunk.key, m); // 同文件同内容 #n 后缀去重
 		if (byKey.size < 2) continue;
 		const first = members[0]!;
+		// sites 与 instances 同口径（byKey 去重后——reviewer Low-7：去重前会不一致）
+		const uniqMembers = [...byKey.values()];
 		groups.push({
 			id,
 			instances: byKey.size,
 			name: first.chunk.name,
 			file: first.chunk.file,
 			line: first.chunk.line,
-			sites: members.map((m) => ({ file: m.chunk.file, line: m.chunk.line })),
+			sites: uniqMembers.map((m) => ({
+				file: m.chunk.file,
+				line: m.chunk.line,
+			})),
 		});
 	}
 	return groups.sort(
@@ -210,7 +215,8 @@ export function testCoverage(verdicts: readonly Verdict[]): TestCoverageView {
 	return {
 		production,
 		covered: cov,
-		coverage: production > 0 ? cov / production : 1,
+		// reviewer Low-5：纯测试仓库（production=0）报 100% 覆盖误导——空集返回 0
+		coverage: production > 0 ? cov / production : 0,
 		uncovered,
 	};
 }
@@ -234,27 +240,27 @@ export function deadChunks(verdicts: readonly Verdict[]): DeadChunk[] {
 			? c.name.slice(c.name.lastIndexOf(".") + 1)
 			: c.name;
 		if (UNITY_LIFECYCLE.has(shortName)) continue;
-		// 排除合成/特殊 chunk：`<static-init>`（尖括号——迭代43 类型加载效应单元，
-		// 曾误写 ".static-init" 失配导致永不命中——审计 blocker）、`.ctor`（构造器——
-		// new 动态创建，静态图零调用者正常）、`<module>` 伪块
-		if (
-			shortName === "<static-init>" ||
-			shortName === ".ctor" ||
-			shortName === "<module>"
-		)
-			continue;
+		// 排除合成 chunk：`<static-init>`（迭代43 类型加载效应单元，曾误写 ".static-init"
+		// 失配永不命中——审计 blocker）、`<module>` 伪块。
+		// 注（reviewer Low-2）：C# 构造器 chunk 名 = 类名形态（如 `A.A`），从不叫 `.ctor`——
+		// 构造器以「疑」级进入 --dead 视图（new 动态创建属正常零调用者），方向安全不排除。
+		if (shortName === "<static-init>" || shortName === "<module>") continue;
 		if (UNITY_ATTR_HINTS.some((h) => c.name.includes(h))) continue;
 		// public 判定：无可见性字段，用方法名首字母大写 + 非 Unity 约定成员粗略分——
-		// C# 公开成员通常首字母大写；python 无 public 概念一律 suspected。
 		// 注意（审计低危项）：PascalCase 惯例下 C# 公开方法全落 suspected——方向安全
 		// （宁可疑不误删；高置信 = 小写/私有风格零调用者，可直接删）。
+		// Python 无可见性概念（reviewer Medium-1）：模块级零调用者函数可能是框架/
+		// console_scripts 入口——一律 suspected，避免注释意图与实现相反（曾实测
+		// pyshop handle_request 被标 [高]）。C# 私有风格（小写）保留 high。
+		const isPy = /\.py$/i.test(c.file);
 		const isUpper = /^[A-Z]/.test(shortName);
+		const confidence = isPy || isUpper ? ("suspected" as const) : ("high" as const);
 		out.push({
 			key: c.key,
 			name: c.name,
 			file: c.file,
 			line: c.line,
-			confidence: isUpper ? "suspected" : "high",
+			confidence,
 		});
 	}
 	return out.sort((a, b) => (a.file < b.file ? -1 : 1) || a.line - b.line);

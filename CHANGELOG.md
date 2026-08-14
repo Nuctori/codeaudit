@@ -31,7 +31,7 @@
 - **治理三视图**（全部复用 verdicts 现有数据，零新增扫描能力，recheck 对旧产物自动生效）：
   - `--dups` 重复代码：id（内容哈希，公理4）相同且 key 不同的 chunk 分组——InitDeity 实测 648 组第一方（×24 `BaseIndexPlayCombatAnimation.OnUpdate` 居首）
   - `--test-coverage` 测试盲区：Tests/ 目录调用闭包 ∩ 生产 chunks 补集，按调用者数降序——InitDeity 实测覆盖仅 3.4%（568/16925），`Debugger.LogError`(229 调用者) 等最高频基础设施零测试引用
-  - `--dead` 疑似死代码：零调用者 chunk，排除 Unity 生命周期/特性反射入口/测试文件误报，public（首字母大写）标 suspected、其余 high——InitDeity 实测 8046 个第一方（902 高置信）
+  - `--dead` 疑似死代码：零调用者 chunk，排除 Unity 生命周期/特性反射入口/测试文件误报，public（首字母大写）标 suspected、其余 high——InitDeity 实测 8027 个第一方（883 高置信）
 - **`--first-party` 过滤**：排除 LocalPackages/Plugins/Packages/生成代码（.g.cs）——实测 top 被 UniRx ×105/API.g.cs ×47 噪音主导，过滤后才是第一方治理清单
 - 库 API：`duplicateGroups` / `testCoverage` / `deadChunks` / `isTestFile` / `isFirstParty` 导出
 - 单元测试 11 例（gov.test.ts：重复分组/测试闭包传递/生命周期排除/置信度分级/路径识别）
