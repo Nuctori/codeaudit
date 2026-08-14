@@ -162,7 +162,8 @@ export function moduleGraph(
 	}
 
 	// 聚合边（跳过落入 dropped 的端点；规范键 min\u0000max 存双向计数）
-	const edges: Array<{ from: string; to: string; a2b: number; b2a: number }> = [];
+	const edges: Array<{ from: string; to: string; a2b: number; b2a: number }> =
+		[];
 	for (const [ek, e] of edgeAgg) {
 		const [rawA, rawB] = ek.split("\u0000");
 		const a = rawA ?? "",
@@ -305,9 +306,15 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		i.push([e.from, e.count]);
 		inTop.set(e.to, i);
 	}
-	const topOf = (m: Map<string, Array<[string, number]>>, id: string, arrow: string): string => {
+	const topOf = (
+		m: Map<string, Array<[string, number]>>,
+		id: string,
+		arrow: string,
+	): string => {
 		const l = (m.get(id) ?? []).sort((a, b) => b[1] - a[1]).slice(0, 3);
-		return l.length ? `\n${arrow} ${l.map(([n, c]) => `${esc(n)}×${c}`).join(" · ")}` : "";
+		return l.length
+			? `\n${arrow} ${l.map(([n, c]) => `${esc(n)}×${c}`).join(" · ")}`
+			: "";
 	};
 	for (const node of g.nodes) {
 		const p = pos.get(node.id)!;
