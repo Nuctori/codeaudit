@@ -407,7 +407,8 @@ export function renderModuleGraphPanel(
 	opts?: { firstPartyOnly?: boolean; expandChunks?: number },
 ): string {
 	const firstPartyOnly = opts?.firstPartyOnly ?? true;
-	const EXPAND = opts?.expandChunks ?? 1500;
+	// 子图阈值：默认所有节点（0 = 无阈值）——凡有子目录结构（内部节点 >1）即可下钻
+	const EXPAND = opts?.expandChunks ?? 0;
 	const g = moduleGraph(verdicts, { firstPartyOnly });
 	// 子图数据：base 中 chunks ≥ EXPAND 且非桶节点 → scope 子图（模块级 + 外部桶）
 	const children: Record<string, ModuleGraph> = {};
