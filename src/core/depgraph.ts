@@ -42,10 +42,17 @@ export interface ModNode {
 }
 
 export interface ModEdge {
+	/** 主方向起点（两个方向计数较大者） */
 	readonly from: string;
+	/** 主方向终点 */
 	readonly to: string;
+	/** 主方向调用数（from→to） */
+	readonly a2b: number;
+	/** 反向调用数（to→from）——逆行强度：占比越大越是真实纠缠 */
+	readonly b2a: number;
+	/** 双向合计（渲染线宽/入出度用） */
 	readonly count: number;
-	/** 逆行边：聚合图环内边（SCC>1 成员间） */
+	/** 逆行边：双向依赖且聚合图环内（SCC>1 成员间） */
 	readonly reverse: boolean;
 }
 
@@ -102,7 +109,7 @@ export function moduleGraph(
 		keyToMod.set(v.chunk.key, fold(moduleKeyOf(v.chunk.file)));
 
 	const nodes = new Map<string, { chunks: number; selfCalls: number }>();
-	const edgeAgg = new Map<string, { count: number }>(); // "from\u0000to" -> count
+	const edgeAgg = new Map<string, { a2b: number; b2a: number }>(); // 规范键 "min\u0000max" -> 双向计数
 
 	for (const v of verdicts) {
 		const from = fold(moduleKeyOf(v.chunk.file));
@@ -118,9 +125,11 @@ export function moduleGraph(
 				if (to === from) n.selfCalls++;
 				continue;
 			}
-			const ek = `${from}\u0000${to}`;
-			const e = edgeAgg.get(ek) ?? { count: 0 };
-			e.count++;
+			const [ka, kb] = from < to ? [from, to] : [to, from];
+			const ek = `${ka}\u0000${kb}`;
+			const e = edgeAgg.get(ek) ?? { a2b: 0, b2a: 0 };
+			if (from === ka) e.a2b++;
+			else e.b2a++;
 			edgeAgg.set(ek, e);
 		}
 	}
@@ -152,30 +161,46 @@ export function moduleGraph(
 		keyToMod.set("…其他", "…其他");
 	}
 
-	// 聚合边（跳过落入 dropped 的端点）
-	const edges: Array<{ from: string; to: string; count: number }> = [];
+	// 聚合边（跳过落入 dropped 的端点；规范键 min\u0000max 存双向计数）
+	const edges: Array<{ from: string; to: string; a2b: number; b2a: number }> = [];
 	for (const [ek, e] of edgeAgg) {
-		const [rawFrom, rawTo] = ek.split("\u0000");
-		const from = rawFrom ?? "",
-			to = rawTo ?? "";
-		if (dropped.has(from) || dropped.has(to)) continue;
-		edges.push({ from, to, count: e.count });
+		const [rawA, rawB] = ek.split("\u0000");
+		const a = rawA ?? "",
+			b = rawB ?? "";
+		if (dropped.has(a) || dropped.has(b)) continue;
+		// 主方向 = 计数大者；相等时字典序（确定性 tiebreak）
+		const forward = e.a2b >= e.b2a;
+		edges.push({
+			from: forward ? a : b,
+			to: forward ? b : a,
+			a2b: Math.max(e.a2b, e.b2a),
+			b2a: Math.min(e.a2b, e.b2a),
+		});
 	}
 
-	// 聚合图 SCC——环内边 = 逆行边
+	// 聚合图 SCC——环内边 = 逆行边（双向时两个方向都入图，否则环检测丢反向）
 	const succ = new Map<string, Set<string>>();
 	for (const e of edges) {
 		const s = succ.get(e.from) ?? new Set<string>();
 		s.add(e.to);
 		succ.set(e.from, s);
+		if (e.b2a > 0) {
+			const r = succ.get(e.to) ?? new Set<string>();
+			r.add(e.from);
+			succ.set(e.to, r);
+		}
 	}
 	const sccs = tarjan(nodeIds, succ).filter((s) => s.length > 1);
 	const inRing = new Set<string>();
 	for (const s of sccs) for (const m of s) inRing.add(m);
 
-	const finalEdges = edges
+	const finalEdges: ModEdge[] = edges
 		.filter((e) => e.from !== e.to)
-		.map((e) => ({ ...e, reverse: inRing.has(e.from) && inRing.has(e.to) }))
+		.map((e) => ({
+			...e,
+			count: e.a2b + e.b2a,
+			reverse: inRing.has(e.from) && inRing.has(e.to) && e.b2a > 0,
+		}))
 		.sort((a, b) => Number(b.reverse) - Number(a.reverse) || b.count - a.count);
 
 	const inDeg = new Map<string, number>();
@@ -231,7 +256,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 
 	const maxCount = Math.max(...g.edges.map((e) => e.count), 1);
 	const maxChunks = Math.max(...g.nodes.map((x) => x.chunks), 1);
-	// 边：贝塞尔弧线，控制点沿法线偏移（区分双向）
+	// 边：主方向实线弧 + 反向虚线弧（双向依赖时）；控制点沿法线偏移避免重叠
 	let edgeSvg = "";
 	for (const e of g.edges) {
 		const p1 = pos.get(e.from)!;
@@ -242,15 +267,24 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 			my = (p1.y + p2.y) / 2;
 		const len = Math.hypot(dx, dy) || 1;
 		const off = (e.reverse ? 26 : 14) * (e.count / maxCount + 0.6);
-		// 双向对边反向偏移避免重叠
-		const cx2 = mx + (-dy / len) * off * (e.from < e.to ? 1 : -1);
-		const cy2 = my + (dx / len) * off * (e.from < e.to ? 1 : -1);
+		const side = e.from < e.to ? 1 : -1;
+		const cx2 = mx + (-dy / len) * off * side;
+		const cy2 = my + (dx / len) * off * side;
 		const w = 1 + (e.count / maxCount) * 4;
 		const stroke = e.reverse ? "#e5484d" : "#8b8f98";
-		const tip = `from ${esc(e.from)} → to ${esc(e.to)} × ${e.count}${e.reverse ? "（逆行：环内互相依赖——解耦优先）" : ""}`;
+		const backPct = e.b2a > 0 ? Math.round((e.b2a / e.count) * 100) : 0;
+		const tip = `${esc(e.from)} → ${esc(e.to)} × ${e.count}${e.b2a > 0 ? `（反向 ${e.b2a} 条 · 逆行强度 ${backPct}%）` : ""}${e.reverse ? "\n⚠ 逆行：双向依赖 + 聚合环内——解耦优先" : ""}`;
 		const arrowEnd = `M${p2.x - (dx / len) * 10},${p2.y - (dy / len) * 10} L${p2.x - (dy / len) * 6},${p2.y + (dx / len) * 6} L${p2.x + (dy / len) * 6},${p2.y - (dx / len) * 6} Z`;
 		edgeSvg += `<path d="M${p1.x.toFixed(1)},${p1.y.toFixed(1)} Q${cx2.toFixed(1)},${cy2.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}" fill="none" stroke="${stroke}" stroke-width="${w.toFixed(1)}" opacity="0.55"><title>${tip}</title></path>`;
 		edgeSvg += `<path d="${arrowEnd}" fill="${stroke}"><title>${tip}</title></path>`;
+		// 反向弧线：虚线 + 小箭头，反向偏移（可见双向依赖的两个方向）
+		if (e.b2a > 0) {
+			const rOff = off * -0.9 * side;
+			const rx2 = mx + (-dy / len) * rOff;
+			const ry2 = my + (dx / len) * rOff;
+			const rTip = `${esc(e.to)} → ${esc(e.from)} × ${e.b2a}（反向——逆行方向）`;
+			edgeSvg += `<path d="M${p2.x.toFixed(1)},${p2.y.toFixed(1)} Q${rx2.toFixed(1)},${ry2.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}" fill="none" stroke="${stroke}" stroke-width="${Math.max(w * 0.7, 1).toFixed(1)}" stroke-dasharray="6,4" opacity="0.45"><title>${rTip}</title></path>`;
+		}
 	}
 
 	let nodeSvg = "";
@@ -260,6 +294,21 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		edgeNodes.add(e.from);
 		edgeNodes.add(e.to);
 	}
+	// 节点 hover 明细：top 调用去向 / 来源（各 3，按 count 降序）
+	const outTop = new Map<string, Array<[string, number]>>();
+	const inTop = new Map<string, Array<[string, number]>>();
+	for (const e of g.edges) {
+		const o = outTop.get(e.from) ?? [];
+		o.push([e.to, e.count]);
+		outTop.set(e.from, o);
+		const i = inTop.get(e.to) ?? [];
+		i.push([e.from, e.count]);
+		inTop.set(e.to, i);
+	}
+	const topOf = (m: Map<string, Array<[string, number]>>, id: string, arrow: string): string => {
+		const l = (m.get(id) ?? []).sort((a, b) => b[1] - a[1]).slice(0, 3);
+		return l.length ? `\n${arrow} ${l.map(([n, c]) => `${esc(n)}×${c}`).join(" · ")}` : "";
+	};
 	for (const node of g.nodes) {
 		const p = pos.get(node.id)!;
 		const r = 6 + (node.chunks / maxChunks) * 16;
@@ -274,8 +323,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 					: "#4c8dff";
 		const stroke = isolated ? "#9ca3af" : "#1a1b1e";
 		const dash = isolated ? ' stroke-dasharray="5,4"' : "";
-		const deg = `${node.outDeg}→${node.inDeg}`;
-		const tip = `${esc(node.label)}\nchunks ${node.chunks} · 出→入 ${deg} · 内部调用 ${node.selfCalls}${ring ? "（环内模块）" : ""}${isolated ? "\n⚠ 无跨模块边——静态盲区（未知调用 ?/反射/事件驱动）或真实孤立" : ""}`;
+		const tip = `${esc(node.label)}\nchunks ${node.chunks} · 出→入 ${node.outDeg}→${node.inDeg} · 内部调用 ${node.selfCalls}${ring ? "（环内模块）" : ""}${topOf(outTop, node.id, "→")}${topOf(inTop, node.id, "←")}${isolated ? "\n⚠ 无跨模块边——静态盲区（未知调用 ?/反射/事件驱动）或真实孤立" : ""}`;
 		nodeSvg += `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${fill}" stroke="${stroke}" stroke-width="1.5"${dash}><title>${tip}</title></circle>`;
 		// 标签：节点下方，超出省略
 		const label =
@@ -302,7 +350,7 @@ export function renderModuleGraphPanel(g: ModuleGraph): string {
 	return `<div class="panel">
 <h3>🗺 项目模块有向边图（第一方口径 · 聚合 ${g.nodes.length} 模块 · ${g.edges.length} 边——悬停看明细；第三方折叠为单节点）</h3>
 ${renderModuleGraphSvg(g)}
-<div class="sub" style="margin-top:8px"><span style="color:#e5484d">● 红 = 逆行边（环内互相依赖——解耦优先）</span> · <span style="color:#d29922">● 黄 = 模块内部调用 &gt; 0</span> · <span style="color:#4c8dff">● 蓝 = 普通模块</span> · <span style="color:#6b7280">◌ 灰虚线 = 无跨模块边（静态盲区：未知调用 ?/反射/事件驱动，非真实孤立；或真实孤立）</span> · 箭头方向 = 调用方向（A→B 表示 A 调 B） · 线宽 = 调用边数</div>
+<div class="sub" style="margin-top:8px"><span style="color:#e5484d">● 红 = 逆行边：双向依赖 + 聚合环内（实线 = 主方向，虚线 = 反向——悬停看 ×N 与逆行强度 %）</span> · <span style="color:#d29922">● 黄 = 模块内部调用 &gt; 0</span> · <span style="color:#4c8dff">● 蓝 = 普通模块</span> · <span style="color:#6b7280">◌ 灰虚线 = 无跨模块边（静态盲区：未知调用 ?/反射/事件驱动，非真实孤立；或真实孤立）</span> · 箭头方向 = 调用方向（A→B 表示 A 调 B） · 线宽 = 调用边数</div>
 <h3 style="margin-top:14px">模块级环（逆行边来源，聚合 ${g.nodes.length} 模块口径）</h3>
 ${ringList}
 </div>`;

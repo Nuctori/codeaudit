@@ -98,12 +98,13 @@ describe("moduleGraph", () => {
 			"InitDeity/Worlds",
 		]);
 		const rev = g.edges.filter((e) => e.reverse);
-		expect(rev.length).toBe(2); // Framework→Worlds 与 Worlds→Framework 都标逆行
-		expect(
-			g.edges.find(
-				(e) => e.from === "InitDeity/Framework" && e.to === "InitDeity/Worlds",
-			)?.reverse,
-		).toBe(true);
+		expect(rev.length).toBe(1); // 双向聚合为单条边（a2b + b2a 双计数）
+		const fwEdge = g.edges.find(
+			(e) => e.from === "InitDeity/Framework" && e.to === "InitDeity/Worlds",
+		);
+		expect(fwEdge?.reverse).toBe(true);
+		expect(fwEdge?.a2b).toBe(1);
+		expect(fwEdge?.b2a).toBe(1);
 	});
 	it("单向依赖不标逆行", () => {
 		const verdicts = [
@@ -186,6 +187,23 @@ describe("moduleGraph", () => {
 		const svg = renderModuleGraphSvg(g);
 		expect(svg).toContain('stroke-dasharray="5,4"'); // 孤立节点虚线
 		expect(svg).toContain("无跨模块边"); // tip 标注
+	});
+	it("双向边渲染反向虚线弧 + tip 逆行强度与节点 top 来源/去向", () => {
+		const verdicts = [
+			fw("A", [`Assets/InitDeity/Worlds/B.cs::B`]),
+			fw("C"),
+			fw("D"),
+			fw("E"),
+			wd("B", [`Assets/InitDeity/Framework/C.cs::C`]),
+			wd("F"),
+			wd("G"),
+		];
+		const g = moduleGraph(verdicts);
+		const svg = renderModuleGraphSvg(g);
+		expect(svg).toContain('stroke-dasharray="6,4"'); // 反向虚线弧
+		expect(svg).toContain("逆行强度 50%"); // tip：反向 1/合计 2
+		expect(svg).toContain("→ InitDeity/Worlds×2"); // 节点 top 去向
+		expect(svg).toContain("← InitDeity/Framework×2"); // 节点 top 来源
 	});
 });
 
