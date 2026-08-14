@@ -6,3 +6,10 @@ dist/
 .pi-subagents/
 .ruff_cache/
 *.log
+# 个人审计探针脚本（并行会话/历史会话产物，含本机绝对路径——防误提交；auditor 参考项 2026-08-14）
+scripts/copy-generated.cjs
+scripts/diff-scans.cjs
+scripts/dump-verdicts.cjs
+scripts/extract-report.cjs
+scripts/selfloop-audit.cjs
+scripts/unknown-audit.cjs
