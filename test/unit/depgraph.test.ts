@@ -220,8 +220,13 @@ describe("moduleGraph", () => {
 			v("Assets/InitDeity/Framework/NonModule/Q.cs", "Q", []),
 			v("Assets/InitDeity/Framework/NonModule/R.cs", "R", []),
 		];
-		const sub = moduleGraph(verdicts, { firstPartyOnly: true, scope: "InitDeity/Framework" });
-		expect(sub.nodes.some((n) => n.id === "InitDeity/Framework/Module")).toBe(true);
+		const sub = moduleGraph(verdicts, {
+			firstPartyOnly: true,
+			scope: "InitDeity/Framework",
+		});
+		expect(sub.nodes.some((n) => n.id === "InitDeity/Framework/Module")).toBe(
+			true,
+		);
 		expect(sub.nodes.some((n) => n.id === "外部")).toBe(true); // UIs 调用折叠为外部
 		expect(sub.nodes.some((n) => n.id === "InitDeity/Framework")).toBe(true); // Framework 根
 	});

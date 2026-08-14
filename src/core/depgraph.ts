@@ -14,7 +14,11 @@ export function moduleKeyOf(file: string, depth = 2): string {
 	const mod: string[] = [];
 	for (const s of segs) {
 		if (mod.length >= depth) break;
-		if (/\.(cs|ts|js|py|json|md|txt|prefab|asset|mat|shader|asmdef|asmref|csproj|meta|png|xml|dll|so|unity)$/i.test(s))
+		if (
+			/\.(cs|ts|js|py|json|md|txt|prefab|asset|mat|shader|asmdef|asmref|csproj|meta|png|xml|dll|so|unity)$/i.test(
+				s,
+			)
+		)
 			break; // 文件段（带扩展名）终止——目录名可含点（com.cysharp.unitask）
 		mod.push(s);
 	}
@@ -409,10 +413,23 @@ export function renderModuleGraphPanel(
 	const children: Record<string, ModuleGraph> = {};
 	for (const n of g.nodes) {
 		if (n.chunks < EXPAND) continue;
-		if (n.id === "第三方" || n.id === "外部" || n.id === "…其他" || n.id === "InitDeity/Generated") continue;
-		const sub = moduleGraph(verdicts, { firstPartyOnly, scope: n.id, minChunks: 20 });
+		if (
+			n.id === "第三方" ||
+			n.id === "外部" ||
+			n.id === "…其他" ||
+			n.id === "InitDeity/Generated"
+		)
+			continue;
+		const sub = moduleGraph(verdicts, {
+			firstPartyOnly,
+			scope: n.id,
+			minChunks: 20,
+		});
 		// 无展开价值：内部节点 ≤ 1（无子目录结构）
-		if (sub.nodes.filter((x) => x.id !== "外部" && x.id !== "…其他").length <= 1) continue;
+		if (
+			sub.nodes.filter((x) => x.id !== "外部" && x.id !== "…其他").length <= 1
+		)
+			continue;
 		children[n.id] = sub;
 	}
 	const data = JSON.stringify({ base: g, children });
