@@ -94,6 +94,7 @@ describe("维度27: 文件系统对抗", () => {
 	});
 });
 
+
 describe("维度28: CLI 对抗", () => {
 	const run = (args: string[]): { code: number; out: string } => {
 		try {
@@ -109,6 +110,34 @@ describe("维度28: CLI 对抗", () => {
 
 	it("--help 退出码 0", () => {
 		expect(run(["--help"]).code).toBe(0);
+	});
+
+	it("--help 列出全部关键旗标（防「编辑吞兄弟行」——审计 blocker 回归护栏）", () => {
+		// 结对审计发现：printHelp 编辑时 --json 重复、--top 行被吞（与历史 --gate 顶 --topology
+		// 同族）。此处逐行断言关键选项都存在且不重复，防再次吞行/重复。
+		const out = run(["--help"]).out;
+		for (const flag of [
+			"--format text|json",
+			"--json [file]",
+			"--top N",
+			"--unknowns <file>",
+			"--annotations <file>",
+			"--effect-table <json>",
+			"--corpus <file>",
+			"--no-cache",
+			"--topology",
+			"--sources",
+			"--state",
+			"--strict",
+			"--gate",
+			"--changed <files>",
+			"--html <file>",
+			"recheck <json>",
+		]) {
+			expect(out).toContain(flag);
+		}
+		// 无重复（--json 曾重复两行）
+		expect(out.match(/--json \[file\]/g)?.length).toBe(1);
 	});
 
 	it("不存在的目录 → 优雅报错退出码 2", () => {
@@ -239,6 +268,26 @@ describe("维度28: CLI 对抗", () => {
 		expect(leafIdx).toBeGreaterThan(-1);
 		expect(hubIdx).toBeLessThan(leafIdx); // hub（2 调用者）先于 leaf（1 调用者）
 		expect(r.out).toContain("callers=");
+	});
+
+	it("迭代55：逆向依赖（与主方向相反的路径——环内边）在治理清单优先于高入度", () => {
+		// ring↔ring2 环（互调 = 反向路径，rev=1）vs hub 被 a/b 两调用者引用（rev=0）——
+		// 反向路径第一键：环内 chunk 排在高入度 hub 之前
+		const root = project("cli-reverse-priority", {
+			"lib.py":
+				"import os\ndef ring():\n    return ring2() or os.getcwd()\ndef ring2():\n    return ring()\n",
+			"hub.py": "import os\ndef hub():\n    os.system('x')\n",
+			"a.py": "from hub import hub\ndef a():\n    return hub()\n",
+			"b.py": "from hub import hub\ndef b():\n    return hub()\n",
+		});
+		const r = run(["scan", root, "--no-cache", "--top"]);
+		expect(r.code).toBe(0);
+		const ringIdx = r.out.indexOf("ring"); // ring2 也匹配（先于 ring，因 chain 更深）
+		const hubIdx = r.out.indexOf("hub");
+		expect(ringIdx).toBeGreaterThan(-1);
+		expect(hubIdx).toBeGreaterThan(-1);
+		expect(ringIdx).toBeLessThan(hubIdx); // 环内逆向依赖先于高入度 hub
+		expect(r.out).toContain("rev=");
 	});
 
 	it("全部布尔旗标可解析（迭代23 回归护栏：新旗标不得顶掉兄弟分支——--gate/--topology/--sources/--state/--table-usage 逐一冒烟）", () => {
@@ -381,6 +430,12 @@ describe("步骤1：指纹 / memo / 路径裁剪（三方评审落地）", () =>
 			return { code: e.status ?? 1, out: (e.stdout ?? "") + (e.stderr ?? "") };
 		}
 	};
+	// 成功路径也合并 stderr（console.error 的警告/进度——G3 陈旧性警告验证需要）
+	const runAll = (args: string[]): { code: number; out: string } => {
+		const { spawnSync } = require("node:child_process") as typeof import("node:child_process");
+		const r = spawnSync("node", [CLI, ...args], { encoding: "utf8" });
+		return { code: r.status ?? 1, out: (r.stdout ?? "") + (r.stderr ?? "") };
+	};
 
 	it("缓存行为指纹不匹配 → 全量重扫", async () => {
 		const root = project("cache-fp", { "a.py": "def f():\n    return 1\n" });
@@ -483,5 +538,56 @@ describe("步骤1：指纹 / memo / 路径裁剪（三方评审落地）", () =>
 		const r6 = run(["recheck", jsonPath, "--topology"]);
 		expect(r6.code).toBe(2);
 		expect(r6.out).toContain("缺 chunk.calls/direct");
+	});
+
+	it("--json <file> 写文件（G1：文档语义恢复）——文件名不再被当扫描目录", () => {
+		const root = project("cli-jsonfile", {
+			"a.py": "import os\ndef f():\n    os.getcwd()\n",
+		});
+		const jsonPath = join(root, "audit.json");
+		// G1 回归：README/help 声称 `--json out.json` 导出文件——曾因纯布尔把文件名当扫描目录
+		// （ENOTDIR、产物从未生成 = "审计触发失败，产物未过审"）。
+		const r1 = runAll(["scan", root, "--json", jsonPath]);
+		expect(r1.code).toBe(0);
+		expect(r1.out).toContain("JSON ->");
+		const parsed = JSON.parse(readFileSync(jsonPath, "utf8"));
+		expect(parsed.verdicts.length).toBe(2); // f + module
+		// 产物可被 recheck 消费（产物过审回路）
+		const r2 = run(["recheck", jsonPath, "--topology"]);
+		expect(r2.code).toBe(0);
+		expect(r2.out).toContain("STATS: pure 1");
+		// 无参 --json 仍 stdout（旧布尔行为兼容）
+		const r3 = run(["scan", root, "--json"]);
+		expect(r3.code).toBe(0);
+		expect(JSON.parse(r3.out).verdicts.length).toBe(2);
+	});
+
+	it("--json 后跟已存在目录不吞（`scan --json src` 反序写法仍扫目录）", () => {
+		const root = project("cli-jsondir", {
+			"a.py": "def f():\n    return 1\n",
+		});
+		const r = runAll(["scan", "--json", root]);
+		expect(r.code).toBe(0);
+		// root 是已存在目录 → 不被当 jsonOut（不产生 JSON -> 写文件提示，正常扫描 stdout JSON）
+		expect(r.out).not.toContain("JSON ->");
+		expect(r.out).toContain("扫描完成");
+	});
+
+	it("recheck 陈旧性警告（G3）：version 不符/扫描过久显式警告不阻断", () => {
+		const root = project("cli-stale", {
+			"a.py": "def f():\n    return 1\n",
+		});
+		const jsonPath = join(root, "out.json");
+		const r1 = run(["scan", root, "--json", jsonPath]);
+		expect(r1.code).toBe(0);
+		// 伪造旧 version + 旧 scannedAt
+		const r = JSON.parse(readFileSync(jsonPath, "utf8"));
+		r.version = "0.0.1-old";
+		r.stats.scannedAt = "2020-01-01T00:00:00.000Z";
+		writeFileSync(jsonPath, JSON.stringify(r));
+		const r2 = runAll(["recheck", jsonPath]);
+		expect(r2.code).toBe(0); // 不阻断
+		expect(r2.out).toContain("由 codeaudit 0.0.1-old 生成");
+		expect(r2.out).toContain("天前");
 	});
 });

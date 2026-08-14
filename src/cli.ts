@@ -11,12 +11,18 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { scanProject, renderTechdebtHtml } from "./index";
 import { loadEffectOverrides, type EffectTables } from "./lang/effectOverride";
 import { riskOfChange, gateExit } from "./core/risk";
-import { graphMetrics } from "./core/topology";
+import { graphMetrics, reverseDepCounts } from "./core/topology";
 import { bridgesOf, dependencySkeleton } from "./core/skeleton";
 import { stateCouplingOf, type StateCouplingEntry } from "./core/state";
 import { moduleSummary } from "./core/module";
 import { outDepsOf, inDepsOf } from "./core/filedeps";
 import { sourceSnippet } from "./core/snippet";
+import {
+	duplicateGroups,
+	testCoverage,
+	deadChunks,
+	isFirstParty,
+} from "./core/gov";
 import {
 	Purity,
 	UNKNOWN_TARGET,
@@ -81,6 +87,8 @@ interface CliArgs {
 	/** 重算模式（recheck <json>；iter54-r3：加载 --json 输出重算全部视图——验证回路秒级，
 	 * 会话实证：改工具后每次重扫 10-20min + 手写脚本解析 216MB JSON）。 */
 	recheck: string | null;
+	/** JSON 输出文件（--json [file]；文档语义 `--json out.json`——缺省输出 stdout，与旧布尔行为兼容）。 */
+	jsonOut: string | null;
 	/** 状态耦合图（--state；迭代23 D-127：写方按读者数排序，全图耦合链）。 */
 	state: boolean;
 	/** 回归风险分析：改动文件集（--changed a.ts,b.py）。 */
@@ -91,6 +99,14 @@ interface CliArgs {
 	sources: boolean;
 	/** 效应表补表候选详情（--table-usage；迭代21 T8——missSlots top 15）。 */
 	tableUsage: boolean;
+	/** 重复代码（--dups；迭代56：同内容哈希多实例 = 复制粘贴，公理4 直接支撑）。 */
+	dups: boolean;
+	/** 测试盲区（--test-coverage；迭代56：生产 chunk 无 Tests/ 引用，按调用者数排序）。 */
+	testCoverage: boolean;
+	/** 疑似死代码（--dead；迭代56：零调用者，排除 Unity 生命周期/反射入口误报）。 */
+	dead: boolean;
+	/** 治理视图仅看第一方（--first-party；迭代56：排除 LocalPackages/Plugins/生成代码——InitDeity 实测 top 被第三方主导）。 */
+	firstParty: boolean;
 }
 
 function parseArgs(argv: string[]): CliArgs {
@@ -116,6 +132,11 @@ function parseArgs(argv: string[]): CliArgs {
 		compare: null,
 		html: null,
 		recheck: null,
+		jsonOut: null,
+		dups: false,
+		testCoverage: false,
+		dead: false,
+		firstParty: false,
 	};
 	const rest = argv.slice(2);
 	for (let i = 0; i < rest.length; i++) {
@@ -129,8 +150,26 @@ function parseArgs(argv: string[]): CliArgs {
 			continue;
 		}
 		if (a === "--format") args.format = rest[++i] === "json" ? "json" : "text";
-		else if (a === "--json") args.format = "json";
-		else if (a === "--top") {
+		else if (a === "--json") {
+			args.format = "json";
+			// 文档语义 `--json out.json`（README/help）：后跟非选项 token = 输出文件；
+			// 无参 = stdout（旧布尔行为兼容）。曾因 --json 是纯布尔而把 out.json 当扫描目录
+			// （ENOTDIR、产物从未生成——审计缺口 G1 "审计触发失败，产物未过审"）。
+			const nxt = rest[i + 1];
+			if (nxt !== undefined && !nxt.startsWith("-")) {
+				// 防误吞：nxt 是已存在目录（如 `scan --json src` 反序写法）→ 留给 dir 参数
+				let isDir = false;
+				try {
+					isDir = statSync(nxt).isDirectory();
+				} catch {
+					/* 不存在 = 新文件，正常 */
+				}
+				if (!isDir) {
+					args.jsonOut = nxt;
+					i++;
+				}
+			}
+		} else if (a === "--top") {
 			const n = parseInt(rest[++i] ?? "", 10);
 			args.top = Number.isFinite(n) && n > 0 ? n : null;
 		} else if (a === "--unknowns") args.unknowns = rest[++i]!;
@@ -146,6 +185,10 @@ function parseArgs(argv: string[]): CliArgs {
 		else if (a === "--table-usage") args.tableUsage = true;
 		else if (a === "--modules") args.modules = true;
 		else if (a === "--complexity") args.complexity = true;
+		else if (a === "--dups") args.dups = true;
+		else if (a === "--test-coverage") args.testCoverage = true;
+		else if (a === "--dead") args.dead = true;
+		else if (a === "--first-party") args.firstParty = true;
 		else if (a === "--deps") {
 			const val = rest[++i];
 			if (val === undefined) throw new Error("--deps 需要参数 <json>"); // 缺值静默失效（undefined !== null 误触发视图抑制）→ 显式报错 exit 2
@@ -189,6 +232,7 @@ function printHelp(): void {
 
 选项:
   --format text|json   输出格式（默认 text）
+  --json [file]        JSON 输出：带 <file> 写文件（供 recheck/compare 复用）；无参输出 stdout
   --top N              只显示前 N 条治理项（非纯；text 与 json 同语义；--sources 共用此上限）
   --unknowns <file>    导出未解析符号清单（按影响面排序，含 id 锚点，供 AI 标注）
   --annotations <file> 回读 AI 标注（[{id, verdict:"PURE"|"IMPURE"}]，按 chunk.id 匹配，减少未知）
@@ -202,7 +246,11 @@ function printHelp(): void {
   --gate               与 --changed 联用：grade ≥ high（风险≥35）时退出码 1（合入门禁；invalid 不放行）
   --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
   --html <file>        技术债 HTML 可视化（自包含单文件：健康度卡片/模块分段/治理清单/复杂度/未知形态/效应源）
-  recheck <json>       重算模式：加载 --json 输出重算全部视图（改工具后秒级验证，免 10-20min 重扫）
+	  recheck <json>       重算模式：加载 --json 输出重算全部视图（改工具后秒级验证，免 10-20min 重扫）
+  --dups               重复代码：同内容哈希多实例（复制粘贴，公理4 直接支撑）
+  --test-coverage      测试盲区：生产 chunk 未被 Tests/ 引用（按调用者数排序）
+  --dead               疑似死代码：零调用者（排除 Unity 生命周期/反射入口误报）
+  --first-party        治理视图仅看第一方（排除 LocalPackages/Plugins/生成代码——第三方噪音淹没治理价值）
   -h, --help           显示帮助
 
 示例:
@@ -304,6 +352,7 @@ function loadReport(file: string): ScanReport {
 	let raw: {
 		root: string;
 		mode: "audit";
+		version?: string;
 		stats: ScanStats;
 		verdicts: Array<{
 			chunk: Omit<Chunk, "direct" | "calls"> & {
@@ -324,11 +373,33 @@ function loadReport(file: string): ScanReport {
 	try {
 		// iter54-r8（reviewer L2）：JSON.parse 前大小上限——与 cache.json/corpus 同款守卫
 		// （V8 堆耗尽不可捕获；recheck 输入是第三方/历史产物，GB 级文件会 OOM 全进程）
-		if (statSync(file).size > 64 * 1024 * 1024)
-			throw new Error("recheck 输入过大（>64MB）");
+		// 512MB：InitDeity 全量产物 317MB（42758 chunks）——64MB 会把真实产物拒之门外
+		// （"产物未过审"的另一种形态：生成了却无法消费）。V8 上限 2^29≈536MB，512MB 留余量。
+		if (statSync(file).size > 512 * 1024 * 1024)
+			throw new Error("recheck: 输入过大（>512MB）");
 		raw = JSON.parse(readFileSync(file, "utf8"));
-	} catch {
+	} catch (e) {
+		// Low-2（reviewer 5620f02d）：输入过大守卫的报错不得被统一 catch 吞掉——
+		// 用户需知道是体积问题而非格式问题（--compare 路径保留 e.message，两处对齐）
+		if (e instanceof Error && e.message.startsWith("recheck: 输入过大"))
+			throw e;
 		throw new Error(`recheck: 无法解析 ${file}（需 --json 输出文件）`);
+	}
+	// 陈旧性/版本验证（G3 修复）：recheck 的 JSON 是历史/第三方产物——工具版本或扫描时间
+	// 与现状脱节时视图数字会静默误导（旧工具重算 = 非当前逻辑；旧源码数据 = 非当前代码）。
+	// 不阻断（旧数据合法用途：对比、归档）但必须显式警告，防"产物未过审"式静默消费。
+	if (raw.version !== undefined && raw.version !== VERSION) {
+		console.error(
+			`codeaudit: ⚠ recheck 输入 ${file} 由 codeaudit ${raw.version} 生成（当前 ${VERSION}）——视图按当前逻辑重算，与生成时可能不同`,
+		);
+	}
+	if (raw.stats && typeof raw.stats.scannedAt === "string") {
+		const ageMs = Date.now() - Date.parse(raw.stats.scannedAt);
+		if (Number.isFinite(ageMs) && ageMs > 30 * 24 * 3600 * 1000) {
+			console.error(
+				`codeaudit: ⚠ recheck 输入 ${file} 扫描于 ${raw.stats.scannedAt}（${Math.round(ageMs / (24 * 3600 * 1000))} 天前）——数据可能不反映当前代码`,
+			);
+		}
 	}
 	// 形状校验：合法 JSON 但缺 verdicts/stats（误传 HTML/compare 输出/截断文件）→ 友好报错
 	// 而非 TypeError 崩溃（recheck 自审计 iter54-r4）
@@ -378,7 +449,9 @@ function loadReport(file: string): ScanReport {
 		// htmlreport badge 插值，虽有 esc() 兜底但形状校验让污染在源头失败）
 		if (v.effects !== undefined) {
 			if (!Array.isArray(v.effects)) {
-				throw new Error(`recheck: ${file} 第 ${i} 条 verdict 的 effects 应为数组`);
+				throw new Error(
+					`recheck: ${file} 第 ${i} 条 verdict 的 effects 应为数组`,
+				);
 			}
 			for (const e of v.effects) {
 				if (typeof e !== "string" || !EFFECT_SET.has(e)) {
@@ -386,6 +459,20 @@ function loadReport(file: string): ScanReport {
 						`recheck: ${file} 第 ${i} 条 verdict 的 effects 含非法值 ${JSON.stringify(e)}（须 ∈ {io,net,fs,db,random,clock,state}）`,
 					);
 				}
+			}
+		}
+		// Medium-1（reviewer 5620f02d）：chain/chainDev 形状校验——非整数（2.5）或超大整数
+		// （1e9）会经 graphMetrics new Array(chain+1) 触发 RangeError/V8 堆耗尽不可捕获 OOM
+		// （351B 恶意 JSON 即可复现）。scan 模式内部保证有限非负整数；recheck 输入不可信。
+		for (const f of ["chain", "chainDev"] as const) {
+			const c = (v as Record<string, unknown>)[f];
+			if (
+				c !== "Infinity" &&
+				!(typeof c === "number" && Number.isInteger(c) && c >= 0 && c <= 65536)
+			) {
+				throw new Error(
+					`recheck: ${file} 第 ${i} 条 verdict 的 ${f} 非法（${JSON.stringify(c)}——须 "Infinity" 或 0..65536 整数）`,
+				);
 			}
 		}
 	}
@@ -708,9 +795,14 @@ async function main(): Promise<void> {
 								for (const t of v.chunk.calls)
 									if (t !== UNKNOWN_TARGET)
 										inDeg.set(t, (inDeg.get(t) ?? 0) + 1);
+							// 迭代55：逆向依赖第一键（与 text 治理序一致——反向路径优先治理）
+							const rev = reverseDepCounts(report.verdicts);
 							return report.verdicts
 								.filter((v) => v.purity !== Purity.PURE)
 								.sort((a, b) => {
+									const ra = rev.get(a.chunk.key) ?? 0;
+									const rb = rev.get(b.chunk.key) ?? 0;
+									if (rb !== ra) return rb - ra;
 									const da = inDeg.get(a.chunk.key) ?? 0;
 									const db = inDeg.get(b.chunk.key) ?? 0;
 									if (db !== da) return db - da;
@@ -767,14 +859,52 @@ async function main(): Promise<void> {
 					),
 				}
 			: payload2;
-		console.log(
-			JSON.stringify(
-				payload3,
-				(_k, v) =>
-					v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v,
-				2,
-			),
+		// G3：顶层 version 字段（additive，旧消费者不受影响）——recheck 陈旧性验证锚点
+		// 迭代56：治理三视图（--dups/--test-coverage/--dead）——additive，仅请求时计算
+		//（dups/dead 全量计算可能大——InitDeity 死代码万余条；top 截断与 text 同语义）
+		const topN = args.top ?? 15;
+		const gov: Record<string, unknown> | null =
+			args.dups || args.testCoverage || args.dead ? {} : null;
+		if (gov) {
+			// --first-party：治理视图仅看第一方（InitDeity 实测 top 被 UniRx/API.g.cs 主导——
+			// 第三方重复/死代码噪音淹没第一方治理价值；过滤后才是治理清单）
+			const gv = args.firstParty
+				? report.verdicts.filter((v) => isFirstParty(v.chunk.file))
+				: report.verdicts;
+			if (args.dups) {
+				const g = duplicateGroups(gv);
+				gov.dups = { total: g.length, groups: g.slice(0, topN) };
+			}
+			if (args.testCoverage) {
+				const tc = testCoverage(gv);
+				gov.testCoverage = {
+					production: tc.production,
+					covered: tc.covered,
+					coverage: Number(tc.coverage.toFixed(4)),
+					uncovered: tc.uncovered.slice(0, topN),
+				};
+			}
+			if (args.dead) {
+				const d = deadChunks(gv);
+				gov.dead = { total: d.length, chunks: d.slice(0, topN) };
+			}
+		}
+		const payload4 = { ...payload3, version: VERSION, ...(gov ? { gov } : {}) };
+		const jsonStr = JSON.stringify(
+			payload4,
+			(_k, v) => (v instanceof Set ? [...v] : v === Infinity ? "Infinity" : v),
+			2,
 		);
+		if (args.jsonOut) {
+			// G1 修复：--json <file> 写文件（README/help 文档语义）——此前纯布尔导致
+			// 文件名被当扫描目录、产物从未生成（"审计触发失败，产物未过审"）。
+			writeFileSync(args.jsonOut, jsonStr);
+			console.error(
+				`JSON -> ${args.jsonOut}（${(jsonStr.length / 1024).toFixed(0)} KB，供 recheck/compare 复用）`,
+			);
+		} else {
+			console.log(jsonStr);
+		}
 	} else {
 		const s = report.stats;
 		// 迭代44-r4 权重调整：核心汇总先行（STATS），视图其次，明细清单最后
@@ -815,10 +945,10 @@ async function main(): Promise<void> {
 				console.log(
 					`  ➜ ${t.cyclicComponents} 个循环依赖（SCC>1——初始化/销毁顺序风险）`,
 				);
-			// 有向形态（迭代55）：源/汇 + 回边（同 SCC 内边——每条都在某个环上；自环已在首行单列）
+			// 有向形态（迭代55）：源/汇 + 逆向依赖边（回边+自环——与主方向相反的路径，治理排序第一键）
 			console.log(
 				`  ➜ 有向形态：源 ${t.inDegreeHistogram[0] ?? 0} 个 / 汇 ${t.outDegreeHistogram[0] ?? 0} 个 / ` +
-					`回边 ${t.backEdges}（同 SCC 内边，环内冗余）`,
+					`逆向依赖边 ${t.backEdges + t.selfLoopCount}（环内边 ${t.backEdges} + 自环 ${t.selfLoopCount}，治理优先）`,
 			);
 			// 迭代46 C：可规约性（Hecht-Ullman——单入口=结构化递归、多入口=纠缠递归）
 			if (t.multiEntryScc > 0)
@@ -930,6 +1060,46 @@ async function main(): Promise<void> {
 					`  C=${String(v.chunk.complexity).padStart(3)}  n=${String(v.chunk.nesting).padStart(2)}  ${v.chunk.name.padEnd(40)} ${v.chunk.file}:${v.chunk.line}`,
 				);
 		}
+		// 迭代56：治理三视图（--dups/--test-coverage/--dead）——复用 verdicts 现有数据的
+		// 低成本治理：重复代码（公理4 内容哈希）、测试盲区、疑似死代码；--first-party 过滤第三方
+		const gv = args.firstParty
+			? report.verdicts.filter((v) => isFirstParty(v.chunk.file))
+			: report.verdicts;
+		if (args.dups) {
+			const dups = duplicateGroups(gv);
+			console.log(
+				`\n重复代码（同内容哈希多实例；共 ${dups.length} 组；top ${args.top ?? 15}${args.firstParty ? "，第一方" : ""}）：`,
+			);
+			for (const d of dups.slice(0, args.top ?? 15)) {
+				console.log(
+					`  ×${String(d.instances).padStart(2)}  ${d.name.padEnd(40)} ${d.file}:${d.line}`,
+				);
+				if (args.topology)
+					for (const s of d.sites.slice(0, 5))
+						console.log(`      ↳ ${s.file}:${s.line}`);
+			}
+		}
+		if (args.testCoverage) {
+			const tc = testCoverage(gv);
+			console.log(
+				`\n测试盲区：${tc.covered}/${tc.production} 生产 chunk 被 Tests/ 引用（覆盖 ${(tc.coverage * 100).toFixed(1)}%；未覆盖 ${tc.uncovered.length}；top ${args.top ?? 15}${args.firstParty ? "，第一方" : ""}）：`,
+			);
+			for (const u of tc.uncovered.slice(0, args.top ?? 15))
+				console.log(
+					`  调用者=${String(u.callers).padStart(4)}  ${u.name.padEnd(40)} ${u.file}:${u.line}`,
+				);
+		}
+		if (args.dead) {
+			const dead = deadChunks(gv);
+			const high = dead.filter((d) => d.confidence === "high").length;
+			console.log(
+				`\n疑似死代码（零调用者；共 ${dead.length} 个，其中高置信 ${high} 个；top ${args.top ?? 15}${args.firstParty ? "，第一方" : ""}）：`,
+			);
+			for (const d of dead.slice(0, args.top ?? 15))
+				console.log(
+					`  [${d.confidence === "high" ? "高" : "疑"}]  ${d.name.padEnd(40)} ${d.file}:${d.line}`,
+				);
+		}
 		if (args.deps) {
 			// 迭代44-r4：文件依赖（拆分决策）——入/出边文件清单
 			const outDeps = outDepsOf(report.verdicts, args.deps);
@@ -1039,8 +1209,8 @@ async function main(): Promise<void> {
 		}
 		// 迭代44-r4：--topology/--modules/--deps 模式抑制默认清单（健康度/聚合视图不被 IMPURE 列表淹没）
 		// 迭代48：默认治理清单按量纲内优先级排序——传播面（直接调用者数 in-degree，O(E) 单遍）
-		// ——「先改哪个」= 被最多人直接调用的非纯 chunk 优先；量纲不混合（与 --complexity/--sources
-		// 等视图各自独立排序，各回答各的量纲问题）。平手 chain 降序（传染更深优先）。
+		// 迭代55：逆向依赖边（与主方向相反的路径——环内边+自环）第一键——反向路径优先治理；
+		// 平手再比传播面；量纲不混合（与 --complexity/--sources 等视图各自独立排序）。
 		let shown =
 			args.topology || args.modules || args.deps !== null || args.complexity
 				? []
@@ -1052,8 +1222,13 @@ async function main(): Promise<void> {
 				inDeg.set(t, (inDeg.get(t) ?? 0) + 1);
 			}
 		}
+		// 迭代55：逆向依赖边数（该 chunk 发出的同 SCC 内边 + 自环——与主方向相反的路径）
+		const rev = reverseDepCounts(report.verdicts);
 		if (shown.length > 1) {
 			shown = [...shown].sort((a, b) => {
+				const ra = rev.get(a.chunk.key) ?? 0;
+				const rb = rev.get(b.chunk.key) ?? 0;
+				if (rb !== ra) return rb - ra; // 反向路径优先治理
 				const da = inDeg.get(a.chunk.key) ?? 0;
 				const db = inDeg.get(b.chunk.key) ?? 0;
 				if (db !== da) return db - da;
@@ -1074,10 +1249,12 @@ async function main(): Promise<void> {
 			if (vs.length === 0) continue;
 			console.log("\n" + group);
 			for (const v of vs) {
+				const r = rev.get(v.chunk.key) ?? 0;
 				console.log(
 					`  chain=${fmtChain(v)}  ${fmtEffects(v).padEnd(10)} ` +
-						`callers=${String(inDeg.get(v.chunk.key) ?? 0).padStart(3)}  ` +
-						`${v.chunk.name.padEnd(28)} ${v.chunk.file}:${v.chunk.line}`,
+						`callers=${String(inDeg.get(v.chunk.key) ?? 0).padStart(3)}` +
+						(r > 0 ? `  rev=${r}` : "") + // 迭代55：逆向依赖边（与主方向相反的路径）治理优先
+						`  ${v.chunk.name.padEnd(28)} ${v.chunk.file}:${v.chunk.line}`,
 				);
 				// 传染路径（可解释性）：效应源 → ... → 本 chunk
 				if (v.chainPath.length > 1) {

@@ -1,10 +1,40 @@
 # Changelog
 
-## [Unreleased] — 迭代 55（有向拓扑指标）
+## [Unreleased] — 迭代 55（有向拓扑指标 + 逆向依赖治理优先）
+
+### 修复
+
+- **iter55-r9（reviewer 5620f02d 安全审查）**：recheck 输入 `chain`/`chainDev` 形状校验（Medium-1——非整数 2.5 曾 RangeError、1e9 曾 V8 堆耗尽不可捕获 OOM，380B 恶意 JSON 可复现；现 exit 2 清晰报错）；`graphMetrics` maxFinite 上限 65536 桶兜底（库 API 直调防御）+ 删除死代码 succ 数组；L2 守卫「输入过大」报错不再被统一 catch 吞掉；record-array 成员 `:tag` 标签闭合校验（Low-3——防 override 直通 direct.add 使自身输出被 recheck EFFECT_SET 拒，验证回路断裂）
 
 ### 新增
 
-- **有向拓扑指标**（graphMetrics）：`backEdges`（同 SCC 内边——每条都在某个环上，DAG 恒 0）+ `inDegreeHistogram`/`outDegreeHistogram`（下标=度→节点数；自环/族内边不计，Σ i·h[i] = knownEdges 恒等式；h[0]=源/汇数）。`--topology` text 摘要新增「有向形态：源/汇/回边」行；recheck 重算自动生效。
+- **逆向依赖优先治理**（reverseDepCounts）：与主方向相反的路径（同 SCC 内边 + 自环）per-chunk 计数，默认治理清单（text 与 `--json --top N`）排序第一键——环内/自环 chunk 排在高入度 chunk 之前，行内 `rev=N` 标注；`--topology` 摘要新增「有向形态：源/汇/逆向依赖边」
+- **有向拓扑指标**（graphMetrics）：`backEdges`（同 SCC 内边——每条都在某个环上，DAG 恒 0）+ `inDegreeHistogram`/`outDegreeHistogram`（下标=度→节点数；自环/族内边不计，Σ i·h[i] = knownEdges 恒等式；h[0]=源/汇数）。recheck 重算自动生效。
+
+## [Unreleased] — 迭代 56（审计缺口闭环：`--json` 产物链路 + recheck 陈旧性验证）
+
+### 修复
+
+- **G1 审计缺口（结对审计 blocker「审计触发失败，产物未过审」）**：`--json <file>` 文档语义恢复——此前 `--json` 是纯布尔旗标，README/help 声称的 `--json out.json` 会把 `out.json` 当扫描目录（ENOTDIR exit 2），审计产物从未生成。现 `--json [file]`：带 `<file>` 写文件（供 recheck/compare 复用），无参输出 stdout（旧行为兼容）；后跟已存在目录不吞（`scan --json src` 反序写法仍扫目录）。
+- **G3 审计缺口**：recheck 输入陈旧性验证——JSON 顶层新增 `version` 字段（additive），recheck 时 version 不符当前工具或 scannedAt 距今 >30 天 → 显式警告（不阻断，对比/归档合法）；输入上限 64MB → 512MB（InitDeity 全量产物 317MB/42758 chunks 曾被拒之门外——产物生成了却无法消费，同为「产物未过审」形态）。
+- **CI 门禁接线（G2）**：ci.yml 新增自扫描 `--json` 产物生成 + `recheck` 重算回路（防文档声称的验证回路死路径复发）。
+- **产物防误提交（G4）**：.gitignore 忽略 `report.html`/`initdeity-audit.json`/`initdeity-report.html`（含本机绝对路径）。
+
+### 新增
+
+ - 回归测试 3 例：`--json <file>` 写文件 + recheck 可消费、`--json` 目录保护、recheck 陈旧性警告。
+
+## [Unreleased] — 迭代 57（治理三视图：--dups / --test-coverage / --dead）
+
+### 新增
+
+- **治理三视图**（全部复用 verdicts 现有数据，零新增扫描能力，recheck 对旧产物自动生效）：
+  - `--dups` 重复代码：id（内容哈希，公理4）相同且 key 不同的 chunk 分组——InitDeity 实测 648 组第一方（×24 `BaseIndexPlayCombatAnimation.OnUpdate` 居首）
+  - `--test-coverage` 测试盲区：Tests/ 目录调用闭包 ∩ 生产 chunks 补集，按调用者数降序——InitDeity 实测覆盖仅 3.4%（568/16925），`Debugger.LogError`(229 调用者) 等最高频基础设施零测试引用
+  - `--dead` 疑似死代码：零调用者 chunk，排除 Unity 生命周期/特性反射入口/测试文件误报，public（首字母大写）标 suspected、其余 high——InitDeity 实测 8046 个第一方（902 高置信）
+- **`--first-party` 过滤**：排除 LocalPackages/Plugins/Packages/生成代码（.g.cs）——实测 top 被 UniRx ×105/API.g.cs ×47 噪音主导，过滤后才是第一方治理清单
+- 库 API：`duplicateGroups` / `testCoverage` / `deadChunks` / `isTestFile` / `isFirstParty` 导出
+- 单元测试 11 例（gov.test.ts：重复分组/测试闭包传递/生命周期排除/置信度分级/路径识别）
 
 ## [Unreleased] — 迭代 54（InitDeity 重构会话痛点驱动：使用可观测性 + 验证回路秒级化）
 

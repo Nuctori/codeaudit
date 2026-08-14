@@ -6,6 +6,11 @@ dist/
 .pi-subagents/
 .ruff_cache/
 *.log
+# 技术债报告产物（--html 生成，含本机绝对路径——防误提交；可用 --html 重新生成）
+report.html
+# 大型扫描产物（InitDeity 级 317MB——--json 落地物，git 不跟踪；可用 recheck 消费）
+initdeity-audit.json
+initdeity-report.html
 # 个人审计探针脚本（并行会话/历史会话产物，含本机绝对路径——防误提交；auditor 参考项 2026-08-14）
 scripts/copy-generated.cjs
 scripts/diff-scans.cjs
@@ -13,3 +18,6 @@ scripts/dump-verdicts.cjs
 scripts/extract-report.cjs
 scripts/selfloop-audit.cjs
 scripts/unknown-audit.cjs
+scripts/initdeity-audit.cjs
+scripts/gov-probe.cjs
+scripts/gov-view.cjs

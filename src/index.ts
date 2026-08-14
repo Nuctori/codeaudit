@@ -110,3 +110,10 @@ export { dependencySkeleton, bridgesOf } from "./core/skeleton";
 export type { SkeletonEdge, BridgeResult } from "./core/skeleton";
 export { proofCompleteness } from "./core/proof";
 export type { ProofCompleteness } from "./core/proof";
+export {
+	duplicateGroups,
+	testCoverage,
+	deadChunks,
+	isTestFile,
+} from "./core/gov";
+export type { DupGroup, TestCoverageView, DeadChunk } from "./core/gov";

@@ -27,6 +27,14 @@ jobs:
       # 自扫描健康检查：工具必须能扫描自身且拓扑输出正常。
       # 注意不用 --strict——CLI/loader/extractor 自身处理 io 属正常，strict 留给消费者项目
       - run: node dist/cli.js scan src --no-cache --topology > /dev/null
+      # G2 修复（审计缺口）：--json 产物生成 + recheck 重算回路进 CI——文档声称的
+      # "导出 JSON 供 recheck 复用"曾是死路径（--json 纯布尔吞文件名），产物从未生成。
+      # 现在 CI 必须生成产物并成功重算，防"审计触发失败，产物未过审"复发。
+      - run: node dist/cli.js scan src --no-cache --json /tmp/self-audit.json
+      - run: node dist/cli.js recheck /tmp/self-audit.json \
+          --topology > /dev/null
+      - run: node dist/cli.js scan src --no-cache --json \
+          /tmp/self-audit.json && test -s /tmp/self-audit.json
       # 库 API 冒烟：require 可加载
       - run: node -e "require('./dist/index.js')"
       # essence 蒸馏副本（TODO P3-2）：算法层语义变更时 8 断言同步失败——防"灵魂"与实现漂移
