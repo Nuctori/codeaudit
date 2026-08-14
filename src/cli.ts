@@ -245,7 +245,7 @@ function printHelp(): void {
   --strict             存在 IMPURE chunk 时退出码为 1
   --gate               与 --changed 联用：grade ≥ high（风险≥35）时退出码 1（合入门禁；invalid 不放行）
   --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
-  --html <file>        技术债 HTML 可视化（自包含单文件：健康度卡片/模块分段/治理清单/复杂度/未知形态/效应源）
+  --html <file>        技术债 HTML 可视化（自包含单文件：健康度/拓扑/治理清单/复杂度/未知形态/效应源/证明完整度/测试盲区/重复代码/死代码/状态耦合）
   recheck <json>       重算模式：加载 --json 输出重算全部视图（改工具后秒级验证，免 10-20min 重扫）
   --dups               重复代码：同内容哈希多实例（复制粘贴，公理4 直接支撑）
   --test-coverage      测试盲区：生产 chunk 未被 Tests/ 引用（按调用者数排序）
