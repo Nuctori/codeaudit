@@ -54,6 +54,18 @@ function runOnce(
 
   const eff: Array<Set<string>> = [];
   const chain: number[] = [];
+  // 分量代表键（字典序最小 key——输入序无关；公理5）。提前计算：
+  // prevComp 平手 tiebreak 需要它（同一 SCC 多个链长相等的效应后继时，succ 插入序
+  // 随 tarjan 成员发现序变，源选择会随输入序翻转——第三轮对抗审计 law:determinism 实证）。
+  const compKey = new Map<number, string>();
+  sccs.forEach((s, k) => {
+    let best: string | null = null;
+    for (const i of s) {
+      const key = byKey.get(i)!.key;
+      if (best === null || key < best) best = key;
+    }
+    compKey.set(k, best ?? "");
+  });
   const prevComp: number[] = new Array(sccs.length).fill(-1); // 链上"上一跳"分量（-1 = 纯/无路径；自身 = 效应源）
   for (let k = 0; k < sccs.length; k++) {
     const e = new Set<string>();
@@ -65,8 +77,16 @@ function runOnce(
     let best = e.size > 0 ? 0 : Infinity;
     for (const k2 of succ[k]!) {
       for (const d of eff[k2]!) e.add(d);
-      if (eff[k2]!.size > 0 && 1 + chain[k2]! < best) {
-        best = 1 + chain[k2]!;
+      if (eff[k2]!.size === 0) continue;
+      const cand = 1 + chain[k2]!;
+      const prev = prevComp[k]!; // -1 = 尚未设置（无效应后继）
+      // 平手 tiebreak：链长相等时取分量代表键更小者（确定性——不再依赖 succ 插入序）
+      if (
+        cand < best ||
+        (cand === best &&
+          (prev === -1 || (compKey.get(k2) ?? "") < (compKey.get(prev) ?? "")))
+      ) {
+        best = cand;
         prevComp[k] = k2; // 链路径记录：本分量的最近效应源经 k2
       }
     }
@@ -89,15 +109,6 @@ function runOnce(
 
   // chain 路径重构（audit 模式；用户需求可解释性 2026-08-11）：
   // 分量级路径 [源分量, ..., 本分量]（SCC 内同 chain 无跳），映射为 chunk key（分量取字典序最小 key——输入序无关）
-  const compKey = new Map<number, string>();
-  sccs.forEach((s, k) => {
-    let best: string | null = null;
-    for (const i of s) {
-      const key = byKey.get(i)!.key;
-      if (best === null || key < best) best = key;
-    }
-    compKey.set(k, best ?? "");
-  });
   const pathOf = (compIdx: number, chunkKey: string): string[] => {
     const keys: string[] = [];
     let cur = compIdx;

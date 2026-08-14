@@ -36,13 +36,15 @@ export function proofCompleteness(
 	const total = unknownKeys.size;
 
 	// 加权：每个 UNKNOWN chunk 单独的正向闭包大小 |Fwd(c)|（下游影响面权重——
-	// 传播枢纽未知 chunk 权重更高；联合源集 BFS 深度是错误语义，迭代2 修正）
+	// 传播枢纽未知 chunk 权重更高；联合源集 BFS 深度是错误语义，迭代2 修正）。
+	// maxFwd 是字段契约（未知 chunk 最宽扇出），与 weighted 开关解耦——unweighted
+	// 调用也必须如实报告（第三轮对抗审计 law:edge-case 实证：曾只在 weighted 分支计算）。
 	const fwdWeight = new Map<string, number>();
 	let maxFwd = 0;
-	if (opts?.weighted && total > 0) {
+	if (total > 0) {
 		for (const k of unknownKeys) {
 			const w = forwardClosure(verdicts, new Set([k])).size;
-			fwdWeight.set(k, w);
+			if (opts?.weighted) fwdWeight.set(k, w);
 			if (w > maxFwd) maxFwd = w;
 		}
 	}

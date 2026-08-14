@@ -161,7 +161,9 @@ export function duplicateGroups(verdicts: readonly Verdict[]): DupGroup[] {
 		});
 	}
 	return groups.sort(
-		(a, b) => b.instances - a.instances || (a.file < b.file ? -1 : 1),
+		(a, b) =>
+			b.instances - a.instances ||
+			(a.file < b.file ? -1 : a.file > b.file ? 1 : 0), // 公理5：等实例数平手按文件（乱序输入稳定）
 	);
 }
 
@@ -209,7 +211,7 @@ export function testCoverage(verdicts: readonly Verdict[]): TestCoverageView {
 			line: v.chunk.line,
 			callers: callers.get(v.chunk.key) ?? 0,
 		}))
-		.sort((a, b) => b.callers - a.callers || (a.file < b.file ? -1 : 1));
+		.sort((a, b) => b.callers - a.callers || (a.file < b.file ? -1 : a.file > b.file ? 1 : 0));
 	const production = prod.size;
 	const cov = covered.size;
 	return {
@@ -264,5 +266,8 @@ export function deadChunks(verdicts: readonly Verdict[]): DeadChunk[] {
 			confidence,
 		});
 	}
-	return out.sort((a, b) => (a.file < b.file ? -1 : 1) || a.line - b.line);
+	return out.sort(
+		(a, b) =>
+			(a.file < b.file ? -1 : a.file > b.file ? 1 : 0) || a.line - b.line,
+	);
 }
