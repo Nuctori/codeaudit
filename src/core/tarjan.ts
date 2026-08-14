@@ -9,6 +9,10 @@ export function tarjan(
   nodes: Iterable<string>,
   edges: ReadonlyMap<string, ReadonlySet<string>>,
 ): string[][] {
+  // 幽灵目标守卫（范畴律：输出必须是输入节点集的划分）：边目标不在节点集时忽略——
+  // 否则 tarjan 会把幽灵节点当成成员建分量（实测 tarjan(["a"], {a:["ghost"]}) → [["ghost"],["a"]]）。
+  const nodeList = [...nodes];
+  const nodeSet = new Set(nodeList);
   const index = new Map<string, number>();
   const low = new Map<string, number>();
   const onStack = new Set<string>();
@@ -19,7 +23,7 @@ export function tarjan(
   const successors = (v: string): ReadonlySet<string> =>
     edges.get(v) ?? EMPTY_SET;
 
-  for (const root of nodes) {
+  for (const root of nodeList) {
     if (index.has(root)) continue;
     index.set(root, counter);
     low.set(root, counter);
@@ -36,6 +40,7 @@ export function tarjan(
       const next = it.next();
       if (!next.done) {
         const w = next.value;
+        if (!nodeSet.has(w)) continue; // 幽灵目标：不入图
         if (!index.has(w)) {
           index.set(w, counter);
           low.set(w, counter);
