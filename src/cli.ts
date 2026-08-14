@@ -17,7 +17,16 @@ import { stateCouplingOf, type StateCouplingEntry } from "./core/state";
 import { moduleSummary } from "./core/module";
 import { outDepsOf, inDepsOf } from "./core/filedeps";
 import { sourceSnippet } from "./core/snippet";
-import { Purity, UNKNOWN_TARGET, type Verdict, type Chunk } from "./core/types";
+import {
+	Purity,
+	UNKNOWN_TARGET,
+	type Verdict,
+	type Chunk,
+	type Effect,
+	type Provenance,
+	type ScanReport,
+	type ScanStats,
+} from "./core/types";
 import {
 	annotationBudget,
 	annotationCurve,
@@ -58,6 +67,9 @@ interface CliArgs {
 	compare: string | null;
 	/** 技术债 HTML 可视化输出（--html <file>；迭代49 插件化——renderTechdebtHtml 库 API 的 CLI 入口）。 */
 	html: string | null;
+	/** 重算模式（recheck <json>；iter54-r3：加载 --json 输出重算全部视图——验证回路秒级，
+	 * 会话实证：改工具后每次重扫 10-20min + 手写脚本解析 216MB JSON）。 */
+	recheck: string | null;
 	/** 状态耦合图（--state；迭代23 D-127：写方按读者数排序，全图耦合链）。 */
 	state: boolean;
 	/** 回归风险分析：改动文件集（--changed a.ts,b.py）。 */
@@ -92,11 +104,18 @@ function parseArgs(argv: string[]): CliArgs {
 		deps: null,
 		compare: null,
 		html: null,
+		recheck: null,
 	};
 	const rest = argv.slice(2);
 	for (let i = 0; i < rest.length; i++) {
 		const a = rest[i]!;
 		if (a === "scan") continue;
+		if (a === "recheck") {
+			const val = rest[++i];
+			if (val === undefined) throw new Error("recheck 需要 <json> 参数（--json 输出文件）");
+			args.recheck = val;
+			continue;
+		}
 		if (a === "--format") args.format = rest[++i] === "json" ? "json" : "text";
 		else if (a === "--json") args.format = "json";
 		else if (a === "--top") {
@@ -171,6 +190,7 @@ function printHelp(): void {
   --gate               与 --changed 联用：grade ≥ high（风险≥35）时退出码 1（合入门禁；invalid 不放行）
   --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
   --html <file>        技术债 HTML 可视化（自包含单文件：健康度卡片/模块分段/治理清单/复杂度/未知形态/效应源）
+  recheck <json>       重算模式：加载 --json 输出重算全部视图（改工具后秒级验证，免 10-20min 重扫）
   -h, --help           显示帮助
 
 示例:
@@ -178,6 +198,8 @@ function printHelp(): void {
   codeaudit scan src --html report.html  # 技术债 HTML 报告
   codeaudit scan . --unknowns u.json --annotations a.json  # 标注闭环（导出→AI 标注→回读）
   codeaudit scan . --changed a.ts,b.py --gate  # 改动回归风险 + 合入门禁
+  codeaudit scan . --json out.json --topology  # 导出 JSON（供 recheck/对比）
+  codeaudit recheck out.json --topology --html r.html  # 重载 JSON 秒级重算视图
 `);
 }
 
@@ -263,6 +285,49 @@ function trimRootPath(msg: string): string {
 	return msg.slice(0, i) + "." + msg.slice(i + cliRoot.length);
 }
 
+/** 反序列化 --json 输出（Set→数组、Infinity→"Infinity" 序列化）→ 可复用视图的 ScanReport。
+ * 验证回路核心（iter54-r3）：改工具逻辑后对旧数据重算全部视图，不用重扫（10-20min → 秒级）。
+ * 会话实证：18:21 agent 手写 _rings.cjs 解析 216MB JSON 重算环；19:40 脚本 120s 超时。 */
+function loadReport(file: string): ScanReport {
+	let raw: {
+		root: string;
+		mode: "audit";
+		stats: ScanStats;
+		verdicts: Array<{
+			chunk: Omit<Chunk, "direct" | "calls"> & {
+				direct: Effect[];
+				calls: string[];
+			};
+			purity: number;
+			effects: string[];
+			chain: number | "Infinity";
+			chainDev: number | "Infinity";
+			chainPath: string[];
+			throwsTypes: string[];
+			stateDeps: string[];
+			chainCertain: boolean;
+			provenance: Provenance;
+		}>;
+	};
+	try {
+		raw = JSON.parse(readFileSync(file, "utf8"));
+	} catch {
+		throw new Error(`recheck: 无法解析 ${file}（需 --json 输出文件）`);
+	}
+	const verdicts: Verdict[] = raw.verdicts.map((v) => ({
+		...v,
+		chunk: {
+			...v.chunk,
+			direct: new Set(v.chunk.direct),
+			calls: new Set(v.chunk.calls),
+		},
+		effects: new Set(v.effects),
+		chain: v.chain === "Infinity" ? Infinity : v.chain,
+		chainDev: v.chainDev === "Infinity" ? Infinity : v.chainDev,
+	}));
+	return { root: raw.root, mode: raw.mode, verdicts, stats: raw.stats };
+}
+
 /** 语料先验提示（建议置信度，非纯度判定；n 不足/分歧大时不提示）。0.65/0.35 与 PRIOR_THRESHOLD 同源。 */
 function priorHint(corpus: CorpusFile, sites: Chunk["unknownCalls"]): string {
 	const hints: string[] = [];
@@ -317,7 +382,7 @@ function capStateCoupling(
 async function main(): Promise<void> {
 	const startedAt = Date.now();
 	const args = parseArgs(process.argv);
-	const root = resolve(args.dir);
+	let root = resolve(args.dir);
 	cliRoot = root;
 
 	warnIfStaleDist(); // dev 场景（仓库内运行）：src 比 dist 新 → 警告（会话实证：stale dist 无 `scan` 子命令支持，误导排查多轮）
@@ -369,21 +434,32 @@ async function main(): Promise<void> {
 		}
 	}
 
-	// 开始信号 + 缓存状态（会话实证：agent 无法区分重扫是增量还是全量——缓存命中数从未输出，
-	// 误判"无缓存 → 全量 10min"干等；scanProject 内部已统计 cachedFiles 但从未暴露到 CLI）
-	console.error(
-		`扫描开始（${args.noCache ? "缓存禁用" : "增量缓存"}）…`,
-	);
-	const report = await scanProject(root, {
-		useCache: !args.noCache,
-		cacheDir: resolve(root, ".codeaudit"),
-		annotations,
-		effectOverrides,
-	});
+	let report: ScanReport;
+	if (args.recheck) {
+		// 重算模式：加载 --json 输出，跳过扫描/缓存/标注注入（verdicts 已含最终判定）——
+		// 改工具视图逻辑后对旧数据秒级重算（iter54-r3；会话实证 10-20min 重扫 + 手写脚本）
+		report = loadReport(args.recheck);
+		root = report.root; // 视图用 root（HTML title/--changed 相对解析）对齐 JSON 内的扫描根
+		console.error(`recheck ${args.recheck}（${report.verdicts.length} verdicts，${report.stats.files} 文件）`);
+	} else {
+		// 开始信号 + 缓存状态（会话实证：agent 无法区分重扫是增量还是全量——缓存命中数从未输出，
+		// 误判"无缓存 → 全量 10min"干等；scanProject 内部已统计 cachedFiles 但从未暴露到 CLI）
+		console.error(
+			`扫描开始（${args.noCache ? "缓存禁用" : "增量缓存"}）…`,
+		);
+		report = await scanProject(root, {
+			useCache: !args.noCache,
+			cacheDir: resolve(root, ".codeaudit"),
+			annotations,
+			effectOverrides,
+		});
+	}
 	const s = report.stats;
-	console.error(
-		`扫描完成: ${s.files} 文件 / ${s.chunks} chunks / 缓存命中 ${s.cachedFiles} / 跳过 ${s.skippedFiles} / 解析错误 ${s.parseErrors} / ${((Date.now() - startedAt) / 1000).toFixed(0)}s`,
-	);
+	if (!args.recheck) {
+		console.error(
+			`扫描完成: ${s.files} 文件 / ${s.chunks} chunks / 缓存命中 ${s.cachedFiles} / 跳过 ${s.skippedFiles} / 解析错误 ${s.parseErrors} / ${((Date.now() - startedAt) / 1000).toFixed(0)}s`,
+		);
+	}
 
 	// 回归风险分析（--changed）：L×C 模型，六因子从扫描数据推导
 	if (args.changed !== null && args.changed.length > 0) {
