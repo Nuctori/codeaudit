@@ -113,7 +113,8 @@ export function moduleGraph(
 	const key3 = (file: string): string => {
 		const k = key2(file);
 		const parts = file.replace(/\\/g, "/").split("/");
-		if (parts.length >= 4 && !parts[3]!.includes(".")) return `${k}/${parts[3]!}`;
+		if (parts.length >= 4 && !parts[3]!.includes("."))
+			return `${k}/${parts[3]!}`;
 		return k;
 	};
 	// 第一遍：2 级键 chunks 统计 → 展开集
