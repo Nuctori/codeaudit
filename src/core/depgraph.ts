@@ -242,7 +242,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 	const W = 1500,
 		H = 820,
 		CX = W / 2;
-	const pos = new Map<string, { x: number; y: number }>();
+	const pos = new Map<string, { x: number; y: number; slot: number }>();
 
 	// 1. SCC 凝聚：环成员 → 代表（字典序最小）；非环成员自身为代表
 	const rep = new Map<string, string>();
@@ -292,7 +292,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		const y = 95 + l * rowH;
 		const slot = Math.min(170, (W - 240) / Math.max(ids.length, 1));
 		ids.forEach((id, i) => {
-			pos.set(id, { x: CX + (i - (ids.length - 1) / 2) * slot, y });
+			pos.set(id, { x: CX + (i - (ids.length - 1) / 2) * slot, y, slot });
 		});
 	}
 	// 层数标注（右侧 y 轴提示）
@@ -374,7 +374,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 	const ringSet = new Set(g.sccs.flat());
 	for (const node of g.nodes) {
 		const p = pos.get(node.id)!;
-		const r = 6 + (node.chunks / maxChunks) * 16;
+		const r = 10 + (node.chunks / maxChunks) * 30;
 		const ring = ringSet.has(node.id);
 		const isolated = !edgeNodes.has(node.id);
 		const fill = ring
@@ -391,7 +391,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		// 标签：节点下方，超出省略
 		const label =
 			node.label.length > 22 ? node.label.slice(0, 21) + "…" : node.label;
-		nodeSvg += `<text x="${p.x.toFixed(1)}" y="${(p.y + r + 12).toFixed(1)}" text-anchor="middle" font-size="11" fill="var(--fg)"><title>${tip}</title>${esc(label)}</text>`;
+		nodeSvg += `<text x="${p.x.toFixed(1)}" y="${(p.y + r + 14).toFixed(1)}" text-anchor="middle" font-size="13" fill="var(--fg)"><title>${tip}</title>${esc(label)}</text>`;
 	}
 
 	return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:var(--panel);border-radius:8px;border:1px solid var(--br)" xmlns="http://www.w3.org/2000/svg">
@@ -485,7 +485,7 @@ function depgraphRender(data, holder, path, parentPath) {
 	for (var lk in layerNodes) {
 		var ids = layerNodes[lk], y = 95 + (+lk) * rowH;
 		var slot = Math.min(170, (W - 240) / Math.max(ids.length, 1));
-		ids.forEach(function(id, ii) { pos[id] = { x: CX + (ii - (ids.length - 1) / 2) * slot, y: y }; });
+		ids.forEach(function(id, ii) { pos[id] = { x: CX + (ii - (ids.length - 1) / 2) * slot, y: y, slot: slot }; });
 	}
 	var maxCount = 1, maxChunks = 1;
 	data.edges.forEach(function(e) { maxCount = Math.max(maxCount, e.count); });
@@ -521,19 +521,20 @@ function depgraphRender(data, holder, path, parentPath) {
 	data.nodes.forEach(function(n) {
 		var p = pos[n.id];
 		if (!p) return;
-		var r = 6 + (n.chunks / maxChunks) * 16;
+		var r0 = 10 + (n.chunks / maxChunks) * 30;
+		var r = Math.min(r0, (p.slot || 170) * 0.45); // 密层收缩防重叠
 		var ring = !!ringSet[n.id];
 		var isolated = !edgeNodes[n.id];
 		var fill = ring ? '#e5484d' : (isolated ? '#6b7280' : (n.selfCalls > 0 ? '#d29922' : '#4c8dff'));
 		var stroke = isolated ? '#9ca3af' : '#1a1b1e';
 		var dash = isolated ? ' stroke-dasharray="5,4"' : '';
 		var tip = n.label + '\\nchunks ' + n.chunks + ' · 出→入 ' + n.outDeg + '→' + n.inDeg + ' · 内部调用 ' + n.selfCalls + (ring ? '（环内模块）' : '') + (isolated ? '\\n⚠ 无跨模块边——静态盲区（未知调用 ?/反射/事件驱动）或真实孤立' : '');
-		var child = data.children && data.children[n.id];
-		var plus = child ? '<circle cx="' + p.x.toFixed(1) + '" cy="' + (p.y - r - 10).toFixed(1) + '" r="9" fill="#e5484d" stroke="#fff" stroke-width="1.5" style="cursor:pointer" onclick="depgraphNav(\\'' + n.id + '\\',\\'' + path + '\\')"><title>点击展开 ' + n.id + ' 的模块级子图</title></circle><text x="' + p.x.toFixed(1) + '" y="' + (p.y - r - 5).toFixed(1) + '" text-anchor="middle" font-size="12" fill="#fff" style="cursor:pointer;pointer-events:none">+</text>' : '';
+		var child = window.__DEPGRAPH_DATA.children && window.__DEPGRAPH_DATA.children[n.id];
+		var plus = child ? '<circle cx="' + p.x.toFixed(1) + '" cy="' + (p.y - r - 14).toFixed(1) + '" r="13" fill="#e5484d" stroke="#fff" stroke-width="2" style="cursor:pointer" onclick="depgraphNav(\\'' + n.id + '\\',\\'' + path + '\\')"><title>点击展开 ' + n.id + ' 的模块级子图</title></circle><text x="' + p.x.toFixed(1) + '" y="' + (p.y - r - 8).toFixed(1) + '" text-anchor="middle" font-size="17" font-weight="bold" fill="#fff" style="cursor:pointer;pointer-events:none">+</text>' : '';
 		svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"' + dash + '><title>' + tip + '</title></circle>' + plus;
 		var label0 = n.label.split('/').pop() || n.label;
-		var label = label0.length > 14 ? label0.slice(0, 13) + '…' : label0;
-		svg += '<text x="' + p.x.toFixed(1) + '" y="' + (p.y + r + 12).toFixed(1) + '" text-anchor="middle" font-size="11" fill="var(--fg)"><title>' + tip + '</title>' + label + '</text>';
+		var label = label0.length > 16 ? label0.slice(0, 15) + '…' : label0;
+		svg += '<text x="' + p.x.toFixed(1) + '" y="' + (p.y + r + 14).toFixed(1) + '" text-anchor="middle" font-size="13" fill="var(--fg)"><title>' + tip + '</title>' + label + '</text>';
 	});
 	svg += '</g>';
 	var labels = '';
