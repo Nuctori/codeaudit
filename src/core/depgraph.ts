@@ -182,7 +182,7 @@ export function moduleGraph(
 			b = rawB ?? "";
 		if (dropped.has(a)) a = "…其他";
 		if (dropped.has(b)) b = "…其他";
-		if (a === b) continue; // 两端都落入其他桶 → 自环已在 other.selfCalls 计入
+		if (a === b) continue; // 两端都落入其他桶 → 边丢弃（展示层接受：聚合桶内边无治理价值）
 		// 主方向 = 计数大者；相等时字典序（确定性 tiebreak）
 		const forward = e.a2b >= e.b2a;
 		edges.push({

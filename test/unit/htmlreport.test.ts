@@ -268,8 +268,6 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 		expect(govSection).toMatch(
 			/ApiException\.ApiException[^<]*<[^>]*>[\s\S]*?bar-val">2<\/div>/,
 		);
-		// 治理段 bar-row 数 = 3（2 caller + 1 聚合族）
-		// 治理段 bar-row 数 = 3（2 caller + 1 聚合族）
 		expect((govSection.match(/class="bar-row"/g) ?? []).length).toBe(3);
 	});
 

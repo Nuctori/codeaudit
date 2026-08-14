@@ -27,7 +27,7 @@ npm install -g .
 codeaudit --version
 ```
 
-运行时要求 Node ≥ 18；开发（跑测试）需 Node ≥ 20。
+运行时要求 Node ≥ 18；开发（跑测试）需 Node ≥ 20。`--html` 报告的内嵌脚本需 ES2022 浏览器（Chrome 93+/Firefox 92+/Safari 15.4+，2021 年后版本）。
 
 ## 快速开始
 
