@@ -671,7 +671,7 @@ ${complex.map((v) => bar(`${esc(v.chunk.name)} <span style="color:var(--dim)">·
 ${shapeTop.map(([k, n2]) => bar(esc(k), n2, shapeMax, "var(--unk)")).join("")}
 </div>
 
-<h2>效应源（背锅者 top 15——chain=0 直接引入副作用）</h2>
+<h2>效应源（top 15——chain=0 直接引入副作用）</h2>
 <div class="panel">
 <table><tr><th>函数</th><th>位置</th><th>效应</th><th>调用点</th><th>圈复杂度</th></tr>
 ${sources.map((v) => `<tr><td>${esc(v.chunk.name)}</td><td>${esc(v.chunk.file)}${v.chunk.line ? `:${v.chunk.line}` : ""}</td><td>${[...v.effects].map((e) => `<span class="badge b-${esc(e)}">${esc(e)}</span>`).join("")}</td><td>${v.chunk.calls.size}</td><td>${v.chunk.complexity ?? "—"}</td></tr>`).join("")}

@@ -411,8 +411,8 @@ D-097（迭代 15 剩余工作执行——最简性+盲区+可解释性+极小�
 
 ## 迭代 16（生产就绪轮：真实项目验证 + 能力增量 + CI + 测试盲区 + 发布验证）
 
-- **真实项目验证**（用户提供 J:/旧宇宙/代码仓库 2818 chunks/179 files/549 impure + express/axios）：无崩溃、秒级；**背锅者分析**——手写代码腐化主力（42% IMPURE：BaseInitDeityUser {io,state}、ActionRunner {random,state}、SimpleRedisClient），generated 场景传播放大层（83% UNKNOWN），枢纽 reward_refresh_single_box/_op_refresh_single_box 解锁 6-7 下游
-- **--sources 旗标**（背锅者查找）：chain=0 IMPURE 效应源按调用点排序（README/--help 同步）
+- **真实项目验证**（用户提供 J:/旧宇宙/代码仓库 2818 chunks/179 files/549 impure + express/axios）：无崩溃、秒级；**效应源分析**——手写代码腐化主力（42% IMPURE：BaseInitDeityUser {io,state}、ActionRunner {random,state}、SimpleRedisClient），generated 场景传播放大层（83% UNKNOWN），枢纽 reward_refresh_single_box/_op_refresh_single_box 解锁 6-7 下游
+- **--sources 旗标**（效应源查找）：chain=0 IMPURE 效应源按调用点排序（README/--help 同步）
 - **CI**（.github/workflows/ci.yml）：Node 20 + build + 203 测试 + 自扫描 --strict 门禁 + require 冒烟；actions pin SHA
 - **测试盲区补齐**（历史 Med 行 82）：impureModules 效应表规则、数组接收者效应、link 深度上限（10 层 re-export 链 → ? 不崩溃）、缓存写失败只读目录、损坏缓存回退
 - **npm pack 验证**：43 文件/79.6kB；消费者安装测试通过（wasm 经 tree-sitter-wasms 依赖解析、scanProject 可用）
@@ -434,7 +434,7 @@ D-106（迭代 16 生产就绪轮——真实验证+CI+测试+发布+文档闭�
 
 - **盲区**：3028 个 C# 文件（Unity 游戏）完全不可扫——跨语言纯度审计对 C#/Unity 主流工作零覆盖
 - **实现**（csharp.ts + 引擎扩展）：类/结构/接口/方法/构造/局部函数 chunk；member_access_expression + generic_name（Resources.Load<GameObject>）+ this_expression flatten；implicitThis（C# 类内裸名=this 方法——LangPack 接口扩展，4 语言零破坏）；Unity/.NET 60+ 类名效应表（Debug io/PlayerPrefs state/File fs/GameObject/SceneManager/Animator state/AudioSource io/UnityWebRequest net/Time clock/Random random）；全局类名索引（C# namespace 跨文件类调用——moduleAssigned 遮蔽守卫）；frameworkIo["this"]+gameObject/transform（Unity 隐式组件属性链）
-- **InitDeity 验证**：23800 chunks/3004 文件/18s；unknown 8159→7706（三轮修复：跨文件类 +365、frameworkIo +83、标注 -979）；impure 7156→7604；10 环/72 自环（PushStone.Push 递归）；背锅者 RuntimeMainlineAutopilot.BuildSnapshot（33 调用）
+- **InitDeity 验证**：23800 chunks/3004 文件/18s；unknown 8159→7706（三轮修复：跨文件类 +365、frameworkIo +83、标注 -979）；impure 7156→7604；10 环/72 自环（PushStone.Push 递归）；效应源 RuntimeMainlineAutopilot.BuildSnapshot（33 调用）
 - **标注工作流**（InitDeity）：692 条（PURE 664 集合操作/IMPURE 28 网络诊断）→ unknown 7790→6811（标注后）
 - **诚实局限**：中文标识符 parse-error 77 文件（WorldRegion.草木之森——wasm Unicode 缺陷，方向安全 UNKNOWN）；协程/LINQ 链/事件订阅第一版不建模；<unresolved> 2206（不可拍平调用设计边界）
 - 测试 +6（csharp-lang 6 例），216/216

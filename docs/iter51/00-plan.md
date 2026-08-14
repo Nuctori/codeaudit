@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | 默认清单 | 非纯 chunk（IMPURE/UNKNOWN 分组） | callers 降序（迭代48） |
 | --topology | 拓扑健康度 + 结构解读行 | 桥比例/多入口环/桥/割点（迭代46-50） |
-| --sources | 效应源背锅者 | 调用点出度 |
+| --sources | 效应源清单 | 调用点出度 |
 | --state | 状态耦合 | 读者数 |
 | --complexity | 圈复杂度 top | 复杂度降序 |
 | --modules | 模块聚合 | chunk 数降序 |

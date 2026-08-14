@@ -95,7 +95,7 @@ interface CliArgs {
 	changed: string[] | null;
 	/** 拓扑健康度（--topology；迭代14 视角 3）。 */
 	topology: boolean;
-	/** 效应源清单（--sources；chain=0 IMPURE——直接调 io/net/random/state 的"背锅者"，迭代16）。 */
+	/** 效应源清单（--sources；chain=0 IMPURE——直接调 io/net/random/state 的原语调用点，迭代16）。 */
 	sources: boolean;
 	/** 效应表补表候选详情（--table-usage；迭代21 T8——missSlots top 15）。 */
 	tableUsage: boolean;
@@ -240,7 +240,7 @@ function printHelp(): void {
   --corpus <file>      标注语料文件（默认 .codeaudit/corpus.json；累积先验供 suggested_prompt）
   --no-cache           禁用增量缓存
   --topology           拓扑健康度：密度/环/深度/自环/多入口纠缠环/桥/割点 + 人类解读（json 顶层加 topology 字段）
-  --sources            效应源清单：chain=0 IMPURE——直接调 io/net/random/state 的源头（背锅者，按调用点排序）
+  --sources            效应源清单：chain=0 IMPURE——直接调 io/net/random/state 的源头（按调用点排序）
   --state              状态耦合图：写方按读者数排序（json 模式顶层加 stateCoupling；默认 top 50、硬上限 500——大项目防序列化超限）
   --strict             存在 IMPURE chunk 时退出码为 1
   --gate               与 --changed 联用：grade ≥ high（风险≥35）时退出码 1（合入门禁；invalid 不放行）
@@ -978,7 +978,7 @@ async function main(): Promise<void> {
 		}
 		if (args.sources) {
 			// 效应源清单（迭代16 --sources；迭代17 视角 1 修正）：chain=0 IMPURE **且 direct 非空**——
-			// 直接调 io/net/random/state 的源头（"背锅者"）；排除悲观未知源（? 归零链但 direct=[]）。
+			// 直接调 io/net/random/state 的源头；排除悲观未知源（? 归零链但 direct=[]）。
 			// 按出度（已解析调用点）降序 = 源头的直接调用负载；扩散面（调用者反向闭包）看 --changed 的 impact
 			const srcs = report.verdicts
 				.filter(

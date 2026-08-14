@@ -22,7 +22,7 @@
 
 ### 新增
 
- - 回归测试 3 例：`--json <file>` 写文件 + recheck 可消费、`--json` 目录保护、recheck 陈旧性警告。
+- 回归测试 3 例：`--json <file>` 写文件 + recheck 可消费、`--json` 目录保护、recheck 陈旧性警告。
 
 ## [Unreleased] — 迭代 57（治理三视图：--dups / --test-coverage / --dead）
 
@@ -331,7 +331,7 @@ C# 局部声明名并入 assigned（variable_declarator 进 assignmentTargets + 
 
 ### 新增
 
-- `--sources`：效应源清单（chain=0 IMPURE——直接调 io/net/random/state 的"背锅者"，按调用点排序）
+- `--sources`：效应源清单（chain=0 IMPURE——直接调 io/net/random/state 的源头，按调用点排序）
 - `--topology`：拓扑健康度（graphMetrics：密度/环/深度/自环/层/链直方图 + 人类解读）
 - `graphMetrics` 库 API（拓扑派生层纯函数）
 - `R_state` 因子：回归风险六因子（状态写改动 → stateDeps 读者耦合）
