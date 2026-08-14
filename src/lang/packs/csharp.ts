@@ -905,8 +905,8 @@ const propertyReadNodes = [
 const propertyReadSkipMorphs = [
 	"member_access_expression", // 链中段（a.b.c 的 a.b——末段处理）
 	"invocation_expression", // 调用目标（obj.M() 的 obj.M——callOf 处理）
-	"assignment_expression", // 赋值左值（stateWritePos 处理）
-	"augmented_assignment_expression",
+	"assignment_expression", // 赋值左值（stateWritePos 处理；C# 增强赋值（+=/??=）parse 实证同归
+	// 本超类型名——augmented_assignment_expression 无对应节点（第七轮 grammar 对拍实证，已除）
 	"postfix_unary_expression", // ++/-- 写形态
 	"prefix_unary_expression",
 ];
@@ -954,26 +954,23 @@ const propertyReadSkipParents = [
 	"namespace_declaration",
 	"object_creation_expression",
 	"generic_name",
-	"type_argument_list",
 	"type_parameter_list",
 	"type_parameter",
 	"base_list",
 	"primary_constructor_base_type", // 迭代46 O-C6 对拍：主构造基类（record R(x) : Base(x)）的
 	// 类型名位——B5 identifier 通道不得把 Base 当运行时读（类型位置，无用户代码）
-	"using_directive",
-	"attribute_list",
-	"attribute",
-	"sizeof_expression",
-	"typeof_expression",
-	"nameof_expression",
+	"size_of_expression", // 迭代47 修正：grammar 节点实为 size_of_expression（sizeof_expression 死条目已除，
+	// 第七轮 parse 实证：sizeof(int) → size_of_expression > predefined_type——类型位置无运行时读取）
+	"type_of_expression", // 迭代47 修正：grammar 节点实为 type_of_expression（typeof_expression 死条目已除，
+	// 第七轮 parse 实证：typeof(int) → type_of_expression > predefined_type）
 	"member_binding_expression",
 	"operator_declaration",
 	"conversion_operator_declaration",
 	"destructor_declaration",
 	"indexer_declaration",
-	"label_statement",
+	"labeled_statement", // 迭代47 修正：grammar 节点实为 labeled_statement（label_statement 死条目，第七轮对拍）
 	"goto_statement",
-	"implicit_this_expression",
+	"this_expression", // 迭代47 修正：grammar 节点实为 this_expression（implicit_this_expression 死条目，第七轮对拍）
 	"cast_expression",
 	"as_expression",
 	"is_expression",
@@ -985,8 +982,7 @@ const propertyReadSkipParents = [
 	"declaration_pattern",
 	"recursive_pattern",
 	"base_expression",
-	"checked_expression",
-	"unchecked_expression",
+	"checked_expression", // grammar 仅有 checked_expression（unchecked 无节点——unchecked_expression 死条目已除，第七轮对拍）
 ];
 // 属性读取排除的 name/type 槽位（声明名位无运行时读取，value 位保留）：
 // variable_declarator 无 name 命名字段（探针实证）→ "__child0" = children[0]（语法固定）
@@ -1136,7 +1132,7 @@ export const csharpPack: LangPack = {
 	foreachInToken: "in", // H07
 	throwArgFields: { throw_statement: "argument" }, // H09
 	typeNameNodes: ["generic_name", "qualified_name"], // H13
-	patternNameNodes: ["tuple_pattern", "array_pattern", "as_pattern_target"], // H15
+	patternNameNodes: ["tuple_pattern"], // H15；迭代47 第七轮对拍：array_pattern/as_pattern_target 无此节点（死条目已除）
 	fnLiteralNodes: ["anonymous_method_expression", "lambda_expression"], // H16（C# 匿名方法/表达式 lambda）
 	paramListNodeTypes: ["parameter_list"], // H18：参数列表节点类型（assignedNames walk）
 	paramListField: "parameters", // H18：参数列表字段名（paramNames/paramTypesOf）
@@ -1209,7 +1205,7 @@ export const csharpPack: LangPack = {
 	// 迭代39 P2-1：AST 形状投影（π 数据侧——extractor 节点类型判定走此表）
 	astShapes: {
 		writeStmts: [],
-		writeAssigns: ["assignment_expression", "augmented_assignment_expression"],
+		writeAssigns: ["assignment_expression"], // 迭代47：augmented 同归 assignment_expression 超类型（死条目已除）
 		writeUpdates: [],
 		writeUnary: ["postfix_unary_expression", "prefix_unary_expression"],
 		memberNodes: ["member_access_expression", "conditional_access_expression"],
