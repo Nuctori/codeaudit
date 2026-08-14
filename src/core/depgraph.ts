@@ -265,7 +265,13 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		const r = 6 + (node.chunks / maxChunks) * 16;
 		const ring = ringSet.has(node.id);
 		const isolated = !edgeNodes.has(node.id);
-		const fill = ring ? "#e5484d" : isolated ? "#6b7280" : node.selfCalls > 0 ? "#d29922" : "#4c8dff";
+		const fill = ring
+			? "#e5484d"
+			: isolated
+				? "#6b7280"
+				: node.selfCalls > 0
+					? "#d29922"
+					: "#4c8dff";
 		const stroke = isolated ? "#9ca3af" : "#1a1b1e";
 		const dash = isolated ? ' stroke-dasharray="5,4"' : "";
 		const deg = `${node.outDeg}→${node.inDeg}`;
