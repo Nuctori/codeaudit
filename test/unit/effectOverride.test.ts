@@ -113,4 +113,19 @@ describe("F16 效应表注入（迭代28）", () => {
     expect(validateEffectOverride({ csharp: { pureGlobals: { MyHelper: true } } }, PACKS).length).toBe(0);
     expect(validateEffectOverride({ csharp: { pureGlobals: [42] } }, PACKS).length).toBe(1);
   });
+
+  it("迭代55-r9（reviewer Low-3）：record-array 成员 \":tag\" 标签闭合校验——防产物 effects 非闭合值自拒", () => {
+    // 合法：无标签 / "p" 纯标记 / 效应类标签（link.ts 消费侧同口径）
+    expect(
+      validateEffectOverride(
+        { csharp: { impureGlobals: { A: ["x", "y:p", "z:net"] } } }, PACKS,
+      ).length,
+    ).toBe(0);
+    // 非法标签拒绝（"bar" ∉ EFFECT_TAGS）——否则直通 direct.add 使自身输出被 recheck EFFECT_SET 拒
+    expect(
+      validateEffectOverride(
+        { csharp: { impureGlobals: { A: ["x:bar"] } } }, PACKS,
+      ).length,
+    ).toBe(1);
+  });
 });

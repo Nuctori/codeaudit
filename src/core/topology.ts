@@ -14,10 +14,10 @@ export interface GraphMetrics {
 	/** ΣunknownSites（F6；多重性口径，与 risk.ts evidence.missingSiteRate 分子同源——不构成与 knownEdges 的总量恒等，calls 的 ? 单槽 vs unknownSites 多重性）。 */
 	readonly unknownEdges: number;
 	/** F4：calls 含自身 key 的 chunk 数（现有 cycleCount 只计 |SCC|>1，自环是单点 SCC——盲区，单列覆盖）。 */
-	/** F4：calls 含自身 key 的 chunk 数（现有 cycleCount 只计 |SCC|>1，自环是单点 SCC——盲区，单列覆盖）。 */
 	readonly selfLoopCount: number;
 	/** 回边数：u→v 且 u、v 同 SCC（每条同分量边都在某个环上——强连通 ⇒ v 可达 u 加上 u→v 成环）。
-	 * 自环/族内边不计（selfLoopCount 单列）；DAG 上恒 0。 */
+	 * 自环/族内边不计（selfLoopCount 单列）；DAG 上恒 0。与主方向相反的路径（逆向依赖）即回边+自环，
+	 * per-chunk 见 reverseDepCounts（治理排序第一键）。 */
 	readonly backEdges: number;
 	/** 入度直方图：下标=入度 → chunk 数（自环/族内边不计；Σ i·h[i] = knownEdges 恒等式，h[0]=源节点数）。 */
 	readonly inDegreeHistogram: readonly number[];
@@ -49,49 +49,32 @@ export interface GraphMetrics {
 	};
 }
 
-export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
-	const n = verdicts.length;
-	const byKey = new Map(verdicts.map((v) => [v.chunk.key, v]));
-	const idx = new Map<string, number>();
-	verdicts.forEach((v, i) => idx.set(v.chunk.key, i));
+// 迭代52：同名族（重载/同名重定义）内部调用 = 自递归口径（C# 隐式 this 解析重载为
+// 并集边——安全方向的保守选择，但重载星形委托会被并集边自连成人工 SCC）。
+// 拓扑视图把族内边视作自环（不计入 knownEdges/SCC/入口/层），纯度传播不受影响。
+const fam = (v: Verdict): string | null => {
+	const name = v.chunk.name;
+	return typeof name === "string" && name.length > 0 ? name : null;
+};
+const sameFamily = (a: Verdict, b: Verdict): boolean => {
+	const na = fam(a);
+	return na !== null && na === fam(b);
+};
 
-	// 迭代52：同名族（重载/同名重定义）内部调用 = 自递归口径（C# 隐式 this 解析重载为
-	// 并集边——安全方向的保守选择，但重载星形委托会被并集边自连成人工 SCC）。
-	// 拓扑视图把族内边视作自环（不计入 knownEdges/SCC/入口），纯度传播不受影响。
-	const fam = (v: Verdict): string | null => {
-		const name = v.chunk.name;
-		return typeof name === "string" && name.length > 0 ? name : null;
-	};
-	const sameFamily = (a: Verdict, b: Verdict): boolean => {
-		const na = fam(a);
-		return na !== null && na === fam(b);
-	};
-
-	// 边提取（口径复刻 analyze runOnce）：?/悬垂排除；自环单计
-	let knownEdges = 0;
-	let unknownEdges = 0;
-	let selfLoopCount = 0;
-	const succ: number[][] = verdicts.map(() => []);
-	const inDeg = new Array<number>(n).fill(0);
-	const outDeg = new Array<number>(n).fill(0);
-	for (const v of verdicts) {
-		unknownEdges += v.chunk.unknownSites;
-		for (const t of v.chunk.calls) {
-			if (t === UNKNOWN_TARGET) continue;
-			const ti = idx.get(t);
-			if (ti === undefined) continue;
-			if (t === v.chunk.key || sameFamily(v, verdicts[ti]!)) {
-				selfLoopCount++;
-				continue;
-			}
-			succ[idx.get(v.chunk.key)!]!.push(ti);
-			outDeg[idx.get(v.chunk.key)!]!++;
-			inDeg[ti]!++;
-			knownEdges++;
-		}
-	}
-
-	// SCC + 凝聚 DAG（tarjan 契约：跨分量边 u→v ⇒ v 分量下标更小）
+/**
+ * 共享中间量：SCC 分量 + 凝聚 DAG 后继 + 层（源=0，主方向 = 层递增）。
+ * tarjan 契约：跨分量边 u→v ⇒ v 分量下标更小（逆拓扑序）。
+ */
+function layering(
+	verdicts: readonly Verdict[],
+	byKey: Map<string, Verdict>,
+): {
+	comps: string[][];
+	compOf: Map<string, number>;
+	succComp: number[][];
+	level: number[];
+} {
+	// SCC 边集（同族过滤）
 	const edgeSet = new Map<string, ReadonlySet<string>>();
 	for (const v of verdicts) {
 		edgeSet.set(
@@ -115,20 +98,8 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 	);
 	const compOf = new Map<string, number>();
 	comps.forEach((comp, c) => comp.forEach((k) => compOf.set(k, c)));
-	const cyclicComponents = comps.filter((c) => c.length > 1).length;
 
-	// 回边 = 同 SCC 成员间边（有向环的显式计数；跨分量边/DAG 边不计）
-	let backEdges = 0;
-	for (const v of verdicts) {
-		const c = compOf.get(v.chunk.key)!;
-		for (const t of v.chunk.calls) {
-			if (t === UNKNOWN_TARGET || t === v.chunk.key) continue;
-			const tv = byKey.get(t);
-			if (tv === undefined || sameFamily(v, tv)) continue;
-			if (compOf.get(t) === c) backEdges++;
-		}
-	}
-	// 分量级边集 + 深度（逆拓扑：扫 0..c-1，后继分量下标更小 → 已算）
+	// 分量级后继
 	const succComp: number[][] = comps.map(() => []);
 	for (const v of verdicts) {
 		const c = compOf.get(v.chunk.key)!;
@@ -140,15 +111,6 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 			if (tc !== undefined && tc !== c && !succComp[c]!.includes(tc))
 				succComp[c]!.push(tc);
 		}
-	}
-	const depth: number[] = comps.map(() => 0);
-	let dagDepth = 0;
-	for (let c = 0; c < comps.length; c++) {
-		if (succComp[c]!.length === 0) continue;
-		let d = 0;
-		for (const s of succComp[c]!) d = Math.max(d, depth[s]!);
-		depth[c] = 1 + d;
-		if (depth[c]! > dagDepth) dagDepth = depth[c]!;
 	}
 
 	// 层直方图（源=0；倒扫：caller 分量下标 > callee）
@@ -162,21 +124,117 @@ export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
 		for (const p of predComp[c]!) l = Math.max(l, level[p]!);
 		level[c] = 1 + l;
 	}
+	return { comps, compOf, succComp, level };
+}
+
+/**
+ * 逆向依赖边数（迭代55）：key → 该 chunk **发出**的与主方向相反的路径边数——
+ * 同 SCC 内边（环内逆向依赖：A 依赖 B 且 B 依赖 A，B→A 即反向）+ 自环/族内边（selfLoop 口径）。
+ * DAG（无环）上恒 0。治理排序第一键：反向路径优先修。
+ */
+export function reverseDepCounts(
+	verdicts: readonly Verdict[],
+): ReadonlyMap<string, number> {
+	const byKey = new Map(verdicts.map((v) => [v.chunk.key, v]));
+	const { compOf } = layering(verdicts, byKey);
+	const out = new Map<string, number>();
+	for (const v of verdicts) {
+		let cnt = 0;
+		for (const t of v.chunk.calls) {
+			if (t === UNKNOWN_TARGET) continue;
+			const tv = byKey.get(t);
+			if (tv === undefined) continue; // 悬垂不计
+			if (t === v.chunk.key || sameFamily(v, tv)) {
+				cnt++; // 自环/族内边（拓扑视图自环口径）
+				continue;
+			}
+			if (compOf.get(t) === compOf.get(v.chunk.key)) cnt++; // 同 SCC = 环内逆向边
+		}
+		if (cnt > 0) out.set(v.chunk.key, cnt);
+	}
+	return out;
+}
+
+export function graphMetrics(verdicts: readonly Verdict[]): GraphMetrics {
+	const n = verdicts.length;
+	const byKey = new Map(verdicts.map((v) => [v.chunk.key, v]));
+	const idx = new Map<string, number>();
+	verdicts.forEach((v, i) => idx.set(v.chunk.key, i));
+
+	// 边提取（口径复刻 analyze runOnce）：?/悬垂排除；自环单计
+	let knownEdges = 0;
+	let unknownEdges = 0;
+	let selfLoopCount = 0;
+	const inDeg = new Array<number>(n).fill(0);
+	const outDeg = new Array<number>(n).fill(0);
+	for (const v of verdicts) {
+		unknownEdges += v.chunk.unknownSites;
+		for (const t of v.chunk.calls) {
+			if (t === UNKNOWN_TARGET) continue;
+			const ti = idx.get(t);
+			if (ti === undefined) continue;
+			if (t === v.chunk.key || sameFamily(v, verdicts[ti]!)) {
+				selfLoopCount++;
+				continue;
+			}
+			outDeg[idx.get(v.chunk.key)!]!++;
+			inDeg[ti]!++;
+			knownEdges++;
+		}
+	}
+
+	// SCC + 凝聚 DAG + 层（共享中间量；tarjan 契约：跨分量边 u→v ⇒ v 分量下标更小）
+	const { comps, compOf, succComp, level } = layering(verdicts, byKey);
+	const cyclicComponents = comps.filter((c) => c.length > 1).length;
+
+	// 回边 = 同 SCC 成员间边（有向环的显式计数；跨分量边/DAG 边不计）
+	let backEdges = 0;
+	for (const v of verdicts) {
+		const c = compOf.get(v.chunk.key)!;
+		for (const t of v.chunk.calls) {
+			if (t === UNKNOWN_TARGET || t === v.chunk.key) continue;
+			const tv = byKey.get(t);
+			if (tv === undefined || sameFamily(v, tv)) continue;
+			if (compOf.get(t) === c) backEdges++;
+		}
+	}
+
+	// 深度（逆拓扑：扫 0..c-1，后继分量下标更小 → 已算）
+	const depth: number[] = comps.map(() => 0);
+	let dagDepth = 0;
+	for (let c = 0; c < comps.length; c++) {
+		if (succComp[c]!.length === 0) continue;
+		let d = 0;
+		for (const s of succComp[c]!) d = Math.max(d, depth[s]!);
+		depth[c] = 1 + d;
+		if (depth[c]! > dagDepth) dagDepth = depth[c]!;
+	}
+
+	// 层直方图（源=0；SCC 成员同层、孤立 chunk 层 0）
 	const layerHistogram: number[] = [];
 	for (const v of verdicts) {
 		const l = level[compOf.get(v.chunk.key)!]!;
 		layerHistogram[l] = (layerHistogram[l] ?? 0) + 1;
 	}
 
-	// chain 直方图（∞ 单列桶）
+	// chain 直方图（∞ 单列桶）。maxFinite 防御：chain 来自 recheck 第三方 JSON/库 API 直调，
+	// 非有限非负整数（2.5）会使 new Array 抛 RangeError、超大整数（1e9）触发 V8 堆耗尽不可捕获
+	// OOM（reviewer 5620f02d Medium-1）——非整数不计、上限 65536 桶（正常链深 ≪ 此值）。
+	const MAX_CHAIN_BUCKETS = 65536;
 	let maxFinite = 0;
 	for (const v of verdicts)
-		if (v.chain !== Infinity && v.chain > maxFinite) maxFinite = v.chain;
+		if (
+			v.chain !== Infinity &&
+			Number.isInteger(v.chain) &&
+			v.chain > maxFinite
+		)
+			maxFinite = Math.min(v.chain, MAX_CHAIN_BUCKETS);
 	const chainHistogram: number[] = new Array(maxFinite + 1).fill(0);
 	let chainInf = 0;
 	for (const v of verdicts) {
 		if (v.chain === Infinity) chainInf++;
-		else chainHistogram[v.chain]!++;
+		else if (Number.isInteger(v.chain))
+			chainHistogram[Math.min(v.chain, MAX_CHAIN_BUCKETS)]!++; // 超限桶折叠到上限
 	}
 
 	const density = n > 1 ? knownEdges / (n * (n - 1)) : 0;

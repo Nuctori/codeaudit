@@ -1,6 +1,6 @@
 import type { Verdict } from "./types";
 import { UNKNOWN_TARGET } from "./types";
-import { graphMetrics } from "./topology";
+import { graphMetrics, reverseDepCounts } from "./topology";
 import { dependencySkeleton, bridgesOf } from "./skeleton";
 import { moduleSummary } from "./module";
 import { tarjan } from "./tarjan";
@@ -59,6 +59,14 @@ export function renderTechdebtHtml(
 			}
 		}
 	}
+	// 迭代55：per-chunk 逆向依赖边（与主方向相反的路径——环内边+自环），组内取 max（与 CLI 治理排序同键）
+	const revQ = new Map<string, number>();
+	const rev = reverseDepCounts(verdicts);
+	for (const v of verdicts) {
+		const q = qOf.get(v.chunk.key)!;
+		const r = rev.get(v.chunk.key) ?? 0;
+		if (r > 0) revQ.set(q, Math.max(revQ.get(q) ?? 0, r));
+	}
 	const govGroups = new Map<
 		string,
 		{ name: string; count: number; chain: number; files: Set<string> }
@@ -86,6 +94,7 @@ export function renderTechdebtHtml(
 	const gov = [...govGroups.values()]
 		.sort(
 			(a, b) =>
+				(revQ.get(b.name) ?? 0) - (revQ.get(a.name) ?? 0) || // 迭代55：逆向依赖优先（与 CLI 治理序一致）
 				(inDegQ.get(b.name) ?? 0) - (inDegQ.get(a.name) ?? 0) ||
 				b.chain - a.chain,
 		)
@@ -312,17 +321,27 @@ export function renderTechdebtHtml(
 		.slice(0, 15);
 
 	// 拓扑健康度：层分布/链分布/入口分布条形
-	const layerMax = Math.max(1, ...g.layerHistogram.filter((x): x is number => typeof x === "number")); // filter 去稀疏洞（reviewer L1：Math.max(...稀疏)=NaN）
+	const layerMax = Math.max(
+		1,
+		...g.layerHistogram.filter((x): x is number => typeof x === "number"),
+	); // filter 去稀疏洞（reviewer L1：Math.max(...稀疏)=NaN）
 	const layerRows = g.layerHistogram
 		.map((c, i) => bar(`层 ${i}`, c, layerMax, "var(--acc)"))
 		.filter((_, i) => g.layerHistogram[i]! > 0)
 		.join("");
-	const chainMax = Math.max(1, ...g.chainHistogram.filter((x): x is number => typeof x === "number"), g.chainInf);
+	const chainMax = Math.max(
+		1,
+		...g.chainHistogram.filter((x): x is number => typeof x === "number"),
+		g.chainInf,
+	);
 	const chainRows =
 		g.chainHistogram
 			.map((c, i) => bar(`chain=${i}`, c, chainMax, "var(--fg)"))
 			.join("") + bar("chain=∞(PURE)", g.chainInf, chainMax, "var(--pure)");
-	const entryMax = Math.max(1, ...g.sccEntryHistogram.filter((x): x is number => typeof x === "number"));
+	const entryMax = Math.max(
+		1,
+		...g.sccEntryHistogram.filter((x): x is number => typeof x === "number"),
+	);
 	const entryRows = g.sccEntryHistogram
 		.map((c, i) => bar(`入口 ${i}`, c ?? 0, entryMax, "var(--unk)"))
 		.join("");

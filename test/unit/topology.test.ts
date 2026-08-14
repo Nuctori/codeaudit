@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { graphMetrics } from "../../src/core/topology";
+import { graphMetrics, reverseDepCounts } from "../../src/core/topology";
 import { scanProject } from "../../src/index";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -256,6 +256,43 @@ describe("graphMetrics（迭代14 视角 3 实施）", () => {
 		expect(m.backEdges).toBe(0);
 		expect(m.inDegreeHistogram[0]).toBe(1); // A 源
 		expect(m.outDegreeHistogram[0]).toBe(1); // D 汇
+	});
+
+	it("迭代55-r9（reviewer Medium-1）：恶意 chain 防御——非整数/超大值不崩溃", () => {
+		// chain: 2.5 曾使 new Array(3.5) 抛 RangeError；1e9 曾 V8 堆耗尽不可捕获 OOM
+		// （recheck 第三方 JSON 351B 即可触发——loadReport 已挡，库 API 直调由此处兜底）
+		const m = graphMetrics([
+			v("A", { chain: 2.5 }), // 非整数：不计入任何桶
+			v("B", { chain: 1e9 }), // 超上限：折叠到 65536 桶
+			v("C", { chain: Infinity }),
+			v("D", { chain: 3 }), // 正常链长
+		]);
+		expect(m.chainInf).toBe(1);
+		expect(m.chainHistogram.length).toBe(65537); // maxFinite 封顶 65536
+		expect(m.chainHistogram[65536]).toBe(1); // 超限折叠
+		expect(m.chainHistogram[3]).toBe(1); // 正常链不受影响
+		expect(m.chainHistogram.reduce((a, b) => a + b, 0)).toBe(2); // 非整数不计
+	});
+
+	it("迭代55：逆向依赖边（与主方向相反的路径）——环内边+自环计数，DAG 恒 0", () => {
+		// A↔B 环：A→B、B→A 均同 SCC 内边（B→A 即与主方向相反的路径）；C 自环；D→E 链不计
+		const verdicts = [
+			v("A", { calls: ["B"] }),
+			v("B", { calls: ["A"] }), // A↔B 环
+			v("C", { calls: ["C"] }), // 自环
+			v("D", { calls: ["E"] }),
+			v("E"),
+		];
+		const rev = reverseDepCounts(verdicts);
+		expect(rev.get("A")).toBe(1); // A→B 同 SCC
+		expect(rev.get("B")).toBe(1); // B→A 同 SCC（反向路径）
+		expect(rev.get("C")).toBe(1); // 自环
+		expect(rev.get("D")).toBeUndefined(); // D→E 正向
+		expect(rev.get("E")).toBeUndefined();
+		// 全局口径一致：Σ per-chunk = backEdges + selfLoopCount
+		const m = graphMetrics(verdicts);
+		const sum = [...rev.values()].reduce((a, b) => a + b, 0);
+		expect(sum).toBe(m.backEdges + m.selfLoopCount); // 2 + 1
 	});
 
 	describe("graphMetrics 同名族（迭代52）", () => {
