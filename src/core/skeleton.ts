@@ -42,7 +42,9 @@ export function componentReps(
 		edgeSet,
 	);
 	const reps = new Map<number, string>();
-	comps.forEach((comp, c) => reps.set(c, comp[0]!));
+	comps.forEach((comp, c) =>
+		reps.set(c, [...comp].sort()[0]!),
+	); // 公理5：分量代表 = 字典序最小 key（与 analyze.ts compKey 同款——comp[0] 依赖发现序，乱序输入会翻代表）
 	return reps;
 }
 
@@ -120,7 +122,11 @@ export function dependencySkeleton(
 			if (!redundant) out.push({ from, to: reps.get(d)! });
 		}
 	}
-	return out;
+	// 输出序规范（公理5）：分量序随输入序变化——排序后逐字节稳定
+	return out.sort(
+		(a, b) =>
+			a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0,
+	);
 }
 
 /**
@@ -199,7 +205,10 @@ export function bridgesOf(verdicts: readonly Verdict[]): BridgeResult {
 	}
 
 	return {
-		bridges,
-		articulationPoints: [...articulation].map((c) => reps.get(c)!),
+		bridges: bridges.sort(
+			(a, b) =>
+				a.from < b.from ? -1 : a.from > b.from ? 1 : a.to < b.to ? -1 : a.to > b.to ? 1 : 0,
+		), // 输出序规范（与 dependencySkeleton 同款，公理5）
+		articulationPoints: [...articulation].map((c) => reps.get(c)!).sort(),
 	};
 }

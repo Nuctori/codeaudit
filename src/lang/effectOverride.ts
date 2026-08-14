@@ -80,6 +80,15 @@ const PURE_HOF = new Set(["pure", "hof"]);
  * 验证回路断裂。reviewer 5620f02d Low-3）。 */
 const EFFECT_TAGS: ReadonlySet<string> = new Set([...EFFECTS, "p"]);
 
+/** 原型污染防护（审计迭代 58）：JSON.parse 可产生 own "__proto__" 键——裸赋值改原型、裸查表走原型链。
+ *  corpus.ts 已有同款纪律；表键/成员恒非此类名——校验层一律拒绝（信任边界），合并层纵深跳过。 */
+const DANGEROUS_KEYS: ReadonlySet<string> = new Set([
+	"__proto__",
+	"constructor",
+	"prototype",
+]);
+const isDangerousKey = (k: string): boolean => DANGEROUS_KEYS.has(k);
+
 /** 提取侧表名（白名单拒绝——参与缓存，注入会静默失效）。
  *  迭代40 C02 修复：补 propertyReadNodes/propertyReadSkipMorphs/propertyReadSkipParents/
  *  propertyReadNameSlots/propMissIsPure——B5 新增提取侧表此前漏列，注入会静默不生效（缓存命中
@@ -158,6 +167,12 @@ export function validateEffectOverride(
 					}
 				} else {
 					for (const item of Object.keys(value)) {
+						if (isDangerousKey(item)) {
+							errors.push(
+								`表 "${lang}.${table}" 的键 "${item}" 是危险键（原型污染注入面），拒绝`,
+							);
+							continue;
+						}
 						if (typeof item !== "string")
 							errors.push(`表 "${lang}.${table}" 的键必须是字符串`);
 					}
@@ -168,6 +183,12 @@ export function validateEffectOverride(
 				for (const [typeName, methods] of Object.entries(
 					value as Record<string, unknown>,
 				)) {
+					if (isDangerousKey(typeName)) {
+						errors.push(
+							`表 "${lang}.${table}" 的类型键 "${typeName}" 是危险键（原型污染注入面），拒绝`,
+						);
+						continue;
+					}
 					if (
 						methods === null ||
 						typeof methods !== "object" ||
@@ -193,6 +214,12 @@ export function validateEffectOverride(
 				for (const [ns, types] of Object.entries(
 					value as Record<string, unknown>,
 				)) {
+					if (isDangerousKey(ns)) {
+						errors.push(
+							`表 "${lang}.${table}" 的命名空间键 "${ns}" 是危险键（原型污染注入面），拒绝`,
+						);
+						continue;
+					}
 					if (
 						types === null ||
 						typeof types !== "object" ||
@@ -235,6 +262,12 @@ export function validateEffectOverride(
 			}
 			// record-effect / record-array / record-prefix：值按元素检查
 			for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
+				if (isDangerousKey(key)) {
+					errors.push(
+						`表 "${lang}.${table}" 的键 "${key}" 是危险键（原型污染注入面），拒绝`,
+					);
+					continue;
+				}
 				if (shape === "record-effect") {
 					if (typeof v !== "string" || !EFFECTS.includes(v)) {
 						errors.push(
@@ -296,6 +329,7 @@ function mergeRecord<K extends string, T>(
 	if (!override) return base;
 	const out: Record<string, unknown> = { ...base };
 	for (const [k, v] of Object.entries(override)) {
+		if (isDangerousKey(k)) continue; // 纵深防御：危险键不入表（validate 已拒，直调 API 不污染）
 		const b = (base as Record<string, unknown>)[k];
 		if (Array.isArray(b) && Array.isArray(v)) {
 			out[k] = [...new Set([...b, ...v])]; // 数组并集：扩展现有键（frameworkIo this）不丢内置前缀
@@ -317,6 +351,7 @@ function mergeNested(
 	const out: Record<string, Record<string, "pure" | "hof">> = {};
 	for (const [t, methods] of Object.entries(base)) out[t] = { ...methods };
 	for (const [t, methods] of Object.entries(override)) {
+		if (isDangerousKey(t)) continue; // 纵深防御：`out["__proto__"] = obj` 会改 out 原型（JSON 注入面实证）
 		const existing = out[t] ?? {};
 		out[t] = { ...existing, ...methods };
 	}
@@ -338,7 +373,7 @@ function mergeSet(
 			? [...override]
 			: Array.isArray(override)
 				? [...override]
-				: Object.keys(override); // 对象键形态（{ a: true }）
+				: Object.keys(override).filter((k) => !isDangerousKey(k)); // 对象键形态：危险键不入 Set（纵深防御）
 	if (items.length === 0) return base;
 	return new Set([...base, ...items]);
 }
@@ -355,6 +390,7 @@ function mergeFrameworkPure(
 		out[ns] = { ...(types as Record<string, TypeVal>) };
 	}
 	for (const [ns, types] of Object.entries(override)) {
+		if (isDangerousKey(ns)) continue; // 纵深防御：`out["__proto__"] = obj` 会改 out 原型（JSON 注入面实证）
 		const existing = (out[ns] ?? {}) as Record<string, unknown>;
 		const merged: Record<string, TypeVal> = {};
 		for (const [t, v] of Object.entries(existing)) merged[t] = v as TypeVal;

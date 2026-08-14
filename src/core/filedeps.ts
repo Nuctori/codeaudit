@@ -28,7 +28,11 @@ export function outDepsOf(
 	}
 	return [...out.entries()]
 		.map(([f, n]) => ({ file: f, edges: n }))
-		.sort((a, b) => b.edges - a.edges);
+		.sort(
+			(a, b) =>
+				b.edges - a.edges ||
+				(a.file < b.file ? -1 : a.file > b.file ? 1 : 0), // 公理5：等边数平手按文件（乱序输入稳定）
+		);
 }
 
 /** 入边：哪些文件（的 chunk）调用了本文件的 chunk（按边数降序）。 */
@@ -55,5 +59,9 @@ export function inDepsOf(
 	}
 	return [...out.entries()]
 		.map(([f, n]) => ({ file: f, edges: n }))
-		.sort((a, b) => b.edges - a.edges);
+		.sort(
+			(a, b) =>
+				b.edges - a.edges ||
+				(a.file < b.file ? -1 : a.file > b.file ? 1 : 0), // 公理5：等边数平手按文件（乱序输入稳定）
+		);
 }

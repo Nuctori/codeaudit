@@ -261,8 +261,14 @@ export function changedImpact(
       else callers.set(t, [v.chunk.key]);
     }
   }
+  // 公理5 确定性（审计迭代 58）：via/viaName 取 BFS 首现路径——邻接序随 verdicts 输入序
+  // 变化会翻首现路径（两个改动 seed 同时可达同一 chunk 时）。邻接排序后 BFS 完全由图决定。
+  for (const arr of callers.values()) arr.sort();
   const byKey = new Map(verdicts.map((v) => [v.chunk.key, v.chunk]));
-  const seeds = verdicts.filter((v) => norm.has(v.chunk.file)).map((v) => v.chunk.key);
+  const seeds = verdicts
+    .filter((v) => norm.has(v.chunk.file))
+    .map((v) => v.chunk.key)
+    .sort(); // 公理5：seed 序规范化（BFS 首现路径与输入序解耦）
   const seen = new Set<string>(seeds);
   const queue: Array<[string, number, string | null, string | null]> = seeds.map((k) => [k, 0, null, null]);
   const out: ImpactedChunk[] = [];

@@ -78,5 +78,9 @@ export function moduleSummary(
 			unknownRate: n === 0 ? 0 : u / n,
 		});
 	}
-	return out.sort((a, b) => b.chunks - a.chunks);
+	return out.sort(
+		(a, b) =>
+			b.chunks - a.chunks ||
+			(a.module < b.module ? -1 : a.module > b.module ? 1 : 0), // 公理5：等 chunk 数平手按模块名（乱序输入稳定）
+	);
 }
