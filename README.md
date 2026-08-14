@@ -34,7 +34,7 @@ node dist/cli.js scan ./src --unknowns unknowns.json   # 导出未知符号供 A
 node dist/cli.js scan ./src --strict                   # 存在 IMPURE 时退出码 1（CI 门禁）
 node dist/cli.js scan ./src --changed a.ts --gate      # 合入门禁：回归风险 grade ≥ high 时退出码 1
 node dist/cli.js scan ./src --effect-table overrides.json   # 效应表注入（不改库代码；{ 语言: { 表: 值 } }，读文件/校验失败 exit 2）
-node dist/cli.js scan ./src --html report.html   # 技术债 HTML 可视化（自包含单文件：健康度/模块/治理/复杂度/未知形态/效应源）
+node dist/cli.js scan ./src --html report.html   # 技术债 HTML 可视化（自包含单文件：健康度/拓扑/治理/复杂度/未知形态/效应源/证明完整度/测试盲区/重复代码/死代码/状态耦合）
 node dist/cli.js scan ./src --json out.json      # 导出完整 JSON（供 recheck/compare 复用——改工具后免重扫）
 node dist/cli.js scan ./src --dups --test-coverage --dead --first-party  # 治理三视图：重复代码/测试盲区/疑似死代码（--first-party 排除第三方与生成代码）
 node dist/cli.js recheck out.json --topology --html r.html  # 秒级重算：加载 JSON 复用全部视图（迭代54：验证回路 10-20min → <1s）
