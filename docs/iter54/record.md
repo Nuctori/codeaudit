@@ -29,6 +29,7 @@
 - **8d93fe9 iter54-r5**：审计发现并行会话迭代 55（7e4a6ad H1 行粒度化）**语义缺陷**——`chunk.line >= minErrorLine` 漏掉"chunk 覆盖 ERROR"形态（函数从 ERROR 前一行开始、body 含未闭合字符串 → 内容被吞边不降级 = **假纯回归**，迭代2 H1 洞复活，2 测试红）。修正为 `!(endLine < errLine)`（完全在 ERROR 前才保留）+ 标注守卫同步 + 新测试（421/421 --no-cache 真实状态）。文档一致性：README 测试数 389→421（过时 7 迭代未同步——D-079 门禁抓出）+ recheck 示例 + CHANGELOG 补迭代 54。
 - **588749b iter54-r6**：decision-auditor 参考项 1（"errorLines 空数组不可达"）被并行会话探针 **实证推翻**——C# static 字段语法错误（static int x = ;）时 visit 的 static 跳过分支提前 return → 子树内 ERROR 漏收集 → errorLines=[] → Math.min(...[])=Infinity → 全文件不降级 → **H1 守卫失效假纯**（C.Pure=0 实证）。修复：空数组兜底 [1]（errLine=1 全降级，方向安全）；探针测试完成（__PROBE__ → 正式断言）；422/422 --no-cache。参考项需实证的价值实证。
 - **3fd3133 iter54-r7**：reviewer 发现修复×2 + HEAD 红修复——① **spread RangeError DoS**（reviewer 4fdc1bd7 流中断前发现）：Math.min(...errorLines) 超 ~125k 参数 → RangeError → 病态文件全扫崩溃（在 extract try/catch 外，不变量破坏）——for 循环替代 ② **recheck 截断检测**（reviewer 4d40012e Low）：--top 截断 JSON → stats.chunks vs verdicts.length 不等警告 ③ **HEAD 红修复**（reviewer Medium）：packConsistency.test.ts 引用改名前的 examples/initdeity-effect-override.json（cb09d34 未同步）→ 改指现名 ④ 恢复 zz-errlines-probe（工作树被并行会话删——r6 回归保护）。422/422 + HEAD 树绿验证。
+- **auditor run-LVqjwn 2 blocker 解除**（580f57c 后）：decision-auditor 审计窗口（e2d35db）签名 blocked——blocker-1 HEAD 红（packConsistency 旧文件名）、blocker-2 spread RangeError——均已在 3fd3133 修复提交；**干净检出（stash 全部）HEAD 422/422 全绿独立验证**，blocked → 解除。
 
 ## 核实关闭
 
