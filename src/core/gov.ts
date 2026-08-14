@@ -254,7 +254,8 @@ export function deadChunks(verdicts: readonly Verdict[]): DeadChunk[] {
 		// pyshop handle_request 被标 [高]）。C# 私有风格（小写）保留 high。
 		const isPy = /\.py$/i.test(c.file);
 		const isUpper = /^[A-Z]/.test(shortName);
-		const confidence = isPy || isUpper ? ("suspected" as const) : ("high" as const);
+		const confidence =
+			isPy || isUpper ? ("suspected" as const) : ("high" as const);
 		out.push({
 			key: c.key,
 			name: c.name,

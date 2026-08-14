@@ -202,9 +202,7 @@ describe("deadChunks（疑似死代码）", () => {
 	});
 
 	it("纯测试仓库 coverage=0（reviewer Low-5：空生产集不报 100% 误导）", () => {
-		const verdicts = [
-			v("Tests/t::h", "T1", "Tests/T.cs", "t"),
-		];
+		const verdicts = [v("Tests/t::h", "T1", "Tests/T.cs", "t")];
 		const tc = testCoverage(verdicts);
 		expect(tc.production).toBe(0);
 		expect(tc.coverage).toBe(0);
