@@ -233,27 +233,68 @@ const esc = (s: string): string =>
 		.replace(/>/g, "&gt;")
 		.replace(/"/g, "&quot;");
 
-/** SVG 渲染：环形布局 + 贝塞尔弧线；逆行边红色粗线，正向边灰色；悬停显示明细。 */
+/** SVG 渲染：凝聚分层布局（Sugiyama longest-path 简化版）——SCC 缩为超节点分层，
+ *  环内成员同层并列（逆行边同层回弯可见）；贝塞尔弧线；逆行边红色粗线，正向边灰色；悬停显示明细。 */
 export function renderModuleGraphSvg(g: ModuleGraph): string {
 	const n = g.nodes.length;
 	if (n === 0) return '<div class="sub">无模块节点</div>';
-	const W = 1100,
-		H = 760,
-		CX = W / 2,
-		CY = H / 2 + 10,
-		R = Math.min(CX, CY) - 90;
+	const W = 1500,
+		H = 820,
+		CX = W / 2;
 	const pos = new Map<string, { x: number; y: number }>();
-	// 环内模块聚簇优先排同侧（视觉上逆行边聚集）；其余按入度降序环形排布
-	const ringSet = new Set(g.sccs.flat());
-	const ordered = [...g.nodes].sort((a, b) => {
-		const ar = ringSet.has(a.id) ? 1 : 0,
-			br = ringSet.has(b.id) ? 1 : 0;
-		return br - ar || b.outDeg + b.inDeg - (a.outDeg + a.inDeg);
-	});
-	ordered.forEach((node, i) => {
-		const a = (i / Math.max(ordered.length, 1)) * Math.PI * 2 - Math.PI / 2;
-		pos.set(node.id, { x: CX + R * Math.cos(a), y: CY + R * Math.sin(a) });
-	});
+
+	// 1. SCC 凝聚：环成员 → 代表（字典序最小）；非环成员自身为代表
+	const rep = new Map<string, string>();
+	for (const s of g.sccs) {
+		const r = [...s].sort()[0]!;
+		for (const m of s) rep.set(m, r);
+	}
+	const repOf = (id: string): string => rep.get(id) ?? id;
+	// 2. 凝聚 DAG（去重，忽略自边）
+	const dagSucc = new Map<string, Set<string>>();
+	const dagPred = new Map<string, Set<string>>();
+	for (const e of g.edges) {
+		const a = repOf(e.from),
+			b = repOf(e.to);
+		if (a === b) continue;
+		(dagSucc.get(a) ?? dagSucc.set(a, new Set()).get(a)!).add(b);
+		(dagPred.get(b) ?? dagPred.set(b, new Set()).get(b)!).add(a);
+	}
+	// 3. longest-path 分层：layer[v] = 1 + max(layer[pred])，迭代至稳定（凝聚后 DAG，必终止）
+	const reps = new Set([...g.nodes].map((x) => repOf(x.id)));
+	const layerOf = new Map<string, number>();
+	for (const r of reps) layerOf.set(r, 0);
+	let changed = true;
+	while (changed) {
+		changed = false;
+		for (const r of reps) {
+			let l = 0;
+			for (const p of dagPred.get(r) ?? []) l = Math.max(l, (layerOf.get(p) ?? 0) + 1);
+			if (l !== (layerOf.get(r) ?? 0)) {
+				layerOf.set(r, l);
+				changed = true;
+			}
+		}
+	}
+	// 4. 坐标：层 → y（上=源/依赖方，下=被依赖基础设施）；层内 x 均分（环成员同层并列）
+	const layerNodes = new Map<number, string[]>();
+	for (const node of g.nodes) {
+		const l = layerOf.get(repOf(node.id)) ?? 0;
+		const arr = layerNodes.get(l) ?? [];
+		arr.push(node.id);
+		layerNodes.set(l, arr);
+	}
+	const maxL = Math.max(...layerNodes.keys());
+	const rowH = maxL > 0 ? (H - 150) / maxL : 0;
+	for (const [l, ids] of layerNodes) {
+		const y = 95 + l * rowH;
+		const slot = Math.min(170, (W - 240) / Math.max(ids.length, 1));
+		ids.forEach((id, i) => {
+			pos.set(id, { x: CX + (i - (ids.length - 1) / 2) * slot, y });
+		});
+	}
+	// 层数标注（右侧 y 轴提示）
+	const layerLabels = [...layerNodes.keys()].sort((a, b) => a - b).map((l) => `<text x="${W - 30}" y="${(95 + l * rowH + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--dim)">L${l}</text>`).join("");
 
 	const maxCount = Math.max(...g.edges.map((e) => e.count), 1);
 	const maxChunks = Math.max(...g.nodes.map((x) => x.chunks), 1);
@@ -269,8 +310,9 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		const len = Math.hypot(dx, dy) || 1;
 		const off = (e.reverse ? 26 : 14) * (e.count / maxCount + 0.6);
 		const side = e.from < e.to ? 1 : -1;
-		const cx2 = mx + (-dy / len) * off * side;
-		const cy2 = my + (dx / len) * off * side;
+		// 同层（环内互连）：控制点垂直上弯；跨层：沿法线偏移
+		const cx2 = Math.abs(dy) < 1 ? mx : mx + (-dy / len) * off * side;
+		const cy2 = Math.abs(dy) < 1 ? my - 46 : my + (dx / len) * off * side;
 		const w = 1 + (e.count / maxCount) * 4;
 		const stroke = e.reverse ? "#e5484d" : "#8b8f98";
 		const backPct = e.b2a > 0 ? Math.round((e.b2a / e.count) * 100) : 0;
@@ -279,10 +321,11 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		edgeSvg += `<path d="M${p1.x.toFixed(1)},${p1.y.toFixed(1)} Q${cx2.toFixed(1)},${cy2.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}" fill="none" stroke="${stroke}" stroke-width="${w.toFixed(1)}" opacity="0.55"><title>${tip}</title></path>`;
 		edgeSvg += `<path d="${arrowEnd}" fill="${stroke}"><title>${tip}</title></path>`;
 		// 反向弧线：虚线 + 小箭头，反向偏移（可见双向依赖的两个方向）
+		// 反向弧线：虚线 + 小箭头，反向偏移（可见双向依赖的两个方向）
 		if (e.b2a > 0) {
 			const rOff = off * -0.9 * side;
-			const rx2 = mx + (-dy / len) * rOff;
-			const ry2 = my + (dx / len) * rOff;
+			const rx2 = Math.abs(dy) < 1 ? mx : mx + (-dy / len) * rOff;
+			const ry2 = Math.abs(dy) < 1 ? my - 80 : my + (dx / len) * rOff;
 			const rTip = `${esc(e.to)} → ${esc(e.from)} × ${e.b2a}（反向——逆行方向）`;
 			edgeSvg += `<path d="M${p2.x.toFixed(1)},${p2.y.toFixed(1)} Q${rx2.toFixed(1)},${ry2.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}" fill="none" stroke="${stroke}" stroke-width="${Math.max(w * 0.7, 1).toFixed(1)}" stroke-dasharray="6,4" opacity="0.45"><title>${rTip}</title></path>`;
 		}
@@ -316,6 +359,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 			? `\n${arrow} ${l.map(([n, c]) => `${esc(n)}×${c}`).join(" · ")}`
 			: "";
 	};
+	const ringSet = new Set(g.sccs.flat());
 	for (const node of g.nodes) {
 		const p = pos.get(node.id)!;
 		const r = 6 + (node.chunks / maxChunks) * 16;
@@ -339,6 +383,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 	}
 
 	return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto;background:var(--panel);border-radius:8px;border:1px solid var(--br)" xmlns="http://www.w3.org/2000/svg">
+<g>${layerLabels}</g>
 <g>${edgeSvg}</g>
 <g>${nodeSvg}</g>
 </svg>`;
