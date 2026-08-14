@@ -30,6 +30,7 @@
 - **588749b iter54-r6**：decision-auditor 参考项 1（"errorLines 空数组不可达"）被并行会话探针 **实证推翻**——C# static 字段语法错误（static int x = ;）时 visit 的 static 跳过分支提前 return → 子树内 ERROR 漏收集 → errorLines=[] → Math.min(...[])=Infinity → 全文件不降级 → **H1 守卫失效假纯**（C.Pure=0 实证）。修复：空数组兜底 [1]（errLine=1 全降级，方向安全）；探针测试完成（__PROBE__ → 正式断言）；422/422 --no-cache。参考项需实证的价值实证。
 - **3fd3133 iter54-r7**：reviewer 发现修复×2 + HEAD 红修复——① **spread RangeError DoS**（reviewer 4fdc1bd7 流中断前发现）：Math.min(...errorLines) 超 ~125k 参数 → RangeError → 病态文件全扫崩溃（在 extract try/catch 外，不变量破坏）——for 循环替代 ② **recheck 截断检测**（reviewer 4d40012e Low）：--top 截断 JSON → stats.chunks vs verdicts.length 不等警告 ③ **HEAD 红修复**（reviewer Medium）：packConsistency.test.ts 引用改名前的 examples/initdeity-effect-override.json（cb09d34 未同步）→ 改指现名 ④ 恢复 zz-errlines-probe（工作树被并行会话删——r6 回归保护）。422/422 + HEAD 树绿验证。
 - **auditor run-LVqjwn 2 blocker 解除**（580f57c 后）：decision-auditor 审计窗口（e2d35db）签名 blocked——blocker-1 HEAD 红（packConsistency 旧文件名）、blocker-2 spread RangeError——均已在 3fd3133 修复提交；**干净检出（stash 全部）HEAD 422/422 全绿独立验证**，blocked → 解除。
+- **cf8e7b0 iter54-r8**：reviewer 安全审查 4 项——**M1 stored XSS**（recheck 输入不可信：htmlreport 三处未转义插值 esc() + loadReport effects ∈ Effect 闭合联合校验，实证 <img onerror> 落 HTML）/**L1 稀疏数组 NaN**（Math.max(...hist, 1) 稀疏洞 → bar 全 1% 宽，filter 去洞）/**L2 JSON 无大小上限**（loadReport/--compare parse 前 64MB，与 cache/corpus 同款）/**L3 并发 cache 写竞态**（tmp 随机后缀）。并行 iter55 topology metrics（源汇/回边）入库（reviewer 勿滞留）。424/424 + 门禁绿 + 工作树清空。
 
 ## 核实关闭
 
