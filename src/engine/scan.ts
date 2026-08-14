@@ -270,7 +270,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 
 	const extractors = new Map<string, Extractor>();
 	const facts: RawFileFacts[] = [];
-	const parseErrFiles = new Set<string>();
+	const parseErrFiles = new Map<string, number>(); // 文件 → 最小 ERROR 行号（迭代55：行粒度降级）
 
 	const sortedFiles = [...fileMap.entries()].sort((a, b) =>
 		a[0].localeCompare(b[0]),
@@ -337,7 +337,8 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 		}
 		facts.push(f);
 		// parseError 占位不写缓存（瞬时失败不得永久化——下次扫描重试）
-		if (f.parseError) parseErrFiles.add(file);
+		if (f.parseError)
+			parseErrFiles.set(file, Math.min(...(f.errorLines ?? [1])));
 		else nextCache.files[file] = { contentHash, facts: f };
 	}
 
@@ -378,20 +379,23 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	}
 	const { chunks, effectTableUsage } = link(facts, packsByName);
 	// H1：parseError 文件（hasError 或 extract 异常）chunk 内容不可信——tree-sitter 错误恢复可能吞掉
-	// 真实调用（未闭合字符串把后续 import/调用吸进字符串节点）→ 整体降级 UNKNOWN（"?" 经 eff 集传导给调用者）
+	// 真实调用（未闭合字符串把后续 import/调用吸进字符串节点）→ 降级 UNKNOWN（"?" 经 eff 集传导给调用者）
+	// 迭代55：行粒度降级——流解析器错误恢复只影响 ERROR 节点之后的解析；ERROR 之前的 chunk 解析可靠，
+	// 不再整文件降级（InitDeity QuestProgressionManager 中文标识符 ERROR 曾致 90 chunk 误降级）。
+	const errLineOf = (file: string) => parseErrFiles.get(file) ?? 1;
 	const chunks2 =
 		parseErrFiles.size === 0
 			? chunks
 			: chunks.map((c) =>
-					parseErrFiles.has(c.file) && !c.calls.has(UNKNOWN_TARGET)
-						? {
-								...c,
-								parseError: true,
-								calls: new Set([...c.calls, UNKNOWN_TARGET]),
-							}
-						: parseErrFiles.has(c.file)
-							? { ...c, parseError: true }
-							: c,
+					parseErrFiles.has(c.file) && (c.line ?? 0) >= errLineOf(c.file)
+						? !c.calls.has(UNKNOWN_TARGET)
+							? {
+									...c,
+									parseError: true,
+									calls: new Set([...c.calls, UNKNOWN_TARGET]),
+								}
+							: { ...c, parseError: true }
+						: c,
 				);
 	// 标注回读：证据注入源头（公理3 闭环）。PURE → 移除该 chunk 自己的 `?`；
 	// IMPURE → 加直接 io 效应。id 不匹配（内容已变）的条目静默忽略。
@@ -446,7 +450,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 					// H1 守卫（迭代3 #1，迭代4 F2 放宽）：parseError chunk 的 `?` 是内容信任标记（body 可能被
 					// 错误恢复吞边），标注协议以函数体为准——而 body 本身不可信 → PURE 标注不可撤销降级；
 					// IMPURE 标注是保守方向（只增 io）→ 仍放行
-					if (parseErrFiles.has(c.file)) return c;
+					if (parseErrFiles.has(c.file) && (c.line ?? 0) >= errLineOf(c.file)) return c;
 					if (!c.calls.has(UNKNOWN_TARGET)) return c;
 					const calls = new Set(c.calls);
 					calls.delete(UNKNOWN_TARGET);

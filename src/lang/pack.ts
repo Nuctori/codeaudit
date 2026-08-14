@@ -92,6 +92,9 @@ export interface RawFileFacts {
 	/** 模块级单赋值绑定：名称 → 构造类名（conn = DB() / export const db = new Pool()）。last-write-wins。 */
 	readonly moduleBindings: Record<string, string>;
 	readonly parseError: boolean;
+	/** 迭代55：ERROR 节点行号（parseError 时存在——H1 守卫按行号降级而非整文件）。 */
+	readonly errorLines?: readonly number[];
+	/** 迭代38 A：类继承边（类名 → 静态基类名列表）。只收静态可解析基类（identifier / 泛型末段）；
 	/** 迭代38 A：类继承边（类名 → 静态基类名列表）。只收静态可解析基类（identifier / 泛型末段）；
 	 *  动态 heritage → 该类不记边且 hasDynamicExtends = true（规则3：多态分派整体降 ?）。 */
 	readonly classExtends?: Readonly<Record<string, readonly string[]>>;

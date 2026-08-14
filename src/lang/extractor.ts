@@ -45,6 +45,8 @@ export class Extractor {
 			if (source.charCodeAt(i) === 10) lineCount++;
 		const moduleChunk = fresh("<module>", 1, lineCount, "", null, "module");
 		const stack: MutableChunk[] = [moduleChunk];
+		// 迭代55：ERROR 节点行号收集（H1 守卫细化——文件级 → ERROR 行之后降级）
+		const errorLines: number[] = [];
 
 		const visit = (node: SyntaxNode): void => {
 			// 迭代43 r2：static 初始化器子树跳过（静态字段 value + 静态构造器体）——
@@ -145,6 +147,9 @@ export class Extractor {
 				if (!t.catches.includes(caught)) t.catches.push(caught);
 			}
 			for (const child of node.children) visit(child);
+			// 迭代55：ERROR 节点行号收集——H1 守卫从"文件级降级"细化为"ERROR 行之后降级"
+			//（流解析器错误恢复只影响 ERROR 节点之后的解析；之前的 chunk 解析可靠）
+			if (node.type === "ERROR" || node.isMissing) errorLines.push(node.startPosition.row + 1);
 			if (pushed) stack.pop();
 		};
 		visit(root);
@@ -174,6 +179,7 @@ export class Extractor {
 			events: this.eventsOf(root) || undefined, // 迭代43 B：类事件表（事件触发通道）
 			memberNames: mn || undefined,
 			parseError: root.hasError,
+			errorLines: root.hasError ? errorLines : undefined,
 		};
 	}
 
