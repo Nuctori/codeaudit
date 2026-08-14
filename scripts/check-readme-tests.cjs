@@ -3,11 +3,10 @@ const fs = require("node:fs");
 // D-079 纪律门禁：README 声称测试数 == vitest 实测（本地校验；CI 用 bash 脚本版）
 // CI 实证（2026-08-14 连续 5 次红）：GitHub runner 上 vitest 输出带 ANSI 色码，
 // 色码插在 "Tests" 与数字之间导致裸正则匹配失败——先剥 ANSI 再匹配。
-const out = execFileSync(
-	"node",
-	["node_modules/vitest/vitest.mjs", "run"],
-	{ encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
-);
+const out = execFileSync("node", ["node_modules/vitest/vitest.mjs", "run"], {
+	encoding: "utf8",
+	maxBuffer: 32 * 1024 * 1024,
+});
 const plain = out.replace(/\x1b\[[0-9;]*m/g, "");
 const m = plain.match(/Tests\s+(\d+)\s+passed/);
 if (!m) {

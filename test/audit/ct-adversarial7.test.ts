@@ -55,7 +55,11 @@ function byName(r: {
  *  注意：不能用正则贪婪提取——紧凑存储下长名会吞短名（global_attribute_list 吞 attribute_list，
  *  第七轮实证误报死条目）；改为子串包含检查语义（下方 nodeInGrammar）。 */
 function grammarNodeNames(wasm: string): Set<string> {
-	const path = join(__dirname, "../../node_modules/tree-sitter-wasms/out", wasm);
+	const path = join(
+		__dirname,
+		"../../node_modules/tree-sitter-wasms/out",
+		wasm,
+	);
 	if (!existsSync(path)) return new Set();
 	const bytes = readFileSync(path).toString("latin1");
 	const names = new Set<string>();
@@ -67,7 +71,11 @@ function grammarNodeNames(wasm: string): Set<string> {
 
 /** 子串包含检查（修正贪婪误报）：节点名以 \0 分隔存于 wasm 数据段，包含即 grammar 有。 */
 function nodeInGrammar(wasm: string, name: string): boolean {
-	const path = join(__dirname, "../../node_modules/tree-sitter-wasms/out", wasm);
+	const path = join(
+		__dirname,
+		"../../node_modules/tree-sitter-wasms/out",
+		wasm,
+	);
 	if (!existsSync(path)) return true; // 环境缺包 → 跳过语义
 	const bytes = readFileSync(path).toString("latin1");
 	return bytes.includes(name);
@@ -174,7 +182,10 @@ describe("law:minimality（O-C5/O-C6 全表族 grammar 对拍——死条目/死
 			).toBe(true);
 			for (const s of slots)
 				if (s.includes("_") && !FIELD_LIKE.has(s))
-					expect(g.has(s) || live.has(s), `propertyReadNameSlots 值 ${s} 死`).toBe(true);
+					expect(
+						g.has(s) || live.has(s),
+						`propertyReadNameSlots 值 ${s} 死`,
+					).toBe(true);
 		}
 	});
 
@@ -226,28 +237,37 @@ describe("law:minimality（O-C5/O-C6 全表族 grammar 对拍——死条目/死
 	});
 
 	it("parse 实证校准：sizeof/nameof/unchecked/增强赋值/标签/this 的真实节点名（死条目候选的活名）", async () => {
-		const real = await parsedNodeTypes(csharpPack, [
-			"class C {",
-			"  unsafe void F() {",
-			"    int a = sizeof(int);",
-			"    var b = nameof(F);",
-			"    var c = nameof(F.M);",
-			"    unchecked { a++; }",
-			"    a += 1;",
-			"    a ??= 2;",
-			"    a -= 1;",
-			"    goto L;",
-			"  L:",
-			"    this.GetType();",
-			"    int? x = null;",
-			"    var t = (1, 2);",
-			"  }",
-			"}",
-		].join("\n"));
+		const real = await parsedNodeTypes(
+			csharpPack,
+			[
+				"class C {",
+				"  unsafe void F() {",
+				"    int a = sizeof(int);",
+				"    var b = nameof(F);",
+				"    var c = nameof(F.M);",
+				"    unchecked { a++; }",
+				"    a += 1;",
+				"    a ??= 2;",
+				"    a -= 1;",
+				"    goto L;",
+				"  L:",
+				"    this.GetType();",
+				"    int? x = null;",
+				"    var t = (1, 2);",
+				"  }",
+				"}",
+			].join("\n"),
+		);
 		// 死条目候选的 grammar 真名（若有）——断言活名存在，死名不存在
-		expect(real.has("labeled_statement"), `labeled_statement absent; real=${[...real].join(",")}`).toBe(true);
+		expect(
+			real.has("labeled_statement"),
+			`labeled_statement absent; real=${[...real].join(",")}`,
+		).toBe(true);
 		expect(real.has("this_expression")).toBe(true);
-		expect(real.has("assignment_expression"), "assignment_expression absent").toBe(true); // += 归属（超类型名，parse 实证）
+		expect(
+			real.has("assignment_expression"),
+			"assignment_expression absent",
+		).toBe(true); // += 归属（超类型名，parse 实证）
 		// 死条目本身不得出现在任何真实解析树中（grammar 无此节点名，超类型机制也产不出）
 		for (const dead of [
 			"sizeof_expression",
@@ -259,35 +279,42 @@ describe("law:minimality（O-C5/O-C6 全表族 grammar 对拍——死条目/死
 			"array_pattern",
 			"as_pattern_target",
 		]) {
-			expect(real.has(dead), `${dead} 在真实解析树中出现（非死条目）`).toBe(false);
+			expect(real.has(dead), `${dead} 在真实解析树中出现（非死条目）`).toBe(
+				false,
+			);
 		}
 	});
 
 	it("parse 实证校准：C# 节点名漂移盘点（真实节点在场、死名缺席——第七轮 parse 实证）", async () => {
-		const real = await parsedNodeTypes(csharpPack, [
-			"#if DEBUG",
-			"using Ns.Sub;",
-			"#region R",
-			"namespace Ns {",
-			"  [Attr]",
-			"  struct S { public int F; }",
-			"  class C {",
-			"    void M(int arg) {",
-			"      var o = new object();",
-			"      var t = typeof(int);",
-			"      var s = sizeof(int);",
-			"      var l = new List<int>();",
-			"    }",
-			"  }",
-			"}",
-			"#endregion",
-		].join("\n"));
+		const real = await parsedNodeTypes(
+			csharpPack,
+			[
+				"#if DEBUG",
+				"using Ns.Sub;",
+				"#region R",
+				"namespace Ns {",
+				"  [Attr]",
+				"  struct S { public int F; }",
+				"  class C {",
+				"    void M(int arg) {",
+				"      var o = new object();",
+				"      var t = typeof(int);",
+				"      var s = sizeof(int);",
+				"      var l = new List<int>();",
+				"    }",
+				"  }",
+				"}",
+				"#endregion",
+			].join("\n"),
+		);
 		// 盘点日志（grammar 漂移证据，非断言）
 		process.stdout.write(
 			"\n[ct7-drift] " +
 				[...real]
 					.filter((t) =>
-						/namespace|struct|object_creation|typeof|size_of|field_decl|attribute|qualified|directive/.test(t),
+						/namespace|struct|object_creation|typeof|size_of|field_decl|attribute|qualified|directive/.test(
+							t,
+						),
 					)
 					.join(" ") +
 				"\n",
@@ -307,24 +334,38 @@ describe("law:minimality（O-C5/O-C6 全表族 grammar 对拍——死条目/死
 			"region_directive",
 			"type_argument_list",
 		]) {
-			expect(real.has(present), `${present} 缺席（真实节点，parse 实证在场）`).toBe(true);
+			expect(
+				real.has(present),
+				`${present} 缺席（真实节点，parse 实证在场）`,
+			).toBe(true);
 		}
 		// 死名必须在场缺席（grammar 真名为 type_of_expression/size_of_expression）
 		for (const gone of ["typeof_expression", "sizeof_expression"]) {
-			expect(real.has(gone), `${gone} 仍在真实解析树中出现（死名）`).toBe(false);
+			expect(real.has(gone), `${gone} 仍在真实解析树中出现（死名）`).toBe(
+				false,
+			);
 		}
-		expect(real.has("type_of_expression"), "type_of_expression 缺席（typeof 真名）").toBe(true);
-		expect(real.has("size_of_expression"), "size_of_expression 缺席（sizeof 真名）").toBe(true);
+		expect(
+			real.has("type_of_expression"),
+			"type_of_expression 缺席（typeof 真名）",
+		).toBe(true);
+		expect(
+			real.has("size_of_expression"),
+			"size_of_expression 缺席（sizeof 真名）",
+		).toBe(true);
 	});
 
 	it("parse 实证校准：TS 注解/赋值节点真名（typeWrapNodes/assignment_expression 活名判定）", async () => {
-		const real = await parsedNodeTypes(typescriptPack, [
-			"function f(x: number): string { return String(x); }",
-			"let a = 1; a = 2; a += 1; a ??= 3;",
-			"const o = { m(): void {} }; o.m();",
-			"class K { public static p = 1; }",
-			"const [u, v] = [1, 2];",
-		].join("\n"));
+		const real = await parsedNodeTypes(
+			typescriptPack,
+			[
+				"function f(x: number): string { return String(x); }",
+				"let a = 1; a = 2; a += 1; a ??= 3;",
+				"const o = { m(): void {} }; o.m();",
+				"class K { public static p = 1; }",
+				"const [u, v] = [1, 2];",
+			].join("\n"),
+		);
 		expect(real.has("assignment_expression")).toBe(true);
 		expect(real.has("augmented_assignment_expression")).toBe(true);
 		expect(real.has("type_annotation")).toBe(true);
@@ -342,7 +383,7 @@ describe("law:edge-case（L-C1′ 四条件缺一不可——③④ 必要性）
 			"C.cs": [
 				"class C {",
 				"  public void F() {",
-				"    void G() { System.Console.WriteLine(\"x\"); }",
+				'    void G() { System.Console.WriteLine("x"); }',
 				"    System.Action h = G;",
 				"  }",
 				"}",
@@ -361,7 +402,7 @@ describe("law:edge-case（L-C1′ 四条件缺一不可——③④ 必要性）
 			"C.cs": [
 				"class C {",
 				"  public static int P {",
-				"    get { System.Console.WriteLine(\"x\"); return 1; }",
+				'    get { System.Console.WriteLine("x"); return 1; }',
 				"    set { }",
 				"  }",
 				"  public static void F() {",
@@ -453,7 +494,10 @@ describe("law:poset-monotonicity（A7 判定格传播单调——链式 A→B→
 		// 版本2：leaf 调未解析 → UNKNOWN
 		const unk = byName(
 			await scanProject(
-				mk("declare function missingFn(): void; export function leaf() { missingFn(); return 1; }", "u"),
+				mk(
+					"declare function missingFn(): void; export function leaf() { missingFn(); return 1; }",
+					"u",
+				),
 				{ useCache: false },
 			),
 		);
@@ -468,8 +512,14 @@ describe("law:poset-monotonicity（A7 判定格传播单调——链式 A→B→
 			const p = pure.get(name)!.purity;
 			const u = unk.get(name)!.purity;
 			const i = imp.get(name)!.purity;
-			expect(u, `${name} UNKNOWN 版本不得低于 PURE 版本`).toBeGreaterThanOrEqual(p);
-			expect(i, `${name} IMPURE 版本不得低于 UNKNOWN 版本`).toBeGreaterThanOrEqual(u);
+			expect(
+				u,
+				`${name} UNKNOWN 版本不得低于 PURE 版本`,
+			).toBeGreaterThanOrEqual(p);
+			expect(
+				i,
+				`${name} IMPURE 版本不得低于 UNKNOWN 版本`,
+			).toBeGreaterThanOrEqual(u);
 		}
 		// 传染深度：三跳全传染（b/a 均受 leaf 影响）
 		expect(imp.get("a")!.purity).toBe(Purity.IMPURE);
