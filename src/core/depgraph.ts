@@ -7,12 +7,12 @@ import { tarjan } from "./tarjan";
 
 /** 模块键：文件路径 → 聚合模块（深度参数化——depth=2 目录级 / depth=3 模块级）。
  *  规则：Assets 为容器前缀（跳过）；LocalPackages/Tools/Tests 本身是一级目录（保留）；
- *  取前 depth 段非文件路径段；*.g.cs 生成代码统一归 InitDeity/Generated 桶（防冒充模块，
+ *  取前 depth 段非文件路径段；*.g.cs 生成代码统一归 Generated 桶（防冒充模块，
  *  如 SDK 的 API.g.cs 2503 chunks 单文件——交叉审计 D1）。 */
 export function moduleKeyOf(file: string, depth = 2): string {
 	const parts = file.replace(/\\/g, "/").split("/");
 	const segs = parts[0] === "Assets" ? parts.slice(1) : parts;
-	if (segs.some((s) => /\.g\.cs$/i.test(s))) return "InitDeity/Generated";
+	if (/\.g\.cs$/i.test(segs[segs.length - 1] ?? "")) return "Generated";
 	const mod: string[] = [];
 	for (const s of segs) {
 		if (mod.length >= depth) break;
@@ -88,7 +88,7 @@ export function moduleGraph(
 	]);
 	const thirdParty = (m: string): boolean => {
 		if (
-			m === "InitDeity/Generated" ||
+			m === "Generated" ||
 			m.startsWith("LocalPackages/") ||
 			m.startsWith("Plugins/") ||
 			m.startsWith("Packages")
@@ -420,7 +420,7 @@ export function renderModuleGraphPanel(
 			n.id === "第三方" ||
 			n.id === "外部" ||
 			n.id === "…其他" ||
-			n.id === "InitDeity/Generated"
+			n.id === "Generated"
 		)
 			continue;
 		const sub = moduleGraph(verdicts, {
@@ -435,7 +435,9 @@ export function renderModuleGraphPanel(
 			continue;
 		children[n.id] = sub;
 	}
-	const data = JSON.stringify({ base: g, children });
+	// XSS：JSON 内嵌 <script> 块，文件名可含 </script>（Unix）→ 转义 < 为 \u003c（JSON 解析后还原，
+	// 但 HTML 解析器不再看到 script 闭合序列）。其余动态值由客户端 dgEsc 转义。
+	const data = JSON.stringify({ base: g, children }).replace(/</g, "\\u003c");
 
 	const ringList = g.sccs.length
 		? g.sccs
@@ -452,6 +454,8 @@ export function renderModuleGraphPanel(
 <h3>🗺 项目模块有向边图（第一方口径 · ${g.nodes.length} 模块 · ${g.edges.length} 边——悬停看明细；第三方折叠为单节点${expandHint}）</h3>
 <div id="depgraph-holder"></div>
 <script>
+function dgEnc(s){ return encodeURIComponent(s).replace(/'/g,"%27"); }
+function dgEsc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/'/g,"&#39;"); }
 window.__DEPGRAPH_DATA = ${data};
 window.__DEPGRAPH_STACK = [];
 function depgraphRender(data, holder, path, parentPath) {
@@ -505,7 +509,7 @@ function depgraphRender(data, holder, path, parentPath) {
 		var cy2 = Math.abs(dy) < 1 ? my - 180 : my + (dx / len) * off * side;
 		var backPct = e.b2a > 0 ? Math.round(e.b2a / e.count * 100) : 0;
 		var stroke = e.reverse ? (backPct >= 20 ? '#e5484d' : '#e58a8d') : '#8b8f98';
-		var tip = e.from + ' → ' + e.to + ' × ' + e.count + (e.b2a > 0 ? '（反向 ' + e.b2a + ' 条 · 逆行强度 ' + backPct + '%）' : '') + (e.reverse ? '\\n⚠ 逆行：双向依赖 + 聚合环内——解耦优先' : '');
+		var tip = dgEsc(e.from + ' → ' + e.to + ' × ' + e.count + (e.b2a > 0 ? '（反向 ' + e.b2a + ' 条 · 逆行强度 ' + backPct + '%）' : '') + (e.reverse ? '\\n⚠ 逆行：双向依赖 + 聚合环内——解耦优先' : ''));
 		var w = 1 + (e.count / maxCount) * 4;
 		svg += '<path d="M' + p1.x.toFixed(1) + ',' + p1.y.toFixed(1) + ' Q' + cx2.toFixed(1) + ',' + cy2.toFixed(1) + ' ' + p2.x.toFixed(1) + ',' + p2.y.toFixed(1) + '" fill="none" stroke="' + stroke + '" stroke-width="' + w.toFixed(1) + '" opacity="0.55"><title>' + tip + '</title></path>';
 		var arr = 'M' + (p2.x - dx / len * 10).toFixed(1) + ',' + (p2.y - dy / len * 10).toFixed(1) + ' L' + (p2.x - dy / len * 6).toFixed(1) + ',' + (p2.y + dx / len * 6).toFixed(1) + ' L' + (p2.x + dy / len * 6).toFixed(1) + ',' + (p2.y - dx / len * 6).toFixed(1) + ' Z';
@@ -514,7 +518,7 @@ function depgraphRender(data, holder, path, parentPath) {
 			var rOff = off * -0.9 * side;
 			var rx2 = Math.abs(dy) < 1 ? mx : mx + (-dy / len) * rOff;
 			var ry2 = Math.abs(dy) < 1 ? my + 180 : my + (dx / len) * rOff;
-			svg += '<path d="M' + p2.x.toFixed(1) + ',' + p2.y.toFixed(1) + ' Q' + rx2.toFixed(1) + ',' + ry2.toFixed(1) + ' ' + p1.x.toFixed(1) + ',' + p1.y.toFixed(1) + '" fill="none" stroke="' + stroke + '" stroke-width="' + Math.max(w * 0.7, 1).toFixed(1) + '" stroke-dasharray="6,4" opacity="0.45"><title>' + e.to + ' → ' + e.from + ' × ' + e.b2a + '（反向——逆行方向）</title></path>';
+			svg += '<path d="M' + p2.x.toFixed(1) + ',' + p2.y.toFixed(1) + ' Q' + rx2.toFixed(1) + ',' + ry2.toFixed(1) + ' ' + p1.x.toFixed(1) + ',' + p1.y.toFixed(1) + '" fill="none" stroke="' + stroke + '" stroke-width="' + Math.max(w * 0.7, 1).toFixed(1) + '" stroke-dasharray="6,4" opacity="0.45"><title>' + dgEsc(e.to + ' → ' + e.from + ' × ' + e.b2a + '（反向——逆行方向）') + '</title></path>';
 		}
 	});
 	svg += '</g><g>';
@@ -537,15 +541,15 @@ function depgraphRender(data, holder, path, parentPath) {
 			: null;
 		// 可展开节点：白色粗描边 + 手型光标 + 点击节点直接下钻（迭代58-r10：去掉 + 徽标，交互即节点本身）
 		var click = child
-			? ' style="cursor:pointer" onclick="depgraphNav(\\'' + n.id + '\\',\\'' + path + '\\')"'
+			? ' style="cursor:pointer" onclick="depgraphNav(\\'' + dgEnc(n.id) + '\\',\\'' + dgEnc(path) + '\\')"'
 			: '';
 		var ringStroke = child ? '#fff' : stroke;
 		var ringW = child ? 3 : 1.5;
-		var tip = n.label + '\\nchunks ' + n.chunks + ' · 出→入 ' + n.outDeg + '→' + n.inDeg + ' · 内部调用 ' + n.selfCalls + (ring ? '（环内模块）' : '') + (isolated ? '\\n⚠ 无跨模块边——静态盲区（未知调用 ?/反射/事件驱动）或真实孤立' : '') + (child ? '\\n🖱 点击展开 ' + n.id + ' 的模块级子图' : '');
+		var tip = dgEsc(n.label + '\\nchunks ' + n.chunks + ' · 出→入 ' + n.outDeg + '→' + n.inDeg + ' · 内部调用 ' + n.selfCalls + (ring ? '（环内模块）' : '') + (isolated ? '\\n⚠ 无跨模块边——静态盲区（未知调用 ?/反射/事件驱动）或真实孤立' : '') + (child ? '\\n🖱 点击展开 ' + n.id + ' 的模块级子图' : ''));
 		svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + fill + '" stroke="' + ringStroke + '" stroke-width="' + ringW + '"' + dash + click + '><title>' + tip + '</title></circle>';
 		var label0 = n.label.split('/').pop() || n.label;
 		var label = label0.length > 16 ? label0.slice(0, 15) + '…' : label0;
-		svg += '<text x="' + p.x.toFixed(1) + '" y="' + (p.y + r + 14).toFixed(1) + '" text-anchor="middle" font-size="13" fill="var(--fg)"><title>' + tip + '</title>' + label + '</text>';
+		svg += '<text x="' + p.x.toFixed(1) + '" y="' + (p.y + r + 14).toFixed(1) + '" text-anchor="middle" font-size="13" fill="var(--fg)"><title>' + tip + '</title>' + dgEsc(label) + '</text>';
 	});
 	svg += '</g>';
 	var labels = '';
@@ -554,12 +558,12 @@ function depgraphRender(data, holder, path, parentPath) {
 		labels += '<text x="' + (W - 30) + '" y="' + (ly + 4) + '" text-anchor="end" font-size="10" fill="var(--dim)">L' + lk2 + '</text>';
 	}
 	var crumb = parentPath ? '<a href="javascript:void(0)" onclick="depgraphBack()" style="color:var(--acc)">‹ 返回上级</a> · ' : '';
-	holder.innerHTML = '<div style="margin-bottom:6px;font-size:12px">' + crumb + '<b>' + path + '</b></div><svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;background:var(--panel);border-radius:8px;border:1px solid var(--br)" xmlns="http://www.w3.org/2000/svg"><g>' + labels + '</g>' + svg + '</svg>';
+	holder.innerHTML = '<div style="margin-bottom:6px;font-size:12px">' + crumb + '<b>' + dgEsc(path) + '</b></div><svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;background:var(--panel);border-radius:8px;border:1px solid var(--br)" xmlns="http://www.w3.org/2000/svg"><g>' + labels + '</g>' + svg + '</svg>';
 }
-function depgraphNav(id, parentPath) {
-	window.__DEPGRAPH_STACK.push({ data: window.__DEPGRAPH_DATA.base, path: parentPath });
-	window.__DEPGRAPH_DATA.current = window.__DEPGRAPH_DATA.children[id];
-	depgraphRender(window.__DEPGRAPH_DATA.current, document.getElementById('depgraph-holder'), parentPath + ' / ' + id, parentPath);
+	var rawId = decodeURIComponent(id), rawPath = decodeURIComponent(parentPath);
+	window.__DEPGRAPH_STACK.push({ data: window.__DEPGRAPH_DATA.base, path: rawPath });
+	window.__DEPGRAPH_DATA.current = window.__DEPGRAPH_DATA.children[rawId];
+	depgraphRender(window.__DEPGRAPH_DATA.current, document.getElementById('depgraph-holder'), rawPath + ' / ' + rawId, rawPath);
 }
 function depgraphBack() {
 	var prev = window.__DEPGRAPH_STACK.pop();

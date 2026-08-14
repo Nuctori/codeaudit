@@ -67,6 +67,7 @@ codeaudit recheck <json> [选项]     # 加载 --json 输出，重算全部视�
 | `--modules` | 模块级视图 |
 | `--deps <file>` | 文件依赖：入/出边文件清单（拆分决策） |
 | `--compare <before.json>` | 重构前后报告对比 |
+| `--table-usage` | 效应表补表候选（missSlots top 15） |
 | `--unknowns <file>` | 导出未解析符号清单（按影响面排序，含 id 锚点，供 AI 标注） |
 | `--annotations <file>` | 回读标注 `[{id, verdict:"PURE" | "IMPURE"}]` |
 | `--effect-table <json>` | 效应表注入 `{ 语言: { 表名: 值 } }`（不改库代码；读/校验失败 exit 2） |
@@ -74,7 +75,7 @@ codeaudit recheck <json> [选项]     # 加载 --json 输出，重算全部视�
 | `--changed <files>` | 回归风险分析：改动文件（逗号分隔） |
 | `--gate` | 与 `--changed` 联用：grade ≥ HIGH → exit 1（无效路径也不放行） |
 | `--strict` | 存在 IMPURE chunk → exit 1 |
-| `--html <file>` | 技术债 HTML 报告（健康度/拓扑/治理/复杂度/未知/效应源/证明完整度/测试盲区/重复/死代码/状态耦合） |
+| `--html <file>` | 技术债 HTML 报告（健康度/拓扑/模块图与纠缠环/治理/复杂度/未知/效应源/证明完整度/测试盲区/重复/死代码/状态耦合） |
 | `--no-cache` | 禁用增量缓存 |
 | `-h, --help` / `-v, --version` | 帮助 / 版本 |
 
@@ -186,7 +187,7 @@ codeaudit scan src --changed src/engine/scan.ts
 ```bash
 npm install
 npm run build
-npm test    # 458 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计
+npm test    # 459 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计
 ```
 
 测试分五层：单元（tarjan/analyze/hash 契约）、多语言 E2E（pyshop/tsapp/jsapp）、边界 E2E（空目录/损毁文件/再导出环）、合成大库（300 文件 2400+ chunks，确定性验证）、交叉审计（随机图对照朴素参考实现 + 对抗性输入，32 维，见 [AUDIT.md](AUDIT.md)）。

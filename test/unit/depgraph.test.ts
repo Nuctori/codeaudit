@@ -79,8 +79,10 @@ describe("moduleKeyOf", () => {
 		);
 		// 交叉审计 D1：*.g.cs 生成代码统一归生成桶，防冒充模块（API.g.cs 2503 chunks 单文件）
 		expect(moduleKeyOf("Assets/ChillyRoomSdkClient/InitDeity/API.g.cs")).toBe(
-			"InitDeity/Generated",
+			"Generated",
 		);
+		// 目录名以 .g.cs 结尾不归桶（只查文件段）
+		expect(moduleKeyOf("Assets/Foo.g.cs/X.cs")).toBe("Foo.g.cs");
 	});
 });
 
@@ -257,5 +259,18 @@ describe("render", () => {
 		expect(html).toContain("__DEPGRAPH_DATA"); // 交互数据内嵌
 		expect(html).toContain("depgraphNav"); // + 下钻函数
 		expect(html).toContain("‹ 返回上级"); // 面包屑返回
+	});
+
+	it("模块名含 </script> 时内嵌 JSON 转义（XSS 回归）", () => {
+		const evilDir = "Assets/InitDeity/<script>alert(1)</script>/";
+		const verdicts = [
+			v(`${evilDir}B.cs`, "B", []),
+			v(`${evilDir}C.cs`, "C", []),
+			v(`${evilDir}D.cs`, "D", []),
+		];
+		const html = renderModuleGraphPanel(verdicts);
+		// 模块名里的 </script> 被转义为 \u003c/script>（script 块自身闭合标签不受影响）
+		expect(html).toContain("\\u003cscript>alert(1)");
+		expect(html).not.toContain("alert(1)</script>");
 	});
 });
