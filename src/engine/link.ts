@@ -1309,7 +1309,8 @@ function resolveObjDispatch(
 	const lb = caller.localBindings?.[call.obj ?? ""];
 	// 守卫：提取侧已保证单赋值构造（多赋值/重绑不绑）+ 参数排除（params）；此处防参数注入
 	// （paramTypes 双保险）。不用 assigned/moduleAssigned——局部声明（var xs = ...）本身就在
-	// assigned 且 moduleAssigned 含整树赋值（assignedNames(root) 遍历函数体），会误杀全部局部变量；
+	// assigned 且 assigned 遮蔽守卫已覆盖局部重绑（moduleAssigned 迭代46 起只收模块作用域绑定，
+	// 不再含函数体赋值），若引入会误杀全部局部变量；
 	// 局部声明遮蔽模块级同名（C# var / Python 赋值即局部 / TS 声明），绑定可靠。
 	if (
 		lb !== undefined &&
