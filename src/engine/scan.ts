@@ -337,8 +337,15 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 		}
 		facts.push(f);
 		// parseError 占位不写缓存（瞬时失败不得永久化——下次扫描重试）
+		// 迭代55-r2（iter54-r6 审计实证）：errorLines 可能为空——static 字段/构造器语法错误时
+		// visit 的 static 跳过分支提前 return，子树内 ERROR 节点漏收集 → Math.min(...[]) = Infinity
+		// → errLineOf = Infinity → 全文件不降级 = H1 守卫失效假纯（zz-errlines-probe 实证 C.Pure=0）。
+		// 兜底：空数组视为 [1]（errLine=1 → 全降级，方向安全——与 extract 异常占位同路径）
 		if (f.parseError)
-			parseErrFiles.set(file, Math.min(...(f.errorLines ?? [1])));
+			parseErrFiles.set(
+				file,
+				Math.min(...(f.errorLines && f.errorLines.length > 0 ? f.errorLines : [1])),
+			);
 		else nextCache.files[file] = { contentHash, facts: f };
 	}
 
@@ -388,7 +395,8 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	// 不降级 = 假纯回归（迭代2 H1 修复的洞复活，lang-features parsedeck 实证）。
 	// 正确判据：chunk **完全在**最小 ERROR 行之前（endLine < errLine）才保留；覆盖 ERROR 或在其后 → 降级。
 	const errLineAfter = (c: { file: string; line?: number; endLine?: number }) =>
-		parseErrFiles.has(c.file) && !((c.endLine ?? c.line ?? 1) < errLineOf(c.file));
+		parseErrFiles.has(c.file) &&
+		!((c.endLine ?? c.line ?? 1) < errLineOf(c.file));
 	const chunks2 =
 		parseErrFiles.size === 0
 			? chunks
