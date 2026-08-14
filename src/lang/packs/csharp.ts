@@ -1172,7 +1172,8 @@ export const csharpPack: LangPack = {
 	nestingNodes,
 	selfNames,
 	impureBuiltins,
-	pureBuiltins: new Set<string>(["nameof"]), // C# 编译期名字提取（迭代21 T4：missSlots 463 站点——纯）
+	pureBuiltins: new Set<string>(), // 空表：nameof/typeof/default 由 compileTimeOps 在提取侧吸收（迭代44-r2）——
+	// 链接侧裸名通道永不咨询（第四轮审计 law:minimality：此前的 "nameof" 条目是死条目，零 hit/miss 实证）
 	impureModules,
 	pureModules,
 	impureGlobals,

@@ -72,14 +72,18 @@ export function proofCompleteness(
 		const reachable = target <= theta + 1e-9;
 		if (!reachable) budgetToTarget = null;
 		else {
+			// 容差与 reachable 判定同量纲：θ 侧 1e-9 经 totalWeight 放大到剩余口径
+			// （第四轮对抗审计 law:edge-case——固定 1e-9 在 (1e-9, 1e-9·|U|] 残差窗内
+			//  reachable=true 但曲线扫描 miss → budgetToTarget=null 自相矛盾）
+			const tol = 1e-9 * totalWeight;
 			const limit = totalWeight * (1 - target);
 			for (let k = 0; k < curve.length; k++) {
-				if (curve[k]! <= limit + 1e-9) {
+				if (curve[k]! <= limit + tol) {
 					budgetToTarget = k;
 					break;
 				}
 			}
-			if (budgetToTarget === null && finalRem <= limit + 1e-9)
+			if (budgetToTarget === null && finalRem <= limit + tol)
 				budgetToTarget = order.length;
 		}
 	}

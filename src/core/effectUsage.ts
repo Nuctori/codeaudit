@@ -71,7 +71,9 @@ export function classifyUsage(
 		const keySets: Array<[string, string]> = [];
 		for (const k of Object.keys(pack.impureModules))
 			keySets.push(["impureModules", k]);
-		for (const k of Object.keys(pack.pureModules))
+		// 第四轮审计 law:minimality：pureModules 是 Set——Object.keys 恒 []，整族（python 36 键）在
+		// effectTableUsage 全不可见（hit/miss 吞没，--table-usage 盲区）；Set 迭代与 pureGlobals/pureBuiltins 同款
+		for (const k of pack.pureModules)
 			keySets.push(["pureModules", k]);
 		for (const k of Object.keys(pack.impureGlobals))
 			keySets.push(["impureGlobals", k]);

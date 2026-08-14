@@ -200,6 +200,12 @@ export function validateEffectOverride(
 					for (const [m, cls] of Object.entries(
 						methods as Record<string, unknown>,
 					)) {
+						if (isDangerousKey(m)) {
+							errors.push(
+								`表 "${lang}.${table}.${typeName}" 的成员键 "${m}" 是危险键（原型污染注入面），拒绝`,
+							);
+							continue;
+						}
 						if (typeof cls !== "string" || !PURE_HOF.has(cls)) {
 							errors.push(
 								`表 "${lang}.${table}.${typeName}.${m}" 必须是 "pure" 或 "hof"（得 "${String(cls)}"）`,
@@ -231,6 +237,12 @@ export function validateEffectOverride(
 					for (const [typeName, tagOrMethods] of Object.entries(
 						types as Record<string, unknown>,
 					)) {
+						if (isDangerousKey(typeName)) {
+							errors.push(
+								`表 "${lang}.${table}.${ns}" 的类型键 "${typeName}" 是危险键（原型污染注入面），拒绝`,
+							);
+							continue;
+						}
 						if (typeof tagOrMethods === "string") {
 							if (!PURE_HOF.has(tagOrMethods)) {
 								errors.push(
@@ -245,6 +257,12 @@ export function validateEffectOverride(
 							for (const [m, cls] of Object.entries(
 								tagOrMethods as Record<string, unknown>,
 							)) {
+								if (isDangerousKey(m)) {
+									errors.push(
+										`表 "${lang}.${table}.${ns}.${typeName}" 的成员键 "${m}" 是危险键（原型污染注入面），拒绝`,
+									);
+									continue;
+								}
 								if (typeof cls !== "string" || !PURE_HOF.has(cls)) {
 									errors.push(
 										`表 "${lang}.${table}.${ns}.${typeName}.${m}" 必须是 "pure" 或 "hof"（得 "${String(cls)}"）`,
@@ -310,6 +328,12 @@ export function validateEffectOverride(
 						if (typeof item !== "string")
 							errors.push(
 								`表 "${lang}.${table}.${key}" 的数组元素必须是字符串`,
+							);
+						else if (shape === "record-prefix" && item.includes(":"))
+							// frameworkIo 前缀匹配 attr === p || startsWith(p + ".")——标识符链不含 ':'，
+							// 冒号条目（用户误用 record-array 标签语法）永远不命中 → 拒绝（第四轮审计 law:minimality）
+							errors.push(
+								`表 "${lang}.${table}.${key}" 的前缀 "${item}" 含 ":"——成员前缀是标识符链，冒号条目永不命中`,
 							);
 					}
 				} else {
@@ -395,6 +419,7 @@ function mergeFrameworkPure(
 		const merged: Record<string, TypeVal> = {};
 		for (const [t, v] of Object.entries(existing)) merged[t] = v as TypeVal;
 		for (const [t, v] of Object.entries(types)) {
+			if (isDangerousKey(t)) continue; // 类型键级纵深防御（第四轮审计：merged[t]=v 对 "__proto__" 是原型赋值）
 			const ev = existing[t];
 			if (
 				ev !== null &&
