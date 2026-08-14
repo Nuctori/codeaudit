@@ -269,6 +269,16 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 			/ApiException\.ApiException[^<]*<[^>]*>[\s\S]*?bar-val">2<\/div>/,
 		);
 		// 治理段 bar-row 数 = 3（2 caller + 1 聚合族）
+		// 治理段 bar-row 数 = 3（2 caller + 1 聚合族）
 		expect((govSection.match(/class="bar-row"/g) ?? []).length).toBe(3);
+	});
+
+	it("结构护栏：div 开闭配对平衡（防重复/缺失 panel 回归）", () => {
+		// 回归来源：重复 h2 修复时引入重复 <div class="panel">（reviewer Blocker-2）——
+		// 开 194 闭 193 错位，后续节嵌套错乱。字符串断言测不出，需计数配对。
+		const html = renderTechdebtHtml([], { files: 0, cycles: 0 });
+		const open = (html.match(/<div/g) ?? []).length;
+		const close = (html.match(/<\/div>/g) ?? []).length;
+		expect(open).toBe(close);
 	});
 });

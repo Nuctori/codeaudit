@@ -288,10 +288,10 @@ describe("render", () => {
 	});
 
 	it("内嵌脚本语法有效且 __proto__ 目录名不崩（执行回归）", () => {
-		// 覆盖两类回归：脚本语法错误（new Function 编译期 SyntaxError）与
-		// 客户端 pos/rep 普通对象时 __proto__ 节点走原型 setter（运行期 TypeError）。
-		// 修复前：pos["__proto__"] 设置原型 → 渲染时 p.x.toFixed 崩；
-		// 修复后：Object.create(null) 下为 own property，正常渲染。
+		// 覆盖两类回归：脚本语法错误（vm.Script 编译期 SyntaxError——Blocker-1 实测）与
+		// children 读取走原型链的点击崩溃（Object.hasOwn 修复——下方 onclick 红绿断言）。
+		// 注：pos 普通对象时 __proto__ 节点不崩（原型 setter 使读取返回坐标对象本身，
+		// 负向实证 NO THROW）——Object.create(null) 为预防性防御，非本测试保护面。
 		const verdicts = [
 			v("__proto__/B.cs", "B", []),
 			v("__proto__/C.cs", "C", []),
@@ -302,17 +302,19 @@ describe("render", () => {
 		expect(m).not.toBeNull();
 		const holder: { innerHTML: string } = { innerHTML: "" };
 		const win: Record<string, unknown> = {};
-		// 编译 + 执行渲染（stub document/window，vm 沙箱）：语法错误编译期抛（vm.Script），
-		// 原型污染执行期抛（runInNewContext）——两类回归都会让测试红
+		// 编译 + 执行渲染（stub document/window，vm 沙箱）：语法错误编译期抛（vm.Script）
 		const script = new vm.Script(m![1]!);
 		expect(() =>
-			script.runInNewContext({ window: win, document: { getElementById: () => holder } }),
+			script.runInNewContext({
+				window: win,
+				document: { getElementById: () => holder },
+			}),
 		).not.toThrow();
 		expect(win.__DEPGRAPH_DATA).toBeDefined();
 		expect(holder.innerHTML).toContain("__proto__");
 		// children 为空时 __proto__ 节点不可点击：修复前 children["__proto__"] 走原型链
 		// truthy → onclick 出现 → 点击后 depgraphRender(Object.prototype) TypeError；
 		// Object.hasOwn 修复后无 onclick（红绿分明）
-		expect(holder.innerHTML).not.toContain("onclick=\"depgraphNav");
+		expect(holder.innerHTML).not.toContain('onclick="depgraphNav');
 	});
 });
