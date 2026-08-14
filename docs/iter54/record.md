@@ -27,6 +27,7 @@
 - **d12d5ab iter54-r3**：**recheck <json> 子命令**——加载 --json 输出（Set→数组、Infinity→"Infinity" 序列化已存在）反序列化后复用全部视图（拓扑/HTML/治理/--changed/--gate/--sources），root 对齐 JSON 内扫描根。**验证回路 10-20min → <1s**（用户「重构太慢了」核心解药）。坏 JSON 友好报错 exit 2。
 - **2c6769d iter54-r4**：recheck 自审计——形状校验（合法 JSON 缺 verdicts/stats → 友好报错而非 TypeError 崩溃）；测试 +2 断言。另核实 8-12 23:59 大会话（4469 事件）为 InitDeity 项目开发（Unity 卡死排查），无 codeaudit 使用痛点——审计范围确认完整覆盖。
 - **8d93fe9 iter54-r5**：审计发现并行会话迭代 55（7e4a6ad H1 行粒度化）**语义缺陷**——`chunk.line >= minErrorLine` 漏掉"chunk 覆盖 ERROR"形态（函数从 ERROR 前一行开始、body 含未闭合字符串 → 内容被吞边不降级 = **假纯回归**，迭代2 H1 洞复活，2 测试红）。修正为 `!(endLine < errLine)`（完全在 ERROR 前才保留）+ 标注守卫同步 + 新测试（421/421 --no-cache 真实状态）。文档一致性：README 测试数 389→421（过时 7 迭代未同步——D-079 门禁抓出）+ recheck 示例 + CHANGELOG 补迭代 54。
+- **588749b iter54-r6**：decision-auditor 参考项 1（"errorLines 空数组不可达"）被并行会话探针 **实证推翻**——C# static 字段语法错误（static int x = ;）时 visit 的 static 跳过分支提前 return → 子树内 ERROR 漏收集 → errorLines=[] → Math.min(...[])=Infinity → 全文件不降级 → **H1 守卫失效假纯**（C.Pure=0 实证）。修复：空数组兜底 [1]（errLine=1 全降级，方向安全）；探针测试完成（__PROBE__ → 正式断言）；422/422 --no-cache。参考项需实证的价值实证。
 
 ## 核实关闭
 
