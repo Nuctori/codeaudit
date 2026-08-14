@@ -75,7 +75,7 @@ describe("moduleKeyOf", () => {
 			"Plugins/Demigiant",
 		);
 		expect(moduleKeyOf("Tools/HeadlessValidationRunner/Program.cs")).toBe(
-			"Tools",
+			"Tools/HeadlessValidationRunner",
 		);
 	});
 });
@@ -205,6 +205,26 @@ describe("moduleGraph", () => {
 		expect(svg).toContain("→ InitDeity/Worlds×2"); // 节点 top 去向
 		expect(svg).toContain("← InitDeity/Framework×2"); // 节点 top 来源
 	});
+	it("scope 子图：scope 内模块级键 + scope 外折叠为外部桶", () => {
+		const verdicts = [
+			fw("A", [`Assets/InitDeity/UIs/B.cs::B`]), // scope 外调用 → 外部桶
+			fw("C"),
+			fw("D"),
+			ui("B"), // scope 外目标文件（≥3 个外部文件才不进 …其他 桶）
+			ui("E"),
+			ui("F"),
+			v("Assets/InitDeity/Framework/Module/Online/N.cs", "N", []),
+			v("Assets/InitDeity/Framework/Module/Online/M.cs", "M", []),
+			v("Assets/InitDeity/Framework/Module/Online/O.cs", "O", []),
+			v("Assets/InitDeity/Framework/NonModule/P.cs", "P", []),
+			v("Assets/InitDeity/Framework/NonModule/Q.cs", "Q", []),
+			v("Assets/InitDeity/Framework/NonModule/R.cs", "R", []),
+		];
+		const sub = moduleGraph(verdicts, { firstPartyOnly: true, scope: "InitDeity/Framework" });
+		expect(sub.nodes.some((n) => n.id === "InitDeity/Framework/Module")).toBe(true);
+		expect(sub.nodes.some((n) => n.id === "外部")).toBe(true); // UIs 调用折叠为外部
+		expect(sub.nodes.some((n) => n.id === "InitDeity/Framework")).toBe(true); // Framework 根
+	});
 });
 
 describe("render", () => {
@@ -222,8 +242,11 @@ describe("render", () => {
 		expect(svg).toContain("<svg");
 		expect(svg).toContain('stroke="#e5484d"'); // 逆行红色
 		expect(svg).toContain("InitDeity/Framework");
-		const html = renderModuleGraphPanel(g);
+		const html = renderModuleGraphPanel(verdicts);
 		expect(html).toContain("逆行");
 		expect(html).toContain("模块级环");
+		expect(html).toContain("__DEPGRAPH_DATA"); // 交互数据内嵌
+		expect(html).toContain("depgraphNav"); // + 下钻函数
+		expect(html).toContain("‹ 返回上级"); // 面包屑返回
 	});
 });

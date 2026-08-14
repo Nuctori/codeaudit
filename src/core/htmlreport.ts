@@ -281,7 +281,6 @@ export function renderTechdebtHtml(
 	// 模块级有向边图（迭代58：全项目聚合图——逆行边红色高亮）
 	// 主图 = 第一方口径（第三方折叠为单桶，逆行边 = 第一方可解耦的真实环）；
 	// 全量口径单独取逆行 top 列表（第三方互环只可升级不可重构）
-	const modGraph = moduleGraph(verdicts, { firstPartyOnly: true });
 	const modGraphAll = moduleGraph(verdicts);
 	const modRevAll = modGraphAll.edges
 		.filter((e) => e.reverse)
@@ -613,7 +612,7 @@ ${deepChainRows.length === 0 ? '<div class="sub">无非纯传播链</div>' : dee
 ${gov.map((v) => bar(`${esc(v.name)} ${v.count > 1 ? `<span style="color:var(--dim)">· ${v.count} 重载</span>` : ""} <span style="color:var(--dim)">· ${esc([...v.files].slice(0, 2).join(", "))}</span> <span style="color:var(--dim)">· 最近源 ${v.chain} 跳</span>`, inDegQ.get(v.name) ?? 0, govMax, "var(--imp)")).join("")}
 </div>
 
-${renderModuleGraphPanel(modGraph)}
+${renderModuleGraphPanel(verdicts, { firstPartyOnly: true })}
 ${modRevAll ? `<div class="panel"><h3>全量口径逆行边 top（含第三方——只可升级不可重构，解耦价值低）</h3>${modRevAll}</div>` : ""}
 
 <h2>拓扑治理优先级（结构热点 → 动作清单 · 量纲各自排序不混合）</h2>

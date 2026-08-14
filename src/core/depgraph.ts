@@ -5,30 +5,20 @@
 import type { Verdict } from "./types";
 import { tarjan } from "./tarjan";
 
-/** 模块键：文件路径 → 聚合模块。第一方按 Assets/<一级>/<二级>，第三方按顶层。 */
-export function moduleKeyOf(file: string): string {
-	const norm = file.replace(/\\/g, "/");
-	const parts = norm.split("/");
-	if (parts.length < 2) return norm;
-	const p0 = parts[0]!,
-		p1 = parts[1]!;
-	if (p0 === "Assets") {
-		if (p1 === "InitDeity") {
-			if (parts.length < 3) return "InitDeity";
-			const p2 = parts[2]!;
-			// 直接挂 InitDeity 根的文件（xx.cs）归 InitDeity 本体
-			if (p2.includes(".")) return "InitDeity";
-			// 测试并入统一桶（避免 Tests/Editor 与 Tests/PlayMode 碎片化）
-			if (p2 === "Tests") return "InitDeity/Tests";
-			return `InitDeity/${p2}`;
-		}
-		if (p1 === "Plugins")
-			return parts.length >= 3 ? `Plugins/${parts[2]!}` : "Plugins";
-		return p1; // ChillyRoomSdkClient / CosmosBootstrap / CosmosFramework / Editor / Resources …
+/** 模块键：文件路径 → 聚合模块（深度参数化——depth=2 目录级 / depth=3 模块级）。
+ *  规则：Assets 为容器前缀（跳过）；LocalPackages/Tools/Tests 本身是一级目录（保留）；
+ *  取前 depth 段非文件路径段。 */
+export function moduleKeyOf(file: string, depth = 2): string {
+	const parts = file.replace(/\\/g, "/").split("/");
+	const segs = parts[0] === "Assets" ? parts.slice(1) : parts;
+	const mod: string[] = [];
+	for (const s of segs) {
+		if (mod.length >= depth) break;
+		if (/\.(cs|ts|js|py|json|md|txt|prefab|asset|mat|shader|asmdef|asmref|csproj|meta|png|xml|dll|so|unity)$/i.test(s))
+			break; // 文件段（带扩展名）终止——目录名可含点（com.cysharp.unitask）
+		mod.push(s);
 	}
-	if (p0 === "LocalPackages")
-		return parts.length >= 2 ? `LocalPackages/${parts[1]!}` : "LocalPackages";
-	return p0; // Tools / Tests / Packages …
+	return mod.join("/") || segs[0] || file;
 }
 
 export interface ModNode {
@@ -72,7 +62,7 @@ const moduleOfKey = (key: string, idx: Map<string, string>): string | null => {
 
 export function moduleGraph(
 	verdicts: readonly Verdict[],
-	opts?: { firstPartyOnly?: boolean },
+	opts?: { firstPartyOnly?: boolean; scope?: string; minChunks?: number },
 ): ModuleGraph {
 	// 第三方折叠桶：firstPartyOnly 时非第一方白名单模块并入单节点
 	// （第三方互环不可治理——折叠后逆行边只留第一方真实可解耦的环）
@@ -105,30 +95,13 @@ export function moduleGraph(
 		: (m: string) => m;
 
 	const keyToMod = new Map<string, string>();
-	// 混合粒度（迭代58-r7）：目录级为基，chunks ≥ EXPAND 的 InitDeity 域模块展开到子级
-	// （Framework/UIs 等巨型目录细分为 Module/NonModule/面板——"节点太粗"修复；
-	//  小模块保持目录级防碎片化；展开只做一级，不递归）
-	const EXPAND = 1500;
-	const key2 = (file: string): string => moduleKeyOf(file);
-	const key3 = (file: string): string => {
-		const k = key2(file);
-		const parts = file.replace(/\\/g, "/").split("/");
-		if (parts.length >= 4 && !parts[3]!.includes("."))
-			return `${k}/${parts[3]!}`;
-		return k;
-	};
-	// 第一遍：2 级键 chunks 统计 → 展开集
-	const cnt2 = new Map<string, number>();
-	for (const v of verdicts) {
-		const k = key2(v.chunk.file);
-		cnt2.set(k, (cnt2.get(k) ?? 0) + 1);
-	}
-	const expandSet = new Set<string>(
-		[...cnt2.entries()].filter(([, n]) => n >= EXPAND).map(([k]) => k),
-	);
+	// 粒度：主图（无 scope）= 目录级；scope 模式 = 该目录的模块级子图（scope 外折叠为"外部"桶）
+	const key3 = (file: string): string => moduleKeyOf(file, 3);
 	const aggKey = (file: string): string => {
-		const k2 = key2(file);
-		return fold(expandSet.has(k2) ? key3(file) : k2);
+		if (opts?.scope) {
+			return moduleKeyOf(file, 2) === opts.scope ? key3(file) : "外部";
+		}
+		return fold(moduleKeyOf(file, 2));
 	};
 	for (const v of verdicts) keyToMod.set(v.chunk.key, aggKey(v.chunk.file));
 
@@ -158,8 +131,8 @@ export function moduleGraph(
 		}
 	}
 
-	// 节点数上限：超 64 把最弱节点并入 "…其他"（保持图可读）
-	const MIN_CHUNKS = 3;
+	// 节点数上限：超 80 把最弱节点并入 "…其他"（保持图可读；子图模式 minChunks 提高防挤爆）
+	const MIN_CHUNKS = opts?.minChunks ?? 3;
 	const all = [...nodes.entries()].sort((a, b) => b[1].chunks - a[1].chunks);
 	const keep = new Set<string>(
 		all
@@ -425,7 +398,25 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 }
 
 /** HTML 面板：有向边图 + 图例 + 环列表。 */
-export function renderModuleGraphPanel(g: ModuleGraph): string {
+export function renderModuleGraphPanel(
+	verdicts: readonly Verdict[],
+	opts?: { firstPartyOnly?: boolean; expandChunks?: number },
+): string {
+	const firstPartyOnly = opts?.firstPartyOnly ?? true;
+	const EXPAND = opts?.expandChunks ?? 1500;
+	const g = moduleGraph(verdicts, { firstPartyOnly });
+	// 子图数据：base 中 chunks ≥ EXPAND 且非桶节点 → scope 子图（模块级 + 外部桶）
+	const children: Record<string, ModuleGraph> = {};
+	for (const n of g.nodes) {
+		if (n.chunks < EXPAND) continue;
+		if (n.id === "第三方" || n.id === "外部" || n.id === "…其他" || n.id === "InitDeity/Generated") continue;
+		const sub = moduleGraph(verdicts, { firstPartyOnly, scope: n.id, minChunks: 20 });
+		// 无展开价值：内部节点 ≤ 1（无子目录结构）
+		if (sub.nodes.filter((x) => x.id !== "外部" && x.id !== "…其他").length <= 1) continue;
+		children[n.id] = sub;
+	}
+	const data = JSON.stringify({ base: g, children });
+
 	const ringList = g.sccs.length
 		? g.sccs
 				.map(
@@ -434,10 +425,121 @@ export function renderModuleGraphPanel(g: ModuleGraph): string {
 				)
 				.join("")
 		: '<div class="sub">无环——模块间无逆向依赖</div>';
+	const expandHint = Object.keys(children).length
+		? ` · 可展开 ${Object.keys(children).length} 个目录（点节点上 <b style="color:#fff">+</b> 下钻到模块级）`
+		: "";
 	return `<div class="panel">
-<h3>🗺 项目模块有向边图（第一方口径 · 聚合 ${g.nodes.length} 模块 · ${g.edges.length} 边——悬停看明细；第三方折叠为单节点）</h3>
-${renderModuleGraphSvg(g)}
-<div class="sub" style="margin-top:8px"><span style="color:#e5484d">● 深红 = 逆行边（强度 ≥20% 真实纠缠）</span> · <span style="color:#e58a8d">● 浅红 = 逆行边（强度 &lt;20% 单点回边）</span>（实线 = 主方向，虚线 = 反向——悬停看 ×N 与逆行强度 %） · <span style="color:#d29922">● 黄 = 模块内部调用 &gt; 0</span> · <span style="color:#4c8dff">● 蓝 = 普通模块</span> · <span style="color:#6b7280">◌ 灰虚线 = 无跨模块边（静态盲区：未知调用 ?/反射/事件驱动，非真实孤立；或真实孤立）</span> · 箭头方向 = 调用方向（A→B 表示 A 调 B） · 线宽 = 调用边数 · 粒度：≥1500 chunks 的目录展开到模块级</div>
+<h3>🗺 项目模块有向边图（第一方口径 · ${g.nodes.length} 模块 · ${g.edges.length} 边——悬停看明细；第三方折叠为单节点${expandHint}）</h3>
+<div id="depgraph-holder"></div>
+<script>
+window.__DEPGRAPH_DATA = ${data};
+window.__DEPGRAPH_STACK = [];
+function depgraphRender(data, holder, path, parentPath) {
+	var rep = {}, repOf = function(id) { return rep[id] || id; };
+	(data.sccs || []).forEach(function(s) { var r = s.slice().sort()[0]; s.forEach(function(m) { rep[m] = r; }); });
+	var preds = {};
+	data.edges.forEach(function(e) {
+		var a = repOf(e.from), b = repOf(e.to);
+		if (a === b) return;
+		(preds[b] = preds[b] || {})[a] = 1;
+	});
+	var reps = {}, layer = {};
+	data.nodes.forEach(function(n) { reps[repOf(n.id)] = 1; });
+	Object.keys(reps).forEach(function(r) { layer[r] = 0; });
+	var changed = true;
+	while (changed) {
+		changed = false;
+		Object.keys(reps).forEach(function(r) {
+			var l = 0, p;
+			for (p in (preds[r] || {})) l = Math.max(l, (layer[p] || 0) + 1);
+			if (l !== (layer[r] || 0)) { layer[r] = l; changed = true; }
+		});
+	}
+	var W = 1500, H = 820, CX = W / 2;
+	var layerNodes = {};
+	data.nodes.forEach(function(n) {
+		var l = layer[repOf(n.id)] || 0;
+		(layerNodes[l] = layerNodes[l] || []).push(n.id);
+	});
+	var maxL = 0;
+	for (var k in layerNodes) maxL = Math.max(maxL, +k);
+	var rowH = maxL > 0 ? (H - 150) / maxL : 0;
+	var pos = {};
+	for (var lk in layerNodes) {
+		var ids = layerNodes[lk], y = 95 + (+lk) * rowH;
+		var slot = Math.min(170, (W - 240) / Math.max(ids.length, 1));
+		ids.forEach(function(id, ii) { pos[id] = { x: CX + (ii - (ids.length - 1) / 2) * slot, y: y }; });
+	}
+	var maxCount = 1, maxChunks = 1;
+	data.edges.forEach(function(e) { maxCount = Math.max(maxCount, e.count); });
+	data.nodes.forEach(function(n) { maxChunks = Math.max(maxChunks, n.chunks); });
+	var svg = '<g>';
+	data.edges.forEach(function(e) {
+		var p1 = pos[e.from], p2 = pos[e.to];
+		if (!p1 || !p2) return;
+		var dx = p2.x - p1.x, dy = p2.y - p1.y, mx = (p1.x + p2.x) / 2, my = (p1.y + p2.y) / 2;
+		var len = Math.hypot(dx, dy) || 1;
+		var off = (e.reverse ? 26 : 14) * (e.count / maxCount + 0.6);
+		var side = e.from < e.to ? 1 : -1;
+		var cx2 = Math.abs(dy) < 1 ? mx : mx + (-dy / len) * off * side;
+		var cy2 = Math.abs(dy) < 1 ? my - 180 : my + (dx / len) * off * side;
+		var backPct = e.b2a > 0 ? Math.round(e.b2a / e.count * 100) : 0;
+		var stroke = e.reverse ? (backPct >= 20 ? '#e5484d' : '#e58a8d') : '#8b8f98';
+		var tip = e.from + ' → ' + e.to + ' × ' + e.count + (e.b2a > 0 ? '（反向 ' + e.b2a + ' 条 · 逆行强度 ' + backPct + '%）' : '') + (e.reverse ? '\\n⚠ 逆行：双向依赖 + 聚合环内——解耦优先' : '');
+		var w = 1 + (e.count / maxCount) * 4;
+		svg += '<path d="M' + p1.x.toFixed(1) + ',' + p1.y.toFixed(1) + ' Q' + cx2.toFixed(1) + ',' + cy2.toFixed(1) + ' ' + p2.x.toFixed(1) + ',' + p2.y.toFixed(1) + '" fill="none" stroke="' + stroke + '" stroke-width="' + w.toFixed(1) + '" opacity="0.55"><title>' + tip + '</title></path>';
+		var arr = 'M' + (p2.x - dx / len * 10).toFixed(1) + ',' + (p2.y - dy / len * 10).toFixed(1) + ' L' + (p2.x - dy / len * 6).toFixed(1) + ',' + (p2.y + dx / len * 6).toFixed(1) + ' L' + (p2.x + dy / len * 6).toFixed(1) + ',' + (p2.y - dx / len * 6).toFixed(1) + ' Z';
+		svg += '<path d="' + arr + '" fill="' + stroke + '"><title>' + tip + '</title></path>';
+		if (e.b2a > 0) {
+			var rOff = off * -0.9 * side;
+			var rx2 = Math.abs(dy) < 1 ? mx : mx + (-dy / len) * rOff;
+			var ry2 = Math.abs(dy) < 1 ? my + 180 : my + (dx / len) * rOff;
+			svg += '<path d="M' + p2.x.toFixed(1) + ',' + p2.y.toFixed(1) + ' Q' + rx2.toFixed(1) + ',' + ry2.toFixed(1) + ' ' + p1.x.toFixed(1) + ',' + p1.y.toFixed(1) + '" fill="none" stroke="' + stroke + '" stroke-width="' + Math.max(w * 0.7, 1).toFixed(1) + '" stroke-dasharray="6,4" opacity="0.45"><title>' + e.to + ' → ' + e.from + ' × ' + e.b2a + '（反向——逆行方向）</title></path>';
+		}
+	});
+	svg += '</g><g>';
+	var ringSet = {}, edgeNodes = {};
+	(data.sccs || []).forEach(function(s) { s.forEach(function(m) { ringSet[m] = 1; }); });
+	data.edges.forEach(function(e) { edgeNodes[e.from] = 1; edgeNodes[e.to] = 1; });
+	data.nodes.forEach(function(n) {
+		var p = pos[n.id];
+		if (!p) return;
+		var r = 6 + (n.chunks / maxChunks) * 16;
+		var ring = !!ringSet[n.id];
+		var isolated = !edgeNodes[n.id];
+		var fill = ring ? '#e5484d' : (isolated ? '#6b7280' : (n.selfCalls > 0 ? '#d29922' : '#4c8dff'));
+		var stroke = isolated ? '#9ca3af' : '#1a1b1e';
+		var dash = isolated ? ' stroke-dasharray="5,4"' : '';
+		var tip = n.label + '\\nchunks ' + n.chunks + ' · 出→入 ' + n.outDeg + '→' + n.inDeg + ' · 内部调用 ' + n.selfCalls + (ring ? '（环内模块）' : '') + (isolated ? '\\n⚠ 无跨模块边——静态盲区（未知调用 ?/反射/事件驱动）或真实孤立' : '');
+		var child = data.children && data.children[n.id];
+		var plus = child ? '<circle cx="' + p.x.toFixed(1) + '" cy="' + (p.y - r - 10).toFixed(1) + '" r="9" fill="#e5484d" stroke="#fff" stroke-width="1.5" style="cursor:pointer" onclick="depgraphNav(\\'' + n.id + '\\',\\'' + path + '\\')"><title>点击展开 ' + n.id + ' 的模块级子图</title></circle><text x="' + p.x.toFixed(1) + '" y="' + (p.y - r - 5).toFixed(1) + '" text-anchor="middle" font-size="12" fill="#fff" style="cursor:pointer;pointer-events:none">+</text>' : '';
+		svg += '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1.5"' + dash + '><title>' + tip + '</title></circle>' + plus;
+		var label0 = n.label.split('/').pop() || n.label;
+		var label = label0.length > 14 ? label0.slice(0, 13) + '…' : label0;
+		svg += '<text x="' + p.x.toFixed(1) + '" y="' + (p.y + r + 12).toFixed(1) + '" text-anchor="middle" font-size="11" fill="var(--fg)"><title>' + tip + '</title>' + label + '</text>';
+	});
+	svg += '</g>';
+	var labels = '';
+	for (var lk2 in layerNodes) {
+		var ly = 95 + (+lk2) * rowH;
+		labels += '<text x="' + (W - 30) + '" y="' + (ly + 4) + '" text-anchor="end" font-size="10" fill="var(--dim)">L' + lk2 + '</text>';
+	}
+	var crumb = parentPath ? '<a href="javascript:void(0)" onclick="depgraphBack()" style="color:var(--acc)">‹ 返回上级</a> · ' : '';
+	holder.innerHTML = '<div style="margin-bottom:6px;font-size:12px">' + crumb + '<b>' + path + '</b></div><svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;background:var(--panel);border-radius:8px;border:1px solid var(--br)" xmlns="http://www.w3.org/2000/svg"><g>' + labels + '</g>' + svg + '</svg>';
+}
+function depgraphNav(id, parentPath) {
+	window.__DEPGRAPH_STACK.push({ data: window.__DEPGRAPH_DATA.base, path: parentPath });
+	window.__DEPGRAPH_DATA.current = window.__DEPGRAPH_DATA.children[id];
+	depgraphRender(window.__DEPGRAPH_DATA.current, document.getElementById('depgraph-holder'), parentPath + ' / ' + id, parentPath);
+}
+function depgraphBack() {
+	var prev = window.__DEPGRAPH_STACK.pop();
+	window.__DEPGRAPH_DATA.current = prev.data;
+	depgraphRender(prev.data, document.getElementById('depgraph-holder'), prev.path, null);
+}
+depgraphRender(window.__DEPGRAPH_DATA.base, document.getElementById('depgraph-holder'), '目录级', null);
+</script>
+<div class="sub" style="margin-top:8px"><span style="color:#e5484d">● 深红 = 逆行边（强度 ≥20% 真实纠缠）</span> · <span style="color:#e58a8d">● 浅红 = 逆行边（强度 &lt;20% 单点回边）</span>（实线 = 主方向，虚线 = 反向——悬停看 ×N 与逆行强度 %） · <span style="color:#d29922">● 黄 = 模块内部调用 &gt; 0</span> · <span style="color:#4c8dff">● 蓝 = 普通模块</span> · <span style="color:#6b7280">◌ 灰虚线 = 无跨模块边（静态盲区：未知调用 ?/反射/事件驱动，非真实孤立；或真实孤立）</span> · 箭头方向 = 调用方向（A→B 表示 A 调 B） · 线宽 = 调用边数 · <span style="color:#e5484d">＋</span> = 可下钻目录（点 + 看模块级子图）</div>
 <h3 style="margin-top:14px">模块级环（逆行边来源，聚合 ${g.nodes.length} 模块口径）</h3>
 ${ringList}
 </div>`;
