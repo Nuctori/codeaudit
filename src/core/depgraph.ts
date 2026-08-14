@@ -269,7 +269,8 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		changed = false;
 		for (const r of reps) {
 			let l = 0;
-			for (const p of dagPred.get(r) ?? []) l = Math.max(l, (layerOf.get(p) ?? 0) + 1);
+			for (const p of dagPred.get(r) ?? [])
+				l = Math.max(l, (layerOf.get(p) ?? 0) + 1);
 			if (l !== (layerOf.get(r) ?? 0)) {
 				layerOf.set(r, l);
 				changed = true;
@@ -294,7 +295,13 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		});
 	}
 	// 层数标注（右侧 y 轴提示）
-	const layerLabels = [...layerNodes.keys()].sort((a, b) => a - b).map((l) => `<text x="${W - 30}" y="${(95 + l * rowH + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--dim)">L${l}</text>`).join("");
+	const layerLabels = [...layerNodes.keys()]
+		.sort((a, b) => a - b)
+		.map(
+			(l) =>
+				`<text x="${W - 30}" y="${(95 + l * rowH + 4).toFixed(1)}" text-anchor="end" font-size="10" fill="var(--dim)">L${l}</text>`,
+		)
+		.join("");
 
 	const maxCount = Math.max(...g.edges.map((e) => e.count), 1);
 	const maxChunks = Math.max(...g.nodes.map((x) => x.chunks), 1);
@@ -312,7 +319,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		const side = e.from < e.to ? 1 : -1;
 		// 同层（环内互连）：控制点垂直上弯；跨层：沿法线偏移
 		const cx2 = Math.abs(dy) < 1 ? mx : mx + (-dy / len) * off * side;
-		const cy2 = Math.abs(dy) < 1 ? my - 46 : my + (dx / len) * off * side;
+		const cy2 = Math.abs(dy) < 1 ? my - 64 : my + (dx / len) * off * side;
 		const w = 1 + (e.count / maxCount) * 4;
 		const stroke = e.reverse ? "#e5484d" : "#8b8f98";
 		const backPct = e.b2a > 0 ? Math.round((e.b2a / e.count) * 100) : 0;
@@ -320,12 +327,11 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		const arrowEnd = `M${p2.x - (dx / len) * 10},${p2.y - (dy / len) * 10} L${p2.x - (dy / len) * 6},${p2.y + (dx / len) * 6} L${p2.x + (dy / len) * 6},${p2.y - (dx / len) * 6} Z`;
 		edgeSvg += `<path d="M${p1.x.toFixed(1)},${p1.y.toFixed(1)} Q${cx2.toFixed(1)},${cy2.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}" fill="none" stroke="${stroke}" stroke-width="${w.toFixed(1)}" opacity="0.55"><title>${tip}</title></path>`;
 		edgeSvg += `<path d="${arrowEnd}" fill="${stroke}"><title>${tip}</title></path>`;
-		// 反向弧线：虚线 + 小箭头，反向偏移（可见双向依赖的两个方向）
-		// 反向弧线：虚线 + 小箭头，反向偏移（可见双向依赖的两个方向）
+		// 反向弧线：虚线；同层向下弯（与主弧上弯分离成两条可见弧），跨层反向偏移
 		if (e.b2a > 0) {
 			const rOff = off * -0.9 * side;
 			const rx2 = Math.abs(dy) < 1 ? mx : mx + (-dy / len) * rOff;
-			const ry2 = Math.abs(dy) < 1 ? my - 80 : my + (dx / len) * rOff;
+			const ry2 = Math.abs(dy) < 1 ? my + 60 : my + (dx / len) * rOff;
 			const rTip = `${esc(e.to)} → ${esc(e.from)} × ${e.b2a}（反向——逆行方向）`;
 			edgeSvg += `<path d="M${p2.x.toFixed(1)},${p2.y.toFixed(1)} Q${rx2.toFixed(1)},${ry2.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}" fill="none" stroke="${stroke}" stroke-width="${Math.max(w * 0.7, 1).toFixed(1)}" stroke-dasharray="6,4" opacity="0.45"><title>${rTip}</title></path>`;
 		}
