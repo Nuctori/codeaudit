@@ -47,9 +47,11 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 			])
 				expect(html).toContain(section);
 			expect(html).toContain("hub"); // 治理 top 含被调用者
-			// 零外部依赖：无 CDN 链接、无外链 script/link
+			// 零外部依赖：无 CDN 链接、无外链 script/link。
+			// SVG xmlns（http://www.w3.org/2000/svg，iter58 模块图）是命名空间标识
+			// 非外链资源——豁免；其余任何 http(s) 外链仍禁止
 			expect(html).not.toMatch(/<script[^>]*src=/);
-			expect(html).not.toMatch(/https?:\/\//);
+			expect(html).not.toMatch(/https?:\/\/(?!www\.w3\.org\/2000\/svg)/);
 			expect(html).toContain("</html>");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
@@ -78,9 +80,13 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 			);
 			const res = await scanProject(dir, { useCache: false });
 			const html = renderTechdebtHtml(res.verdicts, res.stats);
-			// < 被转义为 &lt;——若未转义则 HTML 结构会被插入标签破坏
+			// < 被转义为 &lt;——fixture 中 <module> 伪块名（模块级代码）是真实转义面：
+			// 恶意名 evil_<name> 会被 Python 提取器截断为 evil_（标识符不含 <），不达 HTML。
+			// 精确断言：伪块名必须转义、绝不出现裸 <module>（原 <[a-z]+></[a-z]+> 代理
+			// 误伤 iter58 模块图 SVG 的合法空 <g></g>，故移除）
 			expect(html).toContain("&lt;");
-			expect(html).not.toMatch(/<[a-z]+><\/[a-z]+>/); // 无裸标签插入
+			expect(html).toContain("&lt;module&gt;");
+			expect(html).not.toMatch(/<module>/);
 			expect(html).toContain("</html>");
 		} finally {
 			rmSync(dir, { recursive: true, force: true });
