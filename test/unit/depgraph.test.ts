@@ -77,6 +77,10 @@ describe("moduleKeyOf", () => {
 		expect(moduleKeyOf("Tools/HeadlessValidationRunner/Program.cs")).toBe(
 			"Tools/HeadlessValidationRunner",
 		);
+		// 交叉审计 D1：*.g.cs 生成代码统一归生成桶，防冒充模块（API.g.cs 2503 chunks 单文件）
+		expect(moduleKeyOf("Assets/ChillyRoomSdkClient/InitDeity/API.g.cs")).toBe(
+			"InitDeity/Generated",
+		);
 	});
 });
 

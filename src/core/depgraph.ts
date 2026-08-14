@@ -7,10 +7,12 @@ import { tarjan } from "./tarjan";
 
 /** 模块键：文件路径 → 聚合模块（深度参数化——depth=2 目录级 / depth=3 模块级）。
  *  规则：Assets 为容器前缀（跳过）；LocalPackages/Tools/Tests 本身是一级目录（保留）；
- *  取前 depth 段非文件路径段。 */
+ *  取前 depth 段非文件路径段；*.g.cs 生成代码统一归 InitDeity/Generated 桶（防冒充模块，
+ *  如 SDK 的 API.g.cs 2503 chunks 单文件——交叉审计 D1）。 */
 export function moduleKeyOf(file: string, depth = 2): string {
 	const parts = file.replace(/\\/g, "/").split("/");
 	const segs = parts[0] === "Assets" ? parts.slice(1) : parts;
+	if (segs.some((s) => /\.g\.cs$/i.test(s))) return "InitDeity/Generated";
 	const mod: string[] = [];
 	for (const s of segs) {
 		if (mod.length >= depth) break;
