@@ -239,7 +239,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 	const n = g.nodes.length;
 	if (n === 0) return '<div class="sub">无模块节点</div>';
 	const W = 1500,
-		H = 820,
+		H = 1640,
 		CX = W / 2;
 	const pos = new Map<string, { x: number; y: number }>();
 
@@ -317,9 +317,9 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		const len = Math.hypot(dx, dy) || 1;
 		const off = (e.reverse ? 26 : 14) * (e.count / maxCount + 0.6);
 		const side = e.from < e.to ? 1 : -1;
-		// 同层（环内互连）：控制点垂直上弯；跨层：沿法线偏移
+		// 同层（环内互连）：控制点大幅垂直弯折（上=主方向/下=反向，两条分离弧）；跨层：沿法线偏移
 		const cx2 = Math.abs(dy) < 1 ? mx : mx + (-dy / len) * off * side;
-		const cy2 = Math.abs(dy) < 1 ? my - 64 : my + (dx / len) * off * side;
+		const cy2 = Math.abs(dy) < 1 ? my - 180 : my + (dx / len) * off * side;
 		const w = 1 + (e.count / maxCount) * 4;
 		const stroke = e.reverse ? "#e5484d" : "#8b8f98";
 		const backPct = e.b2a > 0 ? Math.round((e.b2a / e.count) * 100) : 0;
@@ -331,7 +331,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		if (e.b2a > 0) {
 			const rOff = off * -0.9 * side;
 			const rx2 = Math.abs(dy) < 1 ? mx : mx + (-dy / len) * rOff;
-			const ry2 = Math.abs(dy) < 1 ? my + 60 : my + (dx / len) * rOff;
+			const ry2 = Math.abs(dy) < 1 ? my + 180 : my + (dx / len) * rOff;
 			const rTip = `${esc(e.to)} → ${esc(e.from)} × ${e.b2a}（反向——逆行方向）`;
 			edgeSvg += `<path d="M${p2.x.toFixed(1)},${p2.y.toFixed(1)} Q${rx2.toFixed(1)},${ry2.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}" fill="none" stroke="${stroke}" stroke-width="${Math.max(w * 0.7, 1).toFixed(1)}" stroke-dasharray="6,4" opacity="0.45"><title>${rTip}</title></path>`;
 		}
