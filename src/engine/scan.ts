@@ -341,12 +341,15 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 		// visit 的 static 跳过分支提前 return，子树内 ERROR 节点漏收集 → Math.min(...[]) = Infinity
 		// → errLineOf = Infinity → 全文件不降级 = H1 守卫失效假纯（zz-errlines-probe 实证 C.Pure=0）。
 		// 兜底：空数组视为 [1]（errLine=1 → 全降级，方向安全——与 extract 异常占位同路径）
-		if (f.parseError)
-			parseErrFiles.set(
-				file,
-				Math.min(...(f.errorLines && f.errorLines.length > 0 ? f.errorLines : [1])),
-			);
-		else nextCache.files[file] = { contentHash, facts: f };
+		// iter54-r7（reviewer 4fdc1bd7 发现）：Math.min(...errorLines) spread 超 ~125k 参数 →
+		// RangeError——病态文件（10MB 上限内 ~600k ERROR 节点，如 8MB 重复语法错误行）→ 全扫崩溃
+		// （此语句在 extract 的 try/catch 外，"单文件失败不得中断整体扫描"不变量被破坏）。reduce 无参数上限。
+		if (f.parseError) {
+			const lines = f.errorLines && f.errorLines.length > 0 ? f.errorLines : [1];
+			let minLine = Infinity;
+			for (const l of lines) if (l < minLine) minLine = l;
+			parseErrFiles.set(file, minLine);
+		} else nextCache.files[file] = { contentHash, facts: f };
 	}
 
 	if (opts.useCache && cachePath && opts.cacheDir) {

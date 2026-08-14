@@ -112,7 +112,8 @@ function parseArgs(argv: string[]): CliArgs {
 		if (a === "scan") continue;
 		if (a === "recheck") {
 			const val = rest[++i];
-			if (val === undefined) throw new Error("recheck 需要 <json> 参数（--json 输出文件）");
+			if (val === undefined)
+				throw new Error("recheck 需要 <json> 参数（--json 输出文件）");
 			args.recheck = val;
 			continue;
 		}
@@ -321,8 +322,22 @@ function loadReport(file: string): ScanReport {
 			`recheck: ${file} 缺少 verdicts 数组（需 codeaudit scan --json 的完整输出）`,
 		);
 	}
-	if (!raw.stats || typeof raw.stats !== "object" || typeof raw.stats.files !== "number") {
-		throw new Error(`recheck: ${file} 缺少 stats（需 codeaudit scan --json 的完整输出）`);
+	// 截断检测（iter54-r7，reviewer 4d40012e Low）：`scan --json --top N` 截断 verdicts——
+	// recheck 该文件会静默计算不完整视图；stats.chunks 是全量数，verdicts.length 是截断后数，
+	// 不等即不完整 → 警告（不阻断——可能是用户刻意 --top 截断，但视图数字会与 stats 矛盾）
+	if (raw.stats && typeof raw.stats.chunks === "number" && raw.verdicts.length < raw.stats.chunks) {
+		console.error(
+			`codeaudit: ⚠ recheck 输入 ${file} 的 verdicts（${raw.verdicts.length}）少于 stats.chunks（${raw.stats.chunks}）——可能来自 --top 截断，视图为不完整计算`,
+		);
+	}
+	if (
+		!raw.stats ||
+		typeof raw.stats !== "object" ||
+		typeof raw.stats.files !== "number"
+	) {
+		throw new Error(
+			`recheck: ${file} 缺少 stats（需 codeaudit scan --json 的完整输出）`,
+		);
 	}
 	// 元素级形状校验：verdicts 元素缺 chunk.calls/direct 会静默变空 Set（new Set(undefined)=空）——
 	// 判定失真不可见；显式报错（iter54-r5 自审计）
@@ -466,13 +481,13 @@ async function main(): Promise<void> {
 		// 改工具视图逻辑后对旧数据秒级重算（iter54-r3；会话实证 10-20min 重扫 + 手写脚本）
 		report = loadReport(args.recheck);
 		root = report.root; // 视图用 root（HTML title/--changed 相对解析）对齐 JSON 内的扫描根
-		console.error(`recheck ${args.recheck}（${report.verdicts.length} verdicts，${report.stats.files} 文件）`);
+		console.error(
+			`recheck ${args.recheck}（${report.verdicts.length} verdicts，${report.stats.files} 文件）`,
+		);
 	} else {
 		// 开始信号 + 缓存状态（会话实证：agent 无法区分重扫是增量还是全量——缓存命中数从未输出，
 		// 误判"无缓存 → 全量 10min"干等；scanProject 内部已统计 cachedFiles 但从未暴露到 CLI）
-		console.error(
-			`扫描开始（${args.noCache ? "缓存禁用" : "增量缓存"}）…`,
-		);
+		console.error(`扫描开始（${args.noCache ? "缓存禁用" : "增量缓存"}）…`);
 		report = await scanProject(root, {
 			useCache: !args.noCache,
 			cacheDir: resolve(root, ".codeaudit"),
@@ -1149,9 +1164,7 @@ main().catch((err) => {
 		const rel = relative(cliRoot, failPath).split(sep).join("/");
 		// rel 为空 = 失败点就是扫描根本身——此时裁剪后只剩 "scandir '.'"，与会话痛点同形
 		// （agent 误判为 cwd/路径问题）；显式点明根目录不可访问
-		display += rel
-			? `（失败点: ${rel}）`
-			: "（扫描根目录不存在或不可访问）";
+		display += rel ? `（失败点: ${rel}）` : "（扫描根目录不存在或不可访问）";
 	}
 	console.error("codeaudit: " + display);
 	process.exitCode = 2; // 自然退出：process.exit 与 wasm 句柄关闭竞态会使退出码变 127

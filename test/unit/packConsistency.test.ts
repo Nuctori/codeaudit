@@ -18,17 +18,17 @@ describe("pack 一致性断言（迭代41）", () => {
 		}
 	});
 
-	it("initdeity 真夹具 override 合并后仍一致", () => {
+	it("override 夹具合并后仍一致（通用示例）", () => {
 		let raw: unknown;
 		try {
 			raw = JSON.parse(
 				readFileSync(
-					join(__dirname, "../../examples/initdeity-effect-override.json"),
+					join(__dirname, "../../examples/effect-override-example.json"),
 					"utf8",
 				),
 			);
 		} catch (e) {
-			throw new Error(`initdeity 夹具读取失败：${(e as Error).message}`);
+			throw new Error(`夹具读取失败：${(e as Error).message}`);
 		}
 		const ovs = raw as Record<string, unknown>;
 		for (const [lang, ov] of Object.entries(ovs)) {
