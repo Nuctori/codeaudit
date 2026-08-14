@@ -251,7 +251,13 @@ function printHelp(): void {
   --test-coverage      测试盲区：生产 chunk 未被 Tests/ 引用（按调用者数排序）
   --dead               疑似死代码：零调用者（排除 Unity 生命周期/反射入口误报）
   --first-party        治理视图仅看第一方（排除 LocalPackages/Plugins/生成代码——第三方噪音淹没治理价值）
+  --modules            模块级视图（模块聚合）
+  --complexity         圈复杂度 top（重构复杂函数识别）
+  --deps <file>        文件依赖：入/出边文件清单（拆分决策）
+  --compare <json>     重构前后报告对比（--compare <before.json>）
+  --table-usage        效应表补表候选详情（missSlots top 15）
   -h, --help           显示帮助
+  -v, --version        显示版本
 
 示例:
   codeaudit scan . --topology          # 扫描当前目录 + 拓扑健康度

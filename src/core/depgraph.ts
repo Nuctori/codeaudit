@@ -96,7 +96,14 @@ export function moduleGraph(
 			return true;
 		return !FIRST_PARTY_TOP.has(m.split("/")[0]!);
 	};
-	const fold = opts?.firstPartyOnly
+	// 白名单只在其适用的项目布局上生效：verdicts 无任何文件命中时（非该项目布局），
+	// 折叠会吞掉全部模块成单节点「第三方」——误导图劣于全量图，降级为不折叠。
+	const anyHit = verdicts.some((v) => {
+		const p = v.chunk.file.replace(/\\/g, "/").split("/");
+		const top = p[0] === "Assets" ? p[1] : p[0];
+		return top !== undefined && FIRST_PARTY_TOP.has(top);
+	});
+	const fold = opts?.firstPartyOnly && anyHit
 		? (m: string) => (thirdParty(m) ? THIRD : m)
 		: (m: string) => m;
 
@@ -164,14 +171,17 @@ export function moduleGraph(
 		keyToMod.set("…其他", "…其他");
 	}
 
-	// 聚合边（跳过落入 dropped 的端点；规范键 min\u0000max 存双向计数）
+	// 聚合边（被丢弃端点重路由到「…其他」——小模块依赖聚合进其他桶，
+	// 而非删除（否则 …其他 恒 0 边，被渲染成“静态盲区”虚线，语义误导）
 	const edges: Array<{ from: string; to: string; a2b: number; b2a: number }> =
 		[];
 	for (const [ek, e] of edgeAgg) {
 		const [rawA, rawB] = ek.split("\u0000");
-		const a = rawA ?? "",
+		let a = rawA ?? "",
 			b = rawB ?? "";
-		if (dropped.has(a) || dropped.has(b)) continue;
+		if (dropped.has(a)) a = "…其他";
+		if (dropped.has(b)) b = "…其他";
+		if (a === b) continue; // 两端都落入其他桶 → 自环已在 other.selfCalls 计入
 		// 主方向 = 计数大者；相等时字典序（确定性 tiebreak）
 		const forward = e.a2b >= e.b2a;
 		edges.push({

@@ -273,4 +273,16 @@ describe("render", () => {
 		expect(html).toContain("\\u003cscript>alert(1)");
 		expect(html).not.toContain("alert(1)</script>");
 	});
+
+	it("非白名单项目 firstPartyOnly 不折叠（防退化误导图）", () => {
+		// 无 InitDeity 等白名单目录的项目：折叠会把全部模块吞成单节点「第三方」
+		const verdicts = [
+			v("Assets/MyApp/Core/B.cs", "B", []),
+			v("Assets/MyApp/Core/C.cs", "C", []),
+			v("Assets/MyApp/Core/D.cs", "D", []),
+		];
+		const g = moduleGraph(verdicts, { firstPartyOnly: true });
+		expect(g.nodes.some((n) => n.id === "MyApp/Core")).toBe(true);
+		expect(g.nodes.some((n) => n.id === "第三方")).toBe(false);
+	});
 });
