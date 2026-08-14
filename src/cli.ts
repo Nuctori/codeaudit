@@ -2,6 +2,7 @@
 import {
 	mkdirSync,
 	readFileSync,
+	readdirSync,
 	renameSync,
 	statSync,
 	writeFileSync,
@@ -171,6 +172,12 @@ function printHelp(): void {
   --changed <files>    回归风险分析：改动文件（逗号分隔）→ riskOfChange（L×C 模型）
   --html <file>        技术债 HTML 可视化（自包含单文件：健康度卡片/模块分段/治理清单/复杂度/未知形态/效应源）
   -h, --help           显示帮助
+
+示例:
+  codeaudit scan . --topology          # 扫描当前目录 + 拓扑健康度
+  codeaudit scan src --html report.html  # 技术债 HTML 报告
+  codeaudit scan . --unknowns u.json --annotations a.json  # 标注闭环（导出→AI 标注→回读）
+  codeaudit scan . --changed a.ts,b.py --gate  # 改动回归风险 + 合入门禁
 `);
 }
 
@@ -206,6 +213,28 @@ const VERSION = (() => {
 	}
 })();
 
+/** 递归找 dir 下最新 .ts 文件 mtime（目录 mtime 只在直接子项变化时更新——`src/core/x.ts` 改动
+ * 不会碰 `src/` 目录 mtime，直接比较会漏报；src 体量小（~1 万行），启动遍历成本可忽略）。 */
+function newestTsMtime(dir: string): number {
+	let max = 0;
+	try {
+		for (const e of readdirSync(dir, { withFileTypes: true })) {
+			const p = join(dir, e.name);
+			if (e.isDirectory()) max = Math.max(max, newestTsMtime(p));
+			else if (e.isFile() && e.name.endsWith(".ts")) {
+				try {
+					max = Math.max(max, statSync(p).mtimeMs);
+				} catch {
+					/* 单文件 stat 失败忽略 */
+				}
+			}
+		}
+	} catch {
+		/* 目录不可读 → 0（视同无 src） */
+	}
+	return max;
+}
+
 /** dev 场景 stale-dist 检测：仓库内运行（src 存在）且 src 核心文件比 dist 产物新 → 警告。
  * 会话实证（InitDeity 重构）：src 已支持 `scan` 子命令、dist 未重建——agent 在旧二进制上排查
  * "scandir '.'" 十余轮才意识到是构建过期。安装版（无 src）静默跳过。 */
@@ -213,11 +242,8 @@ function warnIfStaleDist(): void {
 	try {
 		const distEntry = join(__dirname, "cli.js");
 		const srcDir = join(__dirname, "..", "src");
-		const srcStat = statSync(srcDir);
-		if (!srcStat.isDirectory()) return; // 安装版：无 src，跳过
 		const distStat = statSync(distEntry);
-		// 比较 src 目录最新 mtime（粗粒度足够：任何 src 改动后没 build 都应提示）
-		if (srcStat.mtimeMs > distStat.mtimeMs + 1000) {
+		if (newestTsMtime(srcDir) > distStat.mtimeMs + 1000) {
 			console.error(
 				"codeaudit: ⚠ src/ 比 dist/ 新——当前运行的是旧构建，结果可能不反映源码；运行 npm run build 后重试",
 			);
@@ -1018,8 +1044,12 @@ main().catch((err) => {
 	const m = msg.match(/scandir '([^']+)'/);
 	const failPath = m?.[1];
 	if (failPath && cliRoot && failPath.startsWith(cliRoot)) {
-		const rel = relative(cliRoot, failPath).split(sep).join("/") || ".";
-		display += `（失败点: ${rel}）`;
+		const rel = relative(cliRoot, failPath).split(sep).join("/");
+		// rel 为空 = 失败点就是扫描根本身——此时裁剪后只剩 "scandir '.'"，与会话痛点同形
+		// （agent 误判为 cwd/路径问题）；显式点明根目录不可访问
+		display += rel
+			? `（失败点: ${rel}）`
+			: "（扫描根目录不存在或不可访问）";
 	}
 	console.error("codeaudit: " + display);
 	process.exitCode = 2; // 自然退出：process.exit 与 wasm 句柄关闭竞态会使退出码变 127

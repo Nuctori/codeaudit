@@ -347,8 +347,13 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 			const tmp = cachePath + ".tmp";
 			writeFileSync(tmp, JSON.stringify(nextCache));
 			renameSync(tmp, cachePath); // 原子替换：防半写/符号链接劫持
-		} catch {
-			// 缓存写失败不影响扫描结果
+		} catch (e) {
+			// 缓存写失败不影响扫描结果，但必须可见——会话实证（InitDeity 重构 18:34/19:03）：
+			// Assets/.codeaudit 存在但 cache.json 缺失（写失败被静默吞掉），agent 误判"无缓存"
+			// → 每次小改后全量重扫 10min（用户"重构太慢了"根因之一）
+			console.error(
+				`codeaudit: ⚠ 缓存写失败（${(e as Error).message}）——下次扫描将全量重扫`,
+			);
 		}
 	}
 
