@@ -105,14 +105,37 @@ export function moduleGraph(
 		: (m: string) => m;
 
 	const keyToMod = new Map<string, string>();
-	for (const v of verdicts)
-		keyToMod.set(v.chunk.key, fold(moduleKeyOf(v.chunk.file)));
+	// 混合粒度（迭代58-r7）：目录级为基，chunks ≥ EXPAND 的 InitDeity 域模块展开到子级
+	// （Framework/UIs 等巨型目录细分为 Module/NonModule/面板——"节点太粗"修复；
+	//  小模块保持目录级防碎片化；展开只做一级，不递归）
+	const EXPAND = 1500;
+	const key2 = (file: string): string => moduleKeyOf(file);
+	const key3 = (file: string): string => {
+		const k = key2(file);
+		const parts = file.replace(/\\/g, "/").split("/");
+		if (parts.length >= 4 && !parts[3]!.includes(".")) return `${k}/${parts[3]!}`;
+		return k;
+	};
+	// 第一遍：2 级键 chunks 统计 → 展开集
+	const cnt2 = new Map<string, number>();
+	for (const v of verdicts) {
+		const k = key2(v.chunk.file);
+		cnt2.set(k, (cnt2.get(k) ?? 0) + 1);
+	}
+	const expandSet = new Set<string>(
+		[...cnt2.entries()].filter(([, n]) => n >= EXPAND).map(([k]) => k),
+	);
+	const aggKey = (file: string): string => {
+		const k2 = key2(file);
+		return fold(expandSet.has(k2) ? key3(file) : k2);
+	};
+	for (const v of verdicts) keyToMod.set(v.chunk.key, aggKey(v.chunk.file));
 
 	const nodes = new Map<string, { chunks: number; selfCalls: number }>();
 	const edgeAgg = new Map<string, { a2b: number; b2a: number }>(); // 规范键 "min\u0000max" -> 双向计数
 
 	for (const v of verdicts) {
-		const from = fold(moduleKeyOf(v.chunk.file));
+		const from = aggKey(v.chunk.file);
 		const n = nodes.get(from) ?? { chunks: 0, selfCalls: 0 };
 		n.chunks++;
 		nodes.set(from, n);
@@ -140,7 +163,7 @@ export function moduleGraph(
 	const keep = new Set<string>(
 		all
 			.filter(([, v]) => v.chunks >= MIN_CHUNKS)
-			.slice(0, 64)
+			.slice(0, 80)
 			.map(([k]) => k),
 	);
 	const other: { chunks: number; selfCalls: number } = {
@@ -239,7 +262,7 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 	const n = g.nodes.length;
 	if (n === 0) return '<div class="sub">无模块节点</div>';
 	const W = 1500,
-		H = 1640,
+		H = 820,
 		CX = W / 2;
 	const pos = new Map<string, { x: number; y: number }>();
 
@@ -321,8 +344,13 @@ export function renderModuleGraphSvg(g: ModuleGraph): string {
 		const cx2 = Math.abs(dy) < 1 ? mx : mx + (-dy / len) * off * side;
 		const cy2 = Math.abs(dy) < 1 ? my - 180 : my + (dx / len) * off * side;
 		const w = 1 + (e.count / maxCount) * 4;
-		const stroke = e.reverse ? "#e5484d" : "#8b8f98";
 		const backPct = e.b2a > 0 ? Math.round((e.b2a / e.count) * 100) : 0;
+		// 逆行强度分级：≥20% 深红（真实纠缠），<20% 浅红（单点回边）
+		const stroke = e.reverse
+			? backPct >= 20
+				? "#e5484d"
+				: "#e58a8d"
+			: "#8b8f98";
 		const tip = `${esc(e.from)} → ${esc(e.to)} × ${e.count}${e.b2a > 0 ? `（反向 ${e.b2a} 条 · 逆行强度 ${backPct}%）` : ""}${e.reverse ? "\n⚠ 逆行：双向依赖 + 聚合环内——解耦优先" : ""}`;
 		const arrowEnd = `M${p2.x - (dx / len) * 10},${p2.y - (dy / len) * 10} L${p2.x - (dy / len) * 6},${p2.y + (dx / len) * 6} L${p2.x + (dy / len) * 6},${p2.y - (dx / len) * 6} Z`;
 		edgeSvg += `<path d="M${p1.x.toFixed(1)},${p1.y.toFixed(1)} Q${cx2.toFixed(1)},${cy2.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)}" fill="none" stroke="${stroke}" stroke-width="${w.toFixed(1)}" opacity="0.55"><title>${tip}</title></path>`;
@@ -408,7 +436,7 @@ export function renderModuleGraphPanel(g: ModuleGraph): string {
 	return `<div class="panel">
 <h3>🗺 项目模块有向边图（第一方口径 · 聚合 ${g.nodes.length} 模块 · ${g.edges.length} 边——悬停看明细；第三方折叠为单节点）</h3>
 ${renderModuleGraphSvg(g)}
-<div class="sub" style="margin-top:8px"><span style="color:#e5484d">● 红 = 逆行边：双向依赖 + 聚合环内（实线 = 主方向，虚线 = 反向——悬停看 ×N 与逆行强度 %）</span> · <span style="color:#d29922">● 黄 = 模块内部调用 &gt; 0</span> · <span style="color:#4c8dff">● 蓝 = 普通模块</span> · <span style="color:#6b7280">◌ 灰虚线 = 无跨模块边（静态盲区：未知调用 ?/反射/事件驱动，非真实孤立；或真实孤立）</span> · 箭头方向 = 调用方向（A→B 表示 A 调 B） · 线宽 = 调用边数</div>
+<div class="sub" style="margin-top:8px"><span style="color:#e5484d">● 深红 = 逆行边（强度 ≥20% 真实纠缠）</span> · <span style="color:#e58a8d">● 浅红 = 逆行边（强度 &lt;20% 单点回边）</span>（实线 = 主方向，虚线 = 反向——悬停看 ×N 与逆行强度 %） · <span style="color:#d29922">● 黄 = 模块内部调用 &gt; 0</span> · <span style="color:#4c8dff">● 蓝 = 普通模块</span> · <span style="color:#6b7280">◌ 灰虚线 = 无跨模块边（静态盲区：未知调用 ?/反射/事件驱动，非真实孤立；或真实孤立）</span> · 箭头方向 = 调用方向（A→B 表示 A 调 B） · 线宽 = 调用边数 · 粒度：≥1500 chunks 的目录展开到模块级</div>
 <h3 style="margin-top:14px">模块级环（逆行边来源，聚合 ${g.nodes.length} 模块口径）</h3>
 ${ringList}
 </div>`;
