@@ -156,12 +156,32 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 		expect(html).toMatch(/chip">A\.bar<\/span>/);
 		expect(html).toMatch(/chip">B\.baz<\/span>/);
 		// 重载族不因内部互调成为纠缠环成员
-		// 重载族不因内部互调成为纠缠环成员
 		expect(html).not.toMatch(/chip">T\.Track<\/span>/);
+		// 成员 chips 有分隔（iter54 审计：无分隔符拼接曾误导读者——"Event.TrackEvent.TrackEvent"
+		// 被误读为单节点名）
+		expect(html).toMatch(/chip">[^<]*<\/span> <span class="chip">/);
+	});
+
+	it("Iter-54：报告头部携带扫描元数据（root/时间/版本/缓存命中——分辨多份报告）", () => {
+		const html = renderTechdebtHtml([], { files: 3, cycles: 0 }, {
+			title: "codeaudit 技术债报告 — /x",
+			scannedAt: "2026-08-13T17:53:01",
+			version: "9.9.9",
+			cachedFiles: 42,
+		});
+		expect(html).toMatch(/2026-08-13T17:53:01/); // 扫描时间（非生成时间）
+		expect(html).toMatch(/v9\.9\.9/);
+		expect(html).toMatch(/缓存命中 42 文件/);
+		expect(html).toMatch(/codeaudit 技术债报告 — \/x/);
 	});
 
 	it("Iter-53：治理清单按限定名聚合——同名重载族计一行、去重调用者", () => {
-		const mk = (key: string, name: string, purity: number, calls: string[]): Verdict =>
+		const mk = (
+			key: string,
+			name: string,
+			purity: number,
+			calls: string[],
+		): Verdict =>
 			({
 				chunk: {
 					key,
@@ -185,8 +205,18 @@ describe("renderTechdebtHtml（迭代49 插件化）", () => {
 			mk(`ApiException.ApiException${n}`, "ApiException.ApiException", 2, []),
 		);
 		const callers = [
-			mk("caller1", "caller1", 2, overloads.map((o) => o.chunk.key)),
-			mk("caller2", "caller2", 2, overloads.map((o) => o.chunk.key)),
+			mk(
+				"caller1",
+				"caller1",
+				2,
+				overloads.map((o) => o.chunk.key),
+			),
+			mk(
+				"caller2",
+				"caller2",
+				2,
+				overloads.map((o) => o.chunk.key),
+			),
 		];
 		const html = renderTechdebtHtml([...callers, ...overloads], {
 			files: 1,

@@ -16,7 +16,15 @@ import { tarjan } from "./tarjan";
 export function renderTechdebtHtml(
 	verdicts: readonly Verdict[],
 	stats: { files: number; cycles: number },
-	opts: { title?: string; sub?: string } = {},
+	opts: {
+		title?: string;
+		sub?: string;
+		/** 扫描元数据（会话实证：报告头部用 new Date() 显示生成时间而非扫描时间，
+		 * agent 无法分辨多份报告哪次扫描——root/时间/版本/缓存命中应随报告固化）。 */
+		scannedAt?: string;
+		version?: string;
+		cachedFiles?: number;
+	} = {},
 ): string {
 	const esc = (s: string): string =>
 		String(s)
@@ -112,19 +120,17 @@ export function renderTechdebtHtml(
 		edgeSet.set(
 			v.chunk.key,
 			new Set(
-				[...v.chunk.calls].filter(
-					(t) => {
-						if (t === UNKNOWN_TARGET || t === v.chunk.key) return false;
-						const tv = byKey.get(t);
-						if (!tv) return false;
-						// 迭代52：同名族（重载/同名重定义）内部调用 = 自环口径——重载星形委托
-						// 的并集边自连不构成纠缠环（真实方法环不受影响：限定名不同）。
-						const vn = v.chunk.name;
-						if (typeof vn === "string" && vn.length > 0 && vn === tv.chunk.name)
-							return false;
-						return true;
-					},
-				),
+				[...v.chunk.calls].filter((t) => {
+					if (t === UNKNOWN_TARGET || t === v.chunk.key) return false;
+					const tv = byKey.get(t);
+					if (!tv) return false;
+					// 迭代52：同名族（重载/同名重定义）内部调用 = 自环口径——重载星形委托
+					// 的并集边自连不构成纠缠环（真实方法环不受影响：限定名不同）。
+					const vn = v.chunk.name;
+					if (typeof vn === "string" && vn.length > 0 && vn === tv.chunk.name)
+						return false;
+					return true;
+				}),
 			),
 		);
 	}
@@ -147,7 +153,11 @@ export function renderTechdebtHtml(
 			for (const t of v.chunk.calls) if (members.has(t)) extEntry.add(t);
 		}
 		if (extEntry.size > 1)
-			entangled.push({ comp: comp.slice(0, 6), size: comp.length, entries: extEntry.size });
+			entangled.push({
+				comp: comp.slice(0, 6),
+				size: comp.length,
+				entries: extEntry.size,
+			});
 	}
 	entangled.sort((a, b) => b.entries * b.size - a.entries * a.size);
 	const nameOf = (k: string): string => byKey.get(k)?.chunk.name ?? k;
@@ -354,7 +364,7 @@ td{padding:6px 8px;border-bottom:1px solid var(--br);color:var(--fg);white-space
 .chain-path{font-size:11px;color:var(--dim);font-family:ui-monospace,Consolas,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 </style></head><body>
 <h1>${esc(opts.title ?? "codeaudit 技术债报告")}</h1>
-<div class="sub">${esc(opts.sub ?? "")} · ${n} chunks · ${stats.files} 文件 · ${stats.cycles} 环 · ${new Date().toISOString().slice(0, 19)}</div>
+<div class="sub">${esc(opts.sub ?? "")} · ${n} chunks · ${stats.files} 文件 · ${stats.cycles} 环 · ${opts.scannedAt ?? new Date().toISOString().slice(0, 19)}${opts.version ? ` · v${opts.version}` : ""}${opts.cachedFiles !== undefined ? ` · 缓存命中 ${opts.cachedFiles} 文件` : ""}</div>
 
 <h2>健康度总览</h2>
 <div class="grid">
@@ -363,7 +373,15 @@ ${card("PURE", pure, `${((pure / n) * 100).toFixed(1)}%`, "var(--pure)")}
 ${card("IMPURE", impure, `${((impure / n) * 100).toFixed(1)}% 有确定副作用`, "var(--imp)")}
 ${card("UNKNOWN", unknown, `${((unknown / n) * 100).toFixed(1)}% 无法判定`, "var(--unk)")}
 ${card("图完整度", `${(100 * (1 - g.evidence.missingSiteRate)).toFixed(1)}%`, `未知站点 ${g.unknownEdges}`, "var(--acc)")}
-${card("结构形态", (() => { const r = g.knownEdges > 0 ? br.bridges.length / g.knownEdges : 1; return r > 0.7 ? "近树" : r < 0.3 ? "网状" : "混合"; })(), `桥比例 ${(g.knownEdges > 0 ? ((br.bridges.length / g.knownEdges) * 100).toFixed(0) : "100")}%（唯一通道占比——树=100%，低=多替代路径）`, "var(--acc)")}
+${card(
+	"结构形态",
+	(() => {
+		const r = g.knownEdges > 0 ? br.bridges.length / g.knownEdges : 1;
+		return r > 0.7 ? "近树" : r < 0.3 ? "网状" : "混合";
+	})(),
+	`桥比例 ${g.knownEdges > 0 ? ((br.bridges.length / g.knownEdges) * 100).toFixed(0) : "100"}%（唯一通道占比——树=100%，低=多替代路径）`,
+	"var(--acc)",
+)}
 ${card("深度", g.dagDepth, "凝聚 DAG 最长路径", "var(--acc)")}
 ${card("自递归", g.selfLoopCount, "自我调用 chunk", "var(--acc)")}
 </div>
@@ -411,11 +429,11 @@ ${
 		: ringRows
 				.map(
 					(r) =>
-						`<div class="bar-row"><div class="bar-label" style="width:44%">${r.entries} 入口 × ${r.names.length} 成员</div><div class="bar-track" style="background:transparent">${r.names.map((nm) => `<span class="chip">${esc(nm)}</span>`).join("")}</div><div class="bar-val">影响 ${r.impact}</div></div>`,
+						`<div class="bar-row"><div class="bar-label" style="width:44%">${r.entries} 入口 × ${r.names.length} 成员</div><div class="bar-track" style="background:transparent">${r.names.map((nm) => `<span class="chip">${esc(nm)}</span>`).join(" ")}</div><div class="bar-val">影响 ${r.impact}</div></div>`,
 				)
 				.join("")
 }
-<div class="sub" style="margin-top:8px">动作：从影响最大的环开始解耦——收敛为单入口（结构化递归）或打断环。</div>
+<div class="sub" style="margin-top:8px">动作：从影响最大的环开始解耦——收敛为单入口（结构化递归）或打断环。（同名重载族/方法组实参边已过滤——iter52/53 伪影防护；此处为真实递归）</div>
 </div>
 <div class="panel">
 <h3>🛡 桥边优先保护序（影响 = 两端调用者合计——哪个唯一通道断裂波及最大）</h3>

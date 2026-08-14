@@ -12,7 +12,9 @@ import type { Effect } from "../../core/types";
  * - 项目内跨文件类调用 → ?（诚实未知，标注工作流覆盖——与 TS 未 import 同语义，第一版）。
  * - Unity 生命周期（Awake/Start/Update/OnDestroy）与普通方法同判定（框架调用不建边，
  *   方法独立判定——与 TS this 方法同语义）。
- * - 事件订阅（+= / AddListener）不建回调边（事件触发是运行时语义，第一版不建模）。
+ * - 事件订阅（+= / AddListener）不建回调边（事件触发是运行时语义，第一版不建模）；
+ *   方法组实参（RemoveListener(Handler) 中的 Handler）不再经属性读取通道误建调用边（iter53 修复：
+ *   argument 位置裸标识符跳过 prop-read 发射；框架成员方法组如 Console.WriteLine 仍走效应表——两通道并存）。
  * - 属性访问器（get/set 块）不建 chunk（自动属性无逻辑；自定义 getter 有方法体——经
  *   property_declaration 的 value 子节点 method 提取？第一版：属性不建，方向安全）。
  */

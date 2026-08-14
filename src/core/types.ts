@@ -133,6 +133,8 @@ export interface ScanStats {
 	/** 强连通分量中大小 > 1 的个数（调用环数）。 */
 	readonly cycles: number;
 	readonly cachedFiles: number;
+	/** 扫描开始时间（ISO；报告头部元数据用——分辨多份报告哪次扫描）。 */
+	readonly scannedAt: string;
 	/** 指向图中不存在目标的陈旧调用数（缓存漂移可致；>0 时图不完整）。 */
 	readonly staleEdges: number;
 	/** 传播不变量违规数（边单调性 purity(caller)≥purity(callee)、链三角）；0 = 不变量全部成立。 */

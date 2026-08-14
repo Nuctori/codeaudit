@@ -234,8 +234,9 @@ export function discoverFiles(
 export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	// 正斜杠统一（与 chunk.file/discoverFiles 一致）：Windows 上 root 不混用反斜杠
 	const root = normalize(opts.root).split(sep).join("/");
-	const fileMap = discoverFiles(root, opts.packs);
+	const scannedAt = new Date().toISOString().slice(0, 19); // 报告头部元数据：扫描时间（非生成时间）
 	const fingerprint = opts.useCache ? computeFingerprint() : "";
+	const fileMap = discoverFiles(root, opts.packs);
 
 	let cache: CacheFile = { version: CACHE_VERSION, fingerprint, files: {} };
 	const cachePath = opts.cacheDir ? join(opts.cacheDir, "cache.json") : null;
@@ -517,6 +518,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 			cycles: cycleCount,
 			cachedFiles,
 			staleEdges,
+			scannedAt,
 			invariantViolations,
 			provenance: { annotated, derived },
 			impureApplied,

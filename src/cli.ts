@@ -206,7 +206,29 @@ const VERSION = (() => {
 	}
 })();
 
-/** 错误消息中的绝对路径前缀裁剪为 "."（段边界：仅当下个字符不是路径延续字符；root 为空/不出现则原样）。 */
+/** dev 场景 stale-dist 检测：仓库内运行（src 存在）且 src 核心文件比 dist 产物新 → 警告。
+ * 会话实证（InitDeity 重构）：src 已支持 `scan` 子命令、dist 未重建——agent 在旧二进制上排查
+ * "scandir '.'" 十余轮才意识到是构建过期。安装版（无 src）静默跳过。 */
+function warnIfStaleDist(): void {
+	try {
+		const distEntry = join(__dirname, "cli.js");
+		const srcDir = join(__dirname, "..", "src");
+		const srcStat = statSync(srcDir);
+		if (!srcStat.isDirectory()) return; // 安装版：无 src，跳过
+		const distStat = statSync(distEntry);
+		// 比较 src 目录最新 mtime（粗粒度足够：任何 src 改动后没 build 都应提示）
+		if (srcStat.mtimeMs > distStat.mtimeMs + 1000) {
+			console.error(
+				"codeaudit: ⚠ src/ 比 dist/ 新——当前运行的是旧构建，结果可能不反映源码；运行 npm run build 后重试",
+			);
+		}
+	} catch {
+		// stat 失败（缺文件）→ 不提示，避免噪音
+	}
+}
+
+/** 错误消息中的绝对路径前缀裁剪为 "."（段边界：仅当下个字符不是路径延续字符；root 为空/不出现则原样）。
+ * 仅裁剪展示（防完整绝对路径泄露）；失败点定位由 catch 里的相对路径附加承担。 */
 function trimRootPath(msg: string): string {
 	if (!cliRoot || !msg.includes(cliRoot)) return msg;
 	const i = msg.indexOf(cliRoot);
@@ -267,9 +289,12 @@ function capStateCoupling(
 	return slice.slice(0, lo);
 }
 async function main(): Promise<void> {
+	const startedAt = Date.now();
 	const args = parseArgs(process.argv);
 	const root = resolve(args.dir);
 	cliRoot = root;
+
+	warnIfStaleDist(); // dev 场景（仓库内运行）：src 比 dist 新 → 警告（会话实证：stale dist 无 `scan` 子命令支持，误导排查多轮）
 
 	let annotations: ReadonlyMap<string, "PURE" | "IMPURE"> | undefined;
 	if (args.annotations) {
@@ -318,12 +343,21 @@ async function main(): Promise<void> {
 		}
 	}
 
+	// 开始信号 + 缓存状态（会话实证：agent 无法区分重扫是增量还是全量——缓存命中数从未输出，
+	// 误判"无缓存 → 全量 10min"干等；scanProject 内部已统计 cachedFiles 但从未暴露到 CLI）
+	console.error(
+		`扫描开始（${args.noCache ? "缓存禁用" : "增量缓存"}）…`,
+	);
 	const report = await scanProject(root, {
 		useCache: !args.noCache,
 		cacheDir: resolve(root, ".codeaudit"),
 		annotations,
 		effectOverrides,
 	});
+	const s = report.stats;
+	console.error(
+		`扫描完成: ${s.files} 文件 / ${s.chunks} chunks / 缓存命中 ${s.cachedFiles} / 跳过 ${s.skippedFiles} / 解析错误 ${s.parseErrors} / ${((Date.now() - startedAt) / 1000).toFixed(0)}s`,
+	);
 
 	// 回归风险分析（--changed）：L×C 模型，六因子从扫描数据推导
 	if (args.changed !== null && args.changed.length > 0) {
@@ -471,6 +505,9 @@ async function main(): Promise<void> {
 		try {
 			const html = renderTechdebtHtml(report.verdicts, report.stats, {
 				title: `codeaudit 技术债报告 — ${root}`,
+				scannedAt: report.stats.scannedAt,
+				version: VERSION,
+				cachedFiles: report.stats.cachedFiles,
 			});
 			writeFileSync(args.html, html);
 			console.error(
@@ -974,6 +1011,16 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
 	const msg = err instanceof Error ? err.message : String(err);
-	console.error("codeaudit: " + trimRootPath(msg));
+	// 裁剪绝对路径前缀（防完整 root 泄露——既有契约 robustness「错误消息裁剪绝对路径前缀」），
+	// 但附加相对 root 的失败子路径：会话实证（InitDeity 重构）"scandir '.'" 因丢失真实失败点
+	// 让排查者误判为 cwd/路径问题，浪费十余轮——相对路径既可定位又不泄露完整绝对路径。
+	let display = trimRootPath(msg);
+	const m = msg.match(/scandir '([^']+)'/);
+	const failPath = m?.[1];
+	if (failPath && cliRoot && failPath.startsWith(cliRoot)) {
+		const rel = relative(cliRoot, failPath).split(sep).join("/") || ".";
+		display += `（失败点: ${rel}）`;
+	}
+	console.error("codeaudit: " + display);
 	process.exitCode = 2; // 自然退出：process.exit 与 wasm 句柄关闭竞态会使退出码变 127
 });
