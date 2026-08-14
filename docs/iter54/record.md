@@ -25,6 +25,7 @@
 - **9618f8e iter54**：6 项可观测性——错误失败点（裁剪保留 + 相对路径附加）/ stale dist 警告（递归 mtime）/ 扫描开始+完成统计（缓存命中可见）/ stats.scannedAt + 报告头部元数据（root/时间/版本/缓存命中）/ chips 空格分隔 / 伪影过滤说明 + csharp 文档同步。
 - **ca38e71 iter54-r2**：自审计 4 项——newestTsMtime 递归（修 F2 漏报）/ root 失败显式提示「扫描根目录不存在或不可访问」（修 F1 区分度）/ 缓存写失败警告（P9 根因可见化）/ help 示例。
 - **d12d5ab iter54-r3**：**recheck <json> 子命令**——加载 --json 输出（Set→数组、Infinity→"Infinity" 序列化已存在）反序列化后复用全部视图（拓扑/HTML/治理/--changed/--gate/--sources），root 对齐 JSON 内扫描根。**验证回路 10-20min → <1s**（用户「重构太慢了」核心解药）。坏 JSON 友好报错 exit 2。
+- **2c6769d iter54-r4**：recheck 自审计——形状校验（合法 JSON 缺 verdicts/stats → 友好报错而非 TypeError 崩溃）；测试 +2 断言。另核实 8-12 23:59 大会话（4469 事件）为 InitDeity 项目开发（Unity 卡死排查），无 codeaudit 使用痛点——审计范围确认完整覆盖。
 
 ## 核实关闭
 
