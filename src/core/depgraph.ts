@@ -103,9 +103,10 @@ export function moduleGraph(
 		const top = p[0] === "Assets" ? p[1] : p[0];
 		return top !== undefined && FIRST_PARTY_TOP.has(top);
 	});
-	const fold = opts?.firstPartyOnly && anyHit
-		? (m: string) => (thirdParty(m) ? THIRD : m)
-		: (m: string) => m;
+	const fold =
+		opts?.firstPartyOnly && anyHit
+			? (m: string) => (thirdParty(m) ? THIRD : m)
+			: (m: string) => m;
 
 	const keyToMod = new Map<string, string>();
 	// 粒度：主图（无 scope）= 目录级；scope 模式 = 该目录的模块级子图（scope 外折叠为"外部"桶）
@@ -423,7 +424,11 @@ export function renderModuleGraphPanel(
 	const EXPAND = opts?.expandChunks ?? 0;
 	const g = moduleGraph(verdicts, { firstPartyOnly });
 	// 子图数据：base 中 chunks ≥ EXPAND 且非桶节点 → scope 子图（模块级 + 外部桶）
-	const children: Record<string, ModuleGraph> = {};
+	// Object.create(null)：目录名恰为 __proto__ 时赋值走原型 setter 丢数据（审计发现）
+	const children: Record<string, ModuleGraph> = Object.create(null) as Record<
+		string,
+		ModuleGraph
+	>;
 	for (const n of g.nodes) {
 		if (n.chunks < EXPAND) continue;
 		if (
@@ -469,15 +474,15 @@ function dgEsc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").r
 window.__DEPGRAPH_DATA = ${data};
 window.__DEPGRAPH_STACK = [];
 function depgraphRender(data, holder, path, parentPath) {
-	var rep = {}, repOf = function(id) { return rep[id] || id; };
+	var rep = Object.create(null), repOf = function(id) { return rep[id] || id; };
 	(data.sccs || []).forEach(function(s) { var r = s.slice().sort()[0]; s.forEach(function(m) { rep[m] = r; }); });
-	var preds = {};
+	var preds = Object.create(null);
 	data.edges.forEach(function(e) {
 		var a = repOf(e.from), b = repOf(e.to);
 		if (a === b) return;
-		(preds[b] = preds[b] || {})[a] = 1;
+		(preds[b] = preds[b] || Object.create(null))[a] = 1;
 	});
-	var reps = {}, layer = {};
+	var reps = Object.create(null), layer = Object.create(null);
 	data.nodes.forEach(function(n) { reps[repOf(n.id)] = 1; });
 	Object.keys(reps).forEach(function(r) { layer[r] = 0; });
 	var changed = true;
@@ -490,7 +495,7 @@ function depgraphRender(data, holder, path, parentPath) {
 		});
 	}
 	var W = 1500, H = 820, CX = W / 2;
-	var layerNodes = {};
+	var layerNodes = Object.create(null);
 	data.nodes.forEach(function(n) {
 		var l = layer[repOf(n.id)] || 0;
 		(layerNodes[l] = layerNodes[l] || []).push(n.id);
@@ -498,7 +503,7 @@ function depgraphRender(data, holder, path, parentPath) {
 	var maxL = 0;
 	for (var k in layerNodes) maxL = Math.max(maxL, +k);
 	var rowH = maxL > 0 ? (H - 150) / maxL : 0;
-	var pos = {};
+	var pos = Object.create(null);
 	for (var lk in layerNodes) {
 		var ids = layerNodes[lk], y = 95 + (+lk) * rowH;
 		var slot = Math.min(170, (W - 240) / Math.max(ids.length, 1));
@@ -532,7 +537,7 @@ function depgraphRender(data, holder, path, parentPath) {
 		}
 	});
 	svg += '</g><g>';
-	var ringSet = {}, edgeNodes = {};
+	var ringSet = Object.create(null), edgeNodes = Object.create(null);
 	(data.sccs || []).forEach(function(s) { s.forEach(function(m) { ringSet[m] = 1; }); });
 	data.edges.forEach(function(e) { edgeNodes[e.from] = 1; edgeNodes[e.to] = 1; });
 	data.nodes.forEach(function(n) {

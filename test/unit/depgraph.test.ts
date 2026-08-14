@@ -285,4 +285,17 @@ describe("render", () => {
 		expect(g.nodes.some((n) => n.id === "MyApp/Core")).toBe(true);
 		expect(g.nodes.some((n) => n.id === "第三方")).toBe(false);
 	});
+
+	it("目录名 __proto__ 不触发原型污染（DoS 回归）", () => {
+		// 普通对象赋值 children["__proto__"] 走原型 setter → 数据丢失 + 客户端 TypeError
+		const verdicts = [
+			v("__proto__/B.cs", "B", []),
+			v("__proto__/C.cs", "C", []),
+			v("__proto__/D.cs", "D", []),
+		];
+		const html = renderModuleGraphPanel(verdicts);
+		// Object.create(null) 下 __proto__ 是 own property，JSON 序列化可见
+		expect(html).toContain('"__proto__"');
+		expect(html).toContain("depgraphRender(window.__DEPGRAPH_DATA.base");
+	});
 });

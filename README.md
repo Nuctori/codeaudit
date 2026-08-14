@@ -187,7 +187,7 @@ codeaudit scan src --changed src/engine/scan.ts
 ```bash
 npm install
 npm run build
-npm test    # 459 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计
+npm test    # 461 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计
 ```
 
 测试分五层：单元（tarjan/analyze/hash 契约）、多语言 E2E（pyshop/tsapp/jsapp）、边界 E2E（空目录/损毁文件/再导出环）、合成大库（300 文件 2400+ chunks，确定性验证）、交叉审计（随机图对照朴素参考实现 + 对抗性输入，32 维，见 [AUDIT.md](AUDIT.md)）。
