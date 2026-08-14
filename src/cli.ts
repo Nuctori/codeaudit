@@ -314,6 +314,16 @@ function loadReport(file: string): ScanReport {
 	} catch {
 		throw new Error(`recheck: 无法解析 ${file}（需 --json 输出文件）`);
 	}
+	// 形状校验：合法 JSON 但缺 verdicts/stats（误传 HTML/compare 输出/截断文件）→ 友好报错
+	// 而非 TypeError 崩溃（recheck 自审计 iter54-r4）
+	if (!raw || typeof raw !== "object" || !Array.isArray(raw.verdicts)) {
+		throw new Error(
+			`recheck: ${file} 缺少 verdicts 数组（需 codeaudit scan --json 的完整输出）`,
+		);
+	}
+	if (!raw.stats || typeof raw.stats !== "object" || typeof raw.stats.files !== "number") {
+		throw new Error(`recheck: ${file} 缺少 stats（需 codeaudit scan --json 的完整输出）`);
+	}
 	const verdicts: Verdict[] = raw.verdicts.map((v) => ({
 		...v,
 		chunk: {
