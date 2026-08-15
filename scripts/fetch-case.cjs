@@ -168,12 +168,18 @@ function scanCase(dir, cfg, name) {
 	// 否则 CI 漂移检测（git diff --exit-code）每次复现必然失败。
 	// 仅替换 <div class="sub"> 行内的时间戳——被扫描代码片段里嵌入的 ISO 字面量不得改写
 	// （reviewer 三轮 Low：g 全替换会失真快照内容）。
-	const html = fs
-		.readFileSync(htmlPath, "utf8")
-		.replace(
-			/(<div class="sub">[^\n]*?)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
-			"$12000-01-01T00:00:00",
+	const htmlRaw = fs.readFileSync(htmlPath, "utf8");
+	if (!/<div class="sub">[^\n]*T\d{2}:\d{2}:\d{2}/.test(htmlRaw)) {
+		// reviewer 四轮 Low-2：与 htmlreport.ts L555 布局强耦合——布局变更时静默 no-op
+		// → CI 漂移检测红（失败方向安全），但无即时提示；参照 statLine 模式可见化。
+		console.warn(
+			"  ⚠ html 头部时间戳未命中归一化正则（htmlreport 布局变更？）——快照可能非确定",
 		);
+	}
+	const html = htmlRaw.replace(
+		/(<div class="sub">[^\n]*?)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+		"$12000-01-01T00:00:00",
+	);
 	fs.writeFileSync(htmlPath, html);
 	fs.copyFileSync(htmlPath, path.join(CASES_DIR, name, "report.html"));
 	fs.writeFileSync(path.join(CASES_DIR, name, "report.txt"), txt);
@@ -220,7 +226,9 @@ function runCase(name, update) {
 	const stats = parseStats(statLine);
 	if (!statLine) {
 		// reviewer 三轮 Low：statLine 完全缺失（CLI 无 stats 行）比解析失败更严重——同样可见化
-		console.warn("  ⚠ 未捕获 stats 行（CLI 输出异常？）——manifest stats 将为空");
+		console.warn(
+			"  ⚠ 未捕获 stats 行（CLI 输出异常？）——manifest stats 将为空",
+		);
 	} else if (Object.keys(stats).length === 0) {
 		// reviewer Note：CLI 输出格式漂移时静默 {} 会污染 manifest——失败可见化
 		console.warn(`  ⚠ stats 解析失败（CLI 输出格式漂移？）: ${statLine}`);
