@@ -1,0 +1,154 @@
+STATS: pure 1314, impure 456, unknown 4211
+拓扑：5981 nodes / 2703 edges / 桥比例 48% / 自环 82 / 环 1 / 深度 10 / 未知边 25943
+  ➜ 混合结构（桥比例 48%——部分模块松耦合、部分网状）
+  ➜ 82 个自递归 chunk（自我调用——重构时注意终止性）
+  ➜ 1 个循环依赖（SCC>1——初始化/销毁顺序风险）
+  ➜ 有向形态：源 4714 个 / 汇 4507 个 / 逆向依赖边 84（环内边 2 + 自环 82，治理优先）
+  ➜ 1294 条桥边（模块间唯一连通通道——契约测试/版本兼容必保接口）
+  ➜ 624 个割点枢纽（必经分量——改动影响面最大，评审从严）
+  ➜ 调用图最深路径 10 层（结构深度；真实效应传播深度看 HTML 长传播链——chain 只是最近源距离）
+
+效应源（chain=0 IMPURE，直接调 io/net/random/state 的源头；298 个）：
+   13 调用  doBuild                              internal/js/esbuild/batch.go:427
+   11 调用  initBuilder                          hugolib/integrationtest_builder.go:874
+    9 调用  newNewCommand                        commands/new.go:30
+    9 调用  New                                  common/loggers/logger.go:51
+    9 调用  FromRemote                           resources/resource_factories/create/remote.go:195
+    8 调用  handleEvents                         commands/hugobuilder.go:691
+    8 调用  Transform                            resources/resource_transformers/js/transform.go:44
+    8 调用  Unmarshal                            tpl/openapi/openapi3/openapi3.go:71
+    7 调用  ConfigFromProvider                   commands/commandeer.go:240
+    7 调用  newGenCommand                        commands/gen.go:39
+    7 调用  LoadConfig                           config/allconfig/load.go:45
+    7 调用  CreateProject                        create/skeletons/skeletons.go:95
+    7 调用  lexInsideShortcode                   parser/pageparser/pagelexer_shortcode.go:302
+    7 调用  RunGolden                            resources/images/imagetesting/testing.go:90
+    7 调用  Transform                            resources/resource_transformers/cssjs/postcss.go:146
+  … 共 298 个（--top N 查看更多）
+
+状态耦合（写方按读者数降序；top 15）：
+  137 读者  lex                                  s.⊤                          parser/pageparser/pagelexer.go:377  ← 示例读者 cache/dynacache/dynacache.go:632（等 137 个）
+   62 读者  AddResource                          p.⊤                          hugolib/pagesfromdata/pagesfromgotmpl.go:114  ← 示例读者 commands/convert.go:255（等 62 个）
+   62 读者  AddPage                              p.⊤                          hugolib/pagesfromdata/pagesfromgotmpl.go:82  ← 示例读者 commands/convert.go:255（等 62 个）
+   35 读者  lexInsideShortcode                   l.closingState               parser/pageparser/pagelexer_shortcode.go:302  ← 示例读者 commands/server.go:868（等 35 个）
+   35 读者  lexIdentifierInShortcode             l.elementStepNum             parser/pageparser/pagelexer_shortcode.go:244  ← 示例读者 commands/server.go:868（等 35 个）
+   34 读者  lexShortcodeParam                    l.paramElements              parser/pageparser/pagelexer_shortcode.go:87  ← 示例读者 commands/server.go:868（等 34 个）
+   34 读者  lexInsideAction                      l.parenDepth                 tpl/internal/go_templates/texttemplate/parse/lex.go:389  ← 示例读者 commands/server.go:868（等 34 个）
+   26 读者  MarkStale                            b.⊤                          hugolib/pagesfromdata/pagesfromgotmpl.go:200  ← 示例读者 common/urls/baseURL.go:38（等 26 个）
+   11 读者  doCompare                            w.w1                         tpl/tplimpl/templatedescriptor.go:104  ← 示例读者 hugofs/walk.go:113（等 11 个）
+    9 读者  Reset                                o.⊤                          internal/js/esbuild/batch.go:123  ← 示例读者 internal/js/esbuild/batch.go:1427（等 9 个）
+    5 读者  contentPlain                         result.wordCount             hugolib/page__content.go:770  ← 示例读者 resources/page/page_markup.go:258（等 5 个）
+    2 读者  applyMeta                            meta.Weight                  hugofs/component_fs.go:328  ← 示例读者 tpl/tplimpl/templatetransform.go:324（等 2 个）
+    2 读者  expandSummaryDivider                 divider.High                 resources/page/page_markup.go:304  ← 示例读者 tpl/tplimpl/templatetransform.go:324（等 2 个）
+    2 读者  walkTemplate                         newState.depth               tpl/internal/go_templates/texttemplate/exec.go:498  ← 示例读者 tpl/tplimpl/templatetransform.go:324（等 2 个）
+  （注：5 个写方含 ⊤ 降级匹配——近似耦合，见 README 已知限制）
+
+圈复杂度 top（>5；共 799 个；top 15）：
+  C=138  n= 7  doCreatePages                            hugolib/content_map_page_assembler.go:146
+  C= 87  n= 7  handleEvents                             commands/hugobuilder.go:691
+  C= 77  n= 5  checkCondition                           tpl/collections/where.go:59
+  C= 71  n= 7  processPartialFileEvents                 hugolib/hugo_sites_build.go:865
+  C= 60  n= 4  CreateTargetPaths                        resources/page/page_paths.go:118
+  C= 55  n= 6  insertTemplates                          tpl/tplimpl/templatestore.go:1349
+  C= 53  n= 4  CompileConfig                            config/allconfig/allconfig.go:270
+  C= 50  n= 6  setMetaPostParams                        hugolib/page__meta.go:597
+  C= 48  n= 3  doCompare                                tpl/tplimpl/templatedescriptor.go:104
+  C= 46  n= 5  ReadDirWithContext                       hugofs/component_fs.go:84
+  C= 44  n= 5  Deploy                                   deploy/deploy.go:120
+  C= 39  n=15  DecodeImageConfig                        resources/images/config.go:244
+  C= 38  n= 4  transform                                resources/transform.go:530
+  C= 38  n= 5  parseIdentifier                          common/paths/pathparser.go:327
+  C= 37  n= 6  Build                                    internal/js/esbuild/build.go:56
+
+重复代码（同内容哈希多实例；共 14 组；top 15）：
+  × 7  New                                      tpl/cast/cast.go:24
+      ↳ tpl/cast/cast.go:24
+      ↳ tpl/crypto/crypto.go:31
+      ↳ tpl/encoding/encoding.go:32
+      ↳ tpl/hash/hash.go:28
+      ↳ tpl/inflect/inflect.go:26
+  × 4  newHTMLRenderer                          markup/goldmark/blockquotes/blockquotes.go:47
+      ↳ markup/goldmark/blockquotes/blockquotes.go:47
+      ↳ markup/goldmark/codeblocks/render.go:50
+      ↳ markup/goldmark/passthrough/passthrough.go:82
+      ↳ markup/goldmark/tables/tables.go:44
+  × 3  isAlphaNumeric                           markup/goldmark/autoid.go:87
+      ↳ markup/goldmark/autoid.go:87
+      ↳ parser/pageparser/pagelexer.go:533
+      ↳ tpl/internal/go_templates/texttemplate/parse/lex.go:677
+  × 3  New                                      resources/resource_factories/bundler/bundler.go:36
+      ↳ resources/resource_factories/bundler/bundler.go:36
+      ↳ resources/resource_transformers/babel/babel.go:95
+      ↳ resources/resource_transformers/integrity/integrity.go:42
+  × 2  Close                                    common/hugio/readers.go:56
+      ↳ common/hugio/readers.go:56
+      ↳ common/types/closer.go:25
+  × 2  init                                     markup/highlight/highlight.go:49
+      ↳ markup/highlight/highlight.go:49
+      ↳ markup/internal/attributes/attributes.go:43
+  × 2  toTimeUnix                               tpl/collections/where.go:721
+      ↳ tpl/collections/where.go:721
+      ↳ tpl/compare/compare.go:390
+  × 2  Build                                    tpl/css/css.go:204
+      ↳ tpl/css/css.go:204
+      ↳ tpl/js/js.go:55
+  × 2  ParseGlob                                tpl/internal/go_templates/htmltemplate/template.go:448
+      ↳ tpl/internal/go_templates/htmltemplate/template.go:448
+      ↳ tpl/internal/go_templates/texttemplate/helper.go:105
+  × 2  parseFS                                  tpl/internal/go_templates/htmltemplate/template.go:504
+      ↳ tpl/internal/go_templates/htmltemplate/template.go:504
+      ↳ tpl/internal/go_templates/texttemplate/helper.go:151
+  × 2  readFileFS                               tpl/internal/go_templates/htmltemplate/template.go:525
+      ↳ tpl/internal/go_templates/htmltemplate/template.go:525
+      ↳ tpl/internal/go_templates/texttemplate/helper.go:172
+  × 2  readFileOS                               tpl/internal/go_templates/htmltemplate/template.go:519
+      ↳ tpl/internal/go_templates/htmltemplate/template.go:519
+      ↳ tpl/internal/go_templates/texttemplate/helper.go:166
+  × 2  ParseFiles                               tpl/internal/go_templates/htmltemplate/template.go:383
+      ↳ tpl/internal/go_templates/htmltemplate/template.go:383
+      ↳ tpl/internal/go_templates/texttemplate/helper.go:40
+  × 2  Must                                     tpl/internal/go_templates/htmltemplate/template.go:367
+      ↳ tpl/internal/go_templates/htmltemplate/template.go:367
+      ↳ tpl/internal/go_templates/texttemplate/helper.go:24
+
+测试盲区：0/5981 生产 chunk 被 Tests/ 引用（覆盖 0.0%；未覆盖 5981；top 15）：
+  调用者=  31  AddTemplateFuncsNamespace                tpl/internal/templatefuncsRegistry.go:43
+  调用者=  29  IsNotExist                               common/herrors/errors.go:116
+  调用者=  22  NewCache                                 common/hmaps/cache.go:37
+  调用者=  22  Indirect                                 common/hreflect/helpers.go:312
+  调用者=  20  ToStringMapE                             common/hmaps/maps.go:27
+  调用者=  19  PutBuffer                                bufferpool/bufpool.go:35
+  调用者=  19  GetBuffer                                bufferpool/bufpool.go:29
+  调用者=  19  newFilterOpts                            resources/images/filters.go:399
+  调用者=  19  append                                   tpl/internal/go_templates/texttemplate/parse/node.go:202
+  调用者=  19  append                                   tpl/internal/go_templates/texttemplate/parse/node.go:305
+  调用者=  19  append                                   tpl/internal/go_templates/texttemplate/parse/node.go:92
+  调用者=  17  Deprecate                                common/hugo/hugo.go:323
+  调用者=  15  AddTrailingSlash                         common/paths/path.go:81
+  调用者=  14  cleanID                                  cache/filecache/filecache.go:534
+  调用者=  14  AddLeadingSlash                          common/paths/path.go:90
+
+疑似死代码（零调用者；共 4148 个，其中高置信 1331 个；top 15）：
+  [疑]  WeightFraction                           cache/dynacache/dynacache.go:117
+  [疑]  CalculateMaxSize                         cache/dynacache/dynacache.go:121
+  [疑]  DrainEvictedIdentities                   cache/dynacache/dynacache.go:143
+  [疑]  DrainEvictedIdentitiesMatching           cache/dynacache/dynacache.go:148
+  [疑]  ClearMatching                            cache/dynacache/dynacache.go:153
+  [疑]  Keys                                     cache/dynacache/dynacache.go:216
+  [疑]  Stop                                     cache/dynacache/dynacache.go:247
+  [高]  adjustCurrentMaxSize                     cache/dynacache/dynacache.go:253
+  [高]  start                                    cache/dynacache/dynacache.go:309
+  [疑]  GetOrCreate                              cache/dynacache/dynacache.go:398
+  [高]  doGetOrCreate                            cache/dynacache/dynacache.go:410
+  [疑]  GetOrCreateWitTimeout                    cache/dynacache/dynacache.go:415
+  [高]  doGetOrCreateWitTimeout                  cache/dynacache/dynacache.go:429
+  [高]  clearMatching                            cache/dynacache/dynacache.go:467
+  [高]  clearOnRebuild                           cache/dynacache/dynacache.go:483
+codeaudit 0.3.1 — 5981 chunks, 521 files, unknown-rate 72.5%, cycles 2
+  图完整度：21.7% 调用点已解析（25943 未知站点）
+效应表[python]: 118 条目 / 命中 0 / corpus-inactive 118
+效应表[typescript]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[tsx]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[javascript]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[csharp]: 179 条目 / 命中 0 / corpus-inactive 179
+效应表[go]: 157 条目 / 命中 87 / corpus-inactive 69 / 咨询未中 25360 站点（补表候选）

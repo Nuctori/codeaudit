@@ -1,0 +1,18 @@
+{
+  "repo": "https://github.com/expressjs/express.git",
+  "ref": "a3714473feb3d2908add734d340e7755fd85e0a3",
+  "lang": "javascript",
+  "scanDir": ".",
+  "prune": [
+    "**/test/**"
+  ],
+  "scannedAt": "2026-08-15T01:27:50.581Z",
+  "elapsedSec": 1.1,
+  "stats": {
+    "chunks": 113,
+    "files": 50,
+    "unknownRate": 28.3,
+    "cycles": 0,
+    "parseErrors": 0
+  }
+}

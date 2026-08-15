@@ -32,6 +32,7 @@
     "build": "node node_modules/typescript/bin/tsc",
     "test": "node node_modules/vitest/vitest.mjs run",
     "scan:self": "node dist/cli.js scan src",
+    "cases": "node scripts/fetch-case.cjs",
     "prepare": "node node_modules/typescript/bin/tsc"
   },
   "dependencies": {

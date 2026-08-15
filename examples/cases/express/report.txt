@@ -1,0 +1,94 @@
+STATS: pure 8, impure 73, unknown 32
+拓扑：113 nodes / 23 edges / 桥比例 100% / 自环 0 / 环 0 / 深度 1 / 未知边 1104
+  ➜ 近树结构（100% 边是唯一通道——模块间松耦合，改动局部化）
+  ➜ 有向形态：源 90 个 / 汇 98 个 / 逆向依赖边 0（环内边 0 + 自环 0，治理优先）
+  ➜ 23 条桥边（模块间唯一连通通道——契约测试/版本兼容必保接口）
+  ➜ 3 个割点枢纽（必经分量——改动影响面最大，评审从严）
+  ➜ 调用图最深路径 1 层（结构深度；真实效应传播深度看 HTML 长传播链——chain 只是最近源距离）
+
+效应源（chain=0 IMPURE，直接调 io/net/random/state 的源头；73 个）：
+    8 调用  <module>                             examples/route-separation/index.js:1
+    3 调用  onfinish                             lib/response.js:968
+    3 调用  <module>                             lib/response.js:1
+    2 调用  <module>                             examples/auth/index.js:1
+    2 调用  <module>                             examples/content-negotiation/index.js:1
+    2 调用  <module>                             examples/online/index.js:1
+    2 调用  <module>                             examples/route-middleware/index.js:1
+    2 调用  <module>                             examples/search/index.js:1
+    2 调用  <module>                             examples/view-locals/user.js:1
+    2 调用  <module>                             examples/web-service/index.js:1
+    2 调用  <module>                             lib/application.js:1
+    2 调用  <module>                             lib/request.js:1
+    2 调用  <module>                             lib/utils.js:1
+    2 调用  <module>                             lib/view.js:1
+    1 调用  authenticate                         examples/auth/index.js:60
+  … 共 73 个（--top N 查看更多）
+
+状态耦合（写方按读者数降序；top 15）：
+   32 读者  <module>                             module.exports,app.init,self.cache,self.engines,self.settings,app.defaultConfiguration,self.locals,self.mountpath,app.handle,req.res,res.req,res.locals,app.use,fn.mountpath,fn.parent,app.route,app.engine,app.param,app.set,app.path,app.enabled,app.disabled,app.enable,app.disable,app.all,app.render,renderOptions.cache,err.view,app.listen lib/application.js:1  ← 示例读者 examples/auth/index.js:75（等 32 个）
+   30 读者  count                                req.count                    examples/view-locals/index.js:48  ← 示例读者 examples/auth/index.js:75（等 30 个）
+   30 读者  users                                req.users                    examples/view-locals/index.js:56  ← 示例读者 examples/auth/index.js:75（等 30 个）
+   28 读者  <module>                             module.exports,req.params,req.user examples/params/index.js:1  ← 示例读者 examples/auth/index.js:75（等 28 个）
+   28 读者  <module>                             req.authenticatedUser        examples/route-middleware/index.js:1  ← 示例读者 examples/auth/index.js:75（等 28 个）
+   28 读者  <module>                             module.exports,req.key       examples/web-service/index.js:1  ← 示例读者 examples/auth/index.js:75（等 28 个）
+   28 读者  <module>                             module.exports,req.get,req.header,req.accepts,req.acceptsEncodings,req.acceptsCharsets,req.acceptsLanguages,req.range,req.is lib/request.js:1  ← 示例读者 examples/auth/index.js:75（等 28 个）
+   27 读者  loadUser                             req.user                     examples/route-middleware/index.js:25  ← 示例读者 examples/auth/index.js:75（等 27 个）
+   21 读者  <module>                             module.exports,res.⊤,users.⊤,req.⊤ examples/auth/index.js:1  ← 示例读者 examples/cookies/index.js:1（等 21 个）
+   21 读者  <module>                             module.exports,app.⊤,sess.messages,res.⊤,req.⊤ examples/mvc/index.js:1  ← 示例读者 examples/cookies/index.js:1（等 21 个）
+   20 读者  restrict                             req.⊤                        examples/auth/index.js:75  ← 示例读者 examples/cookies/index.js:1（等 20 个）
+   20 读者  <module>                             module.exports,req.⊤         examples/cookie-sessions/index.js:1  ← 示例读者 examples/cookies/index.js:1（等 20 个）
+   20 读者  update                               req.⊤                        examples/mvc/controllers/pet/index.js:26  ← 示例读者 examples/cookies/index.js:1（等 20 个）
+   20 读者  update                               req.⊤                        examples/mvc/controllers/user/index.js:36  ← 示例读者 examples/cookies/index.js:1（等 20 个）
+   20 读者  update                               req.⊤                        examples/route-separation/user.js:40  ← 示例读者 examples/cookies/index.js:1（等 20 个）
+  … 共 46 个写方（--top N 查看更多）
+  （注：14 个写方含 ⊤ 降级匹配——近似耦合，见 README 已知限制）
+
+圈复杂度 top（>5；共 4 个；top 15）：
+  C= 14  n= 2  sendfile                                 lib/response.js:924
+  C=  8  n= 1  onfinish                                 lib/response.js:968
+  C=  7  n= 2  View                                     lib/view.js:52
+  C=  6  n= 1  compileTrust                             lib/utils.js:194
+
+重复代码（同内容哈希多实例；共 0 组；top 15）：
+
+测试盲区：0/113 生产 chunk 被 Tests/ 引用（覆盖 0.0%；未覆盖 113；top 15）：
+  调用者=   1  authenticate                             examples/auth/index.js:60
+  调用者=   1  format                                   examples/content-negotiation/index.js:33
+  调用者=   1  list                                     examples/online/index.js:40
+  调用者=   1  andRestrictTo                            examples/route-middleware/index.js:50
+  调用者=   1  list                                     examples/route-separation/post.js:11
+  调用者=   1  index                                    examples/route-separation/site.js:3
+  调用者=   1  update                                   examples/route-separation/user.js:40
+  调用者=   1  load                                     examples/route-separation/user.js:14
+  调用者=   1  view                                     examples/route-separation/user.js:26
+  调用者=   1  edit                                     examples/route-separation/user.js:33
+  调用者=   1  list                                     examples/route-separation/user.js:10
+  调用者=   1  initializeRedis                          examples/search/index.js:29
+  调用者=   1  User                                     examples/view-locals/user.js:7
+  调用者=   1  error                                    examples/web-service/index.js:15
+  调用者=   1  tryRender                                lib/application.js:625
+
+疑似死代码（零调用者；共 40 个，其中高置信 38 个；top 15）：
+  [高]  restrict                                 examples/auth/index.js:75
+  [高]  html                                     examples/content-negotiation/users.js:5
+  [高]  text                                     examples/content-negotiation/users.js:11
+  [高]  json                                     examples/content-negotiation/users.js:17
+  [高]  error                                    examples/error/index.js:20
+  [高]  index                                    examples/mvc/controllers/main/index.js:3
+  [高]  before                                   examples/mvc/controllers/pet/index.js:11
+  [高]  show                                     examples/mvc/controllers/pet/index.js:18
+  [高]  edit                                     examples/mvc/controllers/pet/index.js:22
+  [高]  update                                   examples/mvc/controllers/pet/index.js:26
+  [高]  create                                   examples/mvc/controllers/user-pet/index.js:12
+  [高]  before                                   examples/mvc/controllers/user/index.js:11
+  [高]  list                                     examples/mvc/controllers/user/index.js:24
+  [高]  edit                                     examples/mvc/controllers/user/index.js:28
+  [高]  show                                     examples/mvc/controllers/user/index.js:32
+codeaudit 0.3.1 — 113 chunks, 50 files, unknown-rate 28.3%, cycles 0
+  图完整度：9.8% 调用点已解析（1104 未知站点）
+效应表[python]: 118 条目 / 命中 0 / corpus-inactive 118
+效应表[typescript]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[tsx]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[javascript]: 122 条目 / 命中 30 / corpus-inactive 92 / 咨询未中 852 站点（补表候选）
+效应表[csharp]: 179 条目 / 命中 0 / corpus-inactive 179
+效应表[go]: 157 条目 / 命中 0 / corpus-inactive 157

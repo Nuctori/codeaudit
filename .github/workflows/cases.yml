@@ -1,0 +1,36 @@
+name: real-world-cases
+
+# 真实项目用例矩阵：pinned ref 复现 + 产物漂移检测。
+# 工具行为变更（判定/输出/效应表）→ 快照 diff 失败 → 人工审阅后 `--update` 刷新。
+on:
+  schedule:
+    - cron: "17 3 * * 1" # 每周一 03:17 UTC
+  workflow_dispatch:
+
+jobs:
+  cases:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: 复现全部用例（pinned ref）并检测产物漂移
+        run: |
+          node scripts/fetch-case.cjs
+          git diff --exit-code -- examples/cases/ || {
+            echo "::error::用例产物漂移——工具行为或上游 ref 变化。审阅 diff 后运行 node scripts/fetch-case.cjs --update 刷新快照。"
+            exit 1
+          }
+      - name: 用例产物完整性
+        run: |
+          for c in opencode express hugo flask; do
+            test -f examples/cases/$c/manifest.json || { echo "::error::缺少 $c manifest"; exit 1; }
+          done
+          echo "4/4 用例产物完整"
