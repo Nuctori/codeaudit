@@ -183,7 +183,7 @@ node scripts/fetch-case.cjs --update   # 刷新到上游最新
 | flask（Web 框架） | Python | 24 文件 / 466 chunks | 52.1% | 装饰器/蓝图形态 |
 | ocelot（API 网关） | C# | 378 文件 / 2369 chunks | 26.2% | C# 静态语义 + 暴露 C# 12 集合表达式盲区 |
 
-产物（报告 + manifest）入 git，CI 每周复现 + 漂移检测（`.github/workflows/cases.yml`）。详见 [examples/cases/README.md](examples/cases/README.md)。
+产物（report.txt + manifest.json 入 git，report.html 本地生成）已入库快照，CI 每周复现 + 漂移检测（`.github/workflows/cases.yml`）。详见 [examples/cases/README.md](examples/cases/README.md)。
 
 ## AI 标注闭环
 
@@ -208,7 +208,7 @@ node scripts/fetch-case.cjs --update   # 刷新到上游最新
 ```bash
 npm install
 npm run build
-npm test    # 603 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 范畴律对抗（十轮）
+npm test    # 606 个测试：单元 + 多语言 E2E + 合成大库 + 自扫描 + 交叉审计 + 范畴律对抗（十轮）
 ```
 
 测试分五层：单元（tarjan/analyze/hash 契约）、多语言 E2E（pyshop/tsapp/jsapp）、边界 E2E（空目录/损毁文件/再导出环）、合成大库（300 文件 2400+ chunks，确定性验证）、交叉审计（随机图对照朴素参考实现 + 对抗性输入，32 维，见 [AUDIT.md](AUDIT.md)）。

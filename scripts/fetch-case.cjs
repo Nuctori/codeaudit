@@ -7,15 +7,17 @@
  *   node scripts/fetch-case.cjs --update   # 全部用例刷新到各自默认分支最新 HEAD
  *   node scripts/fetch-case.cjs <name> [--update]   # 单用例
  *
- * 产物（入 git，合计 <300KB/用例）：
- *   examples/cases/<name>/report.txt      # 全视图文本快照（topology/sources/state/dups/dead/complexity/test-coverage）
- *   examples/cases/<name>/report.html     # 技术债 HTML 报告（自包含）
- *   examples/cases/<name>/manifest.json   # repo/ref/扫描时间/统计
+ * 产物：
+ *   examples/cases/<name>/report.txt      # 全视图文本快照（入 git，确定性）
+ *   examples/cases/<name>/report.html     # 技术债 HTML 报告（本地生成——含本地绝对路径，.gitignore 排除）
+ *   examples/cases/<name>/manifest.json   # repo/ref/统计（入 git，全确定性——无时间戳字段）
  *
  * 设计：
  * - 默认用 manifest 记录的 pinned ref 复现（确定性）；--update 漂移到默认分支 HEAD
  * - clone 到系统临时目录（不入库）；prune 非目标语言/测试文件（静态扫描无需编译，
  *   go:embed 等嵌入资源删除不影响扫描语义）
+ * - html 报告时间戳归一化为固定值（htmlreport scannedAt ?? new Date()）——CI 漂移检测
+ *   （git diff --exit-code）要求复现逐字节一致
  * - 完整 JSON（可达 68MB）不入库——文档注明本地生成命令
  */
 const { execSync } = require("node:child_process");
@@ -34,7 +36,15 @@ const CASES = {
 		ref: "4643e65ad6334de3e4e68dedc201d5fbb828c9fe", // dev@2026-08-15（首次实测）
 		lang: "typescript",
 		scanDir: "packages",
-		prune: [],
+		prune: [
+			"**/*.test.ts",
+			"**/*.test.tsx",
+			"**/*.test.js",
+			"**/*.spec.ts",
+			"**/test/**",
+			"**/tests/**",
+			"**/__tests__/**",
+		], // 测试文件/目录（与 hugo/express 一致的聚焦策略）
 		note: "AI coding agent（TS/TSX monorepo，32 包）——TS/TSX 语言支持验证",
 	},
 	express: {
@@ -147,11 +157,17 @@ function scanCase(dir, cfg, name) {
 		ROOT,
 	);
 	const statLine = txt.split("\n").find((l) => l.includes("codeaudit ") && l.includes("chunks"));
-	const html = shOut(
-		`node ${JSON.stringify(CLI)} scan ${JSON.stringify(target)} --no-cache --html ${JSON.stringify(path.join(TMP_ROOT, "report.html"))}`,
+	const htmlPath = path.join(TMP_ROOT, "report.html");
+	sh(
+		`node ${JSON.stringify(CLI)} scan ${JSON.stringify(target)} --no-cache --html ${JSON.stringify(htmlPath)}`,
 		ROOT,
 	);
-	const htmlPath = path.join(TMP_ROOT, "report.html");
+	// 确定性：html 头部含生成时间戳（htmlreport scannedAt ?? new Date()）——归一化为固定值，
+	// 否则 CI 漂移检测（git diff --exit-code）每次复现必然失败。
+	const html = fs
+		.readFileSync(htmlPath, "utf8")
+		.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, "2000-01-01T00:00:00");
+	fs.writeFileSync(htmlPath, html);
 	fs.copyFileSync(htmlPath, path.join(CASES_DIR, name, "report.html"));
 	fs.writeFileSync(path.join(CASES_DIR, name, "report.txt"), txt);
 	return { txt, statLine };
@@ -184,19 +200,17 @@ function runCase(name, update) {
 	const dir = cloneCase(name, cfg, update);
 	pruneFiles(dir, cfg.prune);
 
-	const t0 = Date.now();
 	const { statLine } = scanCase(dir, cfg, name);
-	const elapsedSec = (Date.now() - t0) / 1000;
 
 	const ref = update || !fs.existsSync(manifestPath(name)) ? shOut("git rev-parse HEAD", dir) : JSON.parse(fs.readFileSync(manifestPath(name), "utf8")).ref;
+	// manifest 全确定性（无 scannedAt/elapsedSec——时间戳会让 CI 漂移检测每次复现必失败）；
+	// 版本信息由 ref 标识，统计由 stats 承载。
 	const manifest = {
 		repo: cfg.repo,
 		ref,
 		lang: cfg.lang,
 		scanDir: cfg.scanDir,
 		prune: cfg.prune,
-		scannedAt: new Date().toISOString(),
-		elapsedSec: Math.round(elapsedSec * 10) / 10,
 		stats: parseStats(statLine),
 	};
 	fs.writeFileSync(manifestPath(name), JSON.stringify(manifest, null, 2) + "\n");
@@ -214,7 +228,11 @@ if (!fs.existsSync(CLI)) {
 	console.error("dist/cli.js 不存在——先 npm run build");
 	process.exit(2);
 }
-for (const n of targets) runCase(n, update);
-fs.rmSync(TMP_ROOT, { recursive: true, force: true });
+try {
+	for (const n of targets) runCase(n, update);
+} finally {
+	// 无论成功/崩溃都清理临时 clone（reviewer 注记：脚本失败时 TMP 残留）
+	fs.rmSync(TMP_ROOT, { recursive: true, force: true });
+}
 console.log("\n完成。产物快照已写入 examples/cases/<name>/；完整 JSON 如需本地生成：");
 console.log("  node dist/cli.js scan <clone> --no-cache --json out.json");

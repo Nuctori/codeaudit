@@ -4,8 +4,6 @@
   "lang": "python",
   "scanDir": "src",
   "prune": [],
-  "scannedAt": "2026-08-15T01:04:11.759Z",
-  "elapsedSec": 1.3,
   "stats": {
     "chunks": 466,
     "files": 24,

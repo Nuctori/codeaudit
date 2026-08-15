@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased] — Go 语言包 + 真实项目用例矩阵
+
+### 新增
+
+- **Go 语言包**（`packs/go.ts`）：tree-sitter-go.wasm 零新依赖接入——标准库效应表（os/fmt/net/http/io/time/rand 拆表 + 纯模块）、类型转换判纯（`int(x)`/`string(x)` 非调用点）、目录包解析（resolveModule 后缀匹配 → 跨包调用真边）、包作用域裸名跨文件解析（`bareNamesCrossFile`，含根目录包）；extractor 支持 Go `selector_expression` 的 operand/field 命名字段 + `field_identifier` 成员名节点。hugo 实测 521 文件 / 5981 chunks / parse-errors 0。
+- **真实项目用例矩阵**（`scripts/fetch-case.cjs` + `examples/cases/`）：5 语言真实开源项目用例（opencode TS/TSX、express JS、hugo Go、flask Python、ocelot C#）——pinned ref 确定性复现、`--update` 刷新、manifest 全确定性（无时间戳字段）、html 时间戳归一化（CI 漂移检测要求）；产物 report.txt + manifest.json 入 git，report.html 本地生成（含本地绝对路径，.gitignore 排除）。
+- **CI 用例漂移检测**（`.github/workflows/cases.yml`）：每周 + 手动复现全部用例，`git diff --exit-code` 检测工具行为漂移。
+
+### 修复
+
+- link.ts 包作用域裸名解析支持根目录包（`main.go` + `util.go` 同处根时跨文件可见——此前仅子目录包）。
+
 ## [Unreleased] — 迭代 55（有向拓扑指标 + 逆向依赖治理优先）
 
 ### 修复

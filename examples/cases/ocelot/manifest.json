@@ -4,8 +4,6 @@
   "lang": "csharp",
   "scanDir": "src",
   "prune": [],
-  "scannedAt": "2026-08-15T01:32:03.527Z",
-  "elapsedSec": 3.7,
   "stats": {
     "chunks": 2369,
     "files": 378,

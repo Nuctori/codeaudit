@@ -3,14 +3,20 @@
   "ref": "4643e65ad6334de3e4e68dedc201d5fbb828c9fe",
   "lang": "typescript",
   "scanDir": "packages",
-  "prune": [],
-  "scannedAt": "2026-08-15T01:27:04.561Z",
-  "elapsedSec": 111.1,
+  "prune": [
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/*.test.js",
+    "**/*.spec.ts",
+    "**/test/**",
+    "**/tests/**",
+    "**/__tests__/**"
+  ],
   "stats": {
-    "chunks": 18490,
-    "files": 3257,
-    "unknownRate": 65.3,
-    "cycles": 18,
+    "chunks": 15367,
+    "files": 2445,
+    "unknownRate": 66.7,
+    "cycles": 16,
     "parseErrors": 28
   }
 }

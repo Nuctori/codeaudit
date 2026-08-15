@@ -9,8 +9,6 @@
     "**/*.cjs",
     "**/*_test.go"
   ],
-  "scannedAt": "2026-08-15T01:28:31.643Z",
-  "elapsedSec": 12.9,
   "stats": {
     "chunks": 5981,
     "files": 521,

@@ -12,7 +12,7 @@
 | [flask](flask/) | Python | 24 文件 | 466 | 52.1% | 0 | ~1s | pallets/flask（BSD-3） |
 | [ocelot](ocelot/) | C# | 378 文件 | 2369 | 26.2% | 8（2.1%） | ~1s | ThreeMammals/Ocelot（MIT） |
 
-每个用例的产物（入 git，合计 <250KB/用例）：`report.txt`（全视图文本快照）、`report.html`（自包含技术债报告）、`manifest.json`（repo/pinned ref/统计/扫描时间）。完整 JSON（可达 68MB）不入库，本地生成：`node dist/cli.js scan <clone> --no-cache --json out.json`。
+每个用例的产物：`report.txt`（全视图文本快照，入 git）、`report.html`（自包含技术债报告，**本地生成**——含本地绝对路径，被 `.gitignore` 排除，不入库）、`manifest.json`（repo/pinned ref/统计，入 git，**全确定性**——无时间戳字段，复现逐字节一致）。完整 JSON（可达 68MB）不入库，本地生成：`node dist/cli.js scan <clone> --no-cache --json out.json`。
 
 ## 复现
 
@@ -23,7 +23,7 @@ node scripts/fetch-case.cjs hugo       # 单用例
 node scripts/fetch-case.cjs --update   # 全部刷新到上游默认分支最新 HEAD
 ```
 
-- **确定性**：默认用 manifest 的 pinned commit 复现——产物与入库快照逐字节一致（除耗时行）；CI 用 `git diff --exit-code` 检测工具行为漂移。
+- **确定性**：默认用 manifest 的 pinned commit 复现——产物（report.txt + manifest.json）逐字节一致；CI 用 `git diff --exit-code` 检测工具行为漂移。report.html 本地生成（含本地绝对路径，不入库）。
 - **刷新**：`--update` 漂移到上游 HEAD 并更新 manifest 的 ref/stats——先 diff 审阅再提交。
 - **prune**：hugo 排除嵌入 JS 资源与 `_test.go`（`go:embed` 静态扫描无需文件存在）；express 排除 mocha 测试。静态扫描不编译，prune 不影响扫描语义。
 
