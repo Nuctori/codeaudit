@@ -7,12 +7,20 @@ import { pythonPack } from "../../src/lang/packs/python";
 import { typescriptPack, tsxPack } from "../../src/lang/packs/typescript";
 import { javascriptPack } from "../../src/lang/packs/javascript";
 import { applyEffectOverrides } from "../../src/lang/effectOverride";
+import { goPack } from "../../src/lang/packs/go";
 
-/** 内置 5 注册 pack（ts/tsx 共用数据、js spread 复用 TS）。 */
-const packs = [csharpPack, pythonPack, typescriptPack, tsxPack, javascriptPack];
+/** 内置 6 注册 pack（ts/tsx 共用数据、js spread 复用 TS）。 */
+const packs = [
+	csharpPack,
+	pythonPack,
+	typescriptPack,
+	tsxPack,
+	javascriptPack,
+	goPack,
+];
 
 describe("pack 一致性断言（迭代41）", () => {
-	it("内置 5 注册 pack 全部一致（M1-M6 零违规）", () => {
+	it("内置 6 注册 pack 全部一致（M1-M6 零违规）", () => {
 		for (const p of packs) {
 			expect(validatePackConsistency(p), p.name).toEqual([]);
 		}

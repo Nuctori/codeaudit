@@ -126,7 +126,7 @@ function pruneFiles(dir, patterns) {
 				.replace(/[.+^${}()|[\]\\]/g, "\\$&")
 				.replace(/\*/g, "[^/]*")
 				.replace(/@@DIR@@/g, "(?:.*/)?")
-				.replace(/@@ANY@@/g, ".*")
+				.replace(/@@ANY@@/g, ".*"),
 		)
 		.join("|");
 	const listed = shOut("git ls-files", dir).split("\n");
@@ -156,7 +156,9 @@ function scanCase(dir, cfg, name) {
 		`node ${JSON.stringify(CLI)} scan ${JSON.stringify(target)} --no-cache ${views.join(" ")}`,
 		ROOT,
 	);
-	const statLine = txt.split("\n").find((l) => l.includes("codeaudit ") && l.includes("chunks"));
+	const statLine = txt
+		.split("\n")
+		.find((l) => l.includes("codeaudit ") && l.includes("chunks"));
 	const htmlPath = path.join(TMP_ROOT, "report.html");
 	sh(
 		`node ${JSON.stringify(CLI)} scan ${JSON.stringify(target)} --no-cache --html ${JSON.stringify(htmlPath)}`,
@@ -166,7 +168,7 @@ function scanCase(dir, cfg, name) {
 	// 否则 CI 漂移检测（git diff --exit-code）每次复现必然失败。
 	const html = fs
 		.readFileSync(htmlPath, "utf8")
-		.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/, "2000-01-01T00:00:00");
+		.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/g, "2000-01-01T00:00:00");
 	fs.writeFileSync(htmlPath, html);
 	fs.copyFileSync(htmlPath, path.join(CASES_DIR, name, "report.html"));
 	fs.writeFileSync(path.join(CASES_DIR, name, "report.txt"), txt);
@@ -192,7 +194,9 @@ function parseStats(statLine) {
 function runCase(name, update) {
 	const cfg = CASES[name];
 	if (!cfg) {
-		console.error(`未知用例: ${name}（可用: ${Object.keys(CASES).join(", ")}）`);
+		console.error(
+			`未知用例: ${name}（可用: ${Object.keys(CASES).join(", ")}）`,
+		);
 		process.exit(2);
 	}
 	console.log(`\n=== ${name}（${cfg.lang}）===\n${cfg.note}`);
@@ -202,20 +206,33 @@ function runCase(name, update) {
 
 	const { statLine } = scanCase(dir, cfg, name);
 
-	const ref = update || !fs.existsSync(manifestPath(name)) ? shOut("git rev-parse HEAD", dir) : JSON.parse(fs.readFileSync(manifestPath(name), "utf8")).ref;
+	const ref =
+		update || !fs.existsSync(manifestPath(name))
+			? shOut("git rev-parse HEAD", dir)
+			: JSON.parse(fs.readFileSync(manifestPath(name), "utf8")).ref;
 	// manifest 全确定性（无 scannedAt/elapsedSec——时间戳会让 CI 漂移检测每次复现必失败）；
 	// 版本信息由 ref 标识，统计由 stats 承载。
+	const stats = parseStats(statLine);
+	if (Object.keys(stats).length === 0 && statLine) {
+		// reviewer Note：CLI 输出格式漂移时静默 {} 会污染 manifest——失败可见化
+		console.warn(`  ⚠ stats 解析失败（CLI 输出格式漂移？）: ${statLine}`);
+	}
 	const manifest = {
 		repo: cfg.repo,
 		ref,
 		lang: cfg.lang,
 		scanDir: cfg.scanDir,
 		prune: cfg.prune,
-		stats: parseStats(statLine),
+		stats,
 	};
-	fs.writeFileSync(manifestPath(name), JSON.stringify(manifest, null, 2) + "\n");
+	fs.writeFileSync(
+		manifestPath(name),
+		JSON.stringify(manifest, null, 2) + "\n",
+	);
 	console.log(`  统计: ${statLine ?? "（无 stats 行）"}`);
-	console.log(`  产物: ${path.join(CASES_DIR, name)}（${manifest.ref.slice(0, 12)}）`);
+	console.log(
+		`  产物: ${path.join(CASES_DIR, name)}（${manifest.ref.slice(0, 12)}）`,
+	);
 }
 
 // ---- main ----
@@ -224,8 +241,25 @@ const update = args.includes("--update");
 const names = args.filter((a) => !a.startsWith("--"));
 const targets = names.length > 0 ? names : Object.keys(CASES);
 
-if (!fs.existsSync(CLI)) {
-	console.error("dist/cli.js 不存在——先 npm run build");
+/** dist 新鲜度：dist/cli.js 的 mtime ≥ src/ 下最新 .ts 文件（reviewer Medium-2：拉新代码后
+ *  直接跑 cases 会静默用旧引擎产出漂移快照——硬门禁而非仅警告）。 */
+function distFresh() {
+	const cli = fs.statSync(CLI).mtimeMs;
+	const latest = (dir) => {
+		let max = 0;
+		for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
+			const p = path.join(dir, f.name);
+			if (f.isDirectory()) max = Math.max(max, latest(p));
+			else if (f.name.endsWith(".ts"))
+				max = Math.max(max, fs.statSync(p).mtimeMs);
+		}
+		return max;
+	};
+	return cli >= latest(path.join(ROOT, "src"));
+}
+
+if (!fs.existsSync(CLI) || !distFresh()) {
+	console.error("dist/cli.js 不存在或过期（src/ 更新于其后）——先 npm run build");
 	process.exit(2);
 }
 try {
@@ -234,5 +268,7 @@ try {
 	// 无论成功/崩溃都清理临时 clone（reviewer 注记：脚本失败时 TMP 残留）
 	fs.rmSync(TMP_ROOT, { recursive: true, force: true });
 }
-console.log("\n完成。产物快照已写入 examples/cases/<name>/；完整 JSON 如需本地生成：");
+console.log(
+	"\n完成。产物快照已写入 examples/cases/<name>/；完整 JSON 如需本地生成：",
+);
 console.log("  node dist/cli.js scan <clone> --no-cache --json out.json");
