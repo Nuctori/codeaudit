@@ -3,6 +3,7 @@ import { pythonPack } from "./lang/packs/python";
 import { typescriptPack, tsxPack } from "./lang/packs/typescript";
 import { javascriptPack } from "./lang/packs/javascript";
 import { csharpPack } from "./lang/packs/csharp";
+import { goPack } from "./lang/packs/go";
 import { initParser, loadLanguage } from "./loader";
 import { changedImpact, type ChangeImpact } from "./core/influence";
 import type { ScanReport } from "./core/types";
@@ -14,6 +15,7 @@ export const defaultPacks = [
 	tsxPack,
 	javascriptPack,
 	csharpPack,
+	goPack,
 ];
 
 /** 编程式 API：一行扫描。 */
