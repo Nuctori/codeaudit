@@ -166,9 +166,14 @@ function scanCase(dir, cfg, name) {
 	);
 	// 确定性：html 头部含生成时间戳（htmlreport scannedAt ?? new Date()）——归一化为固定值，
 	// 否则 CI 漂移检测（git diff --exit-code）每次复现必然失败。
+	// 仅替换 <div class="sub"> 行内的时间戳——被扫描代码片段里嵌入的 ISO 字面量不得改写
+	// （reviewer 三轮 Low：g 全替换会失真快照内容）。
 	const html = fs
 		.readFileSync(htmlPath, "utf8")
-		.replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/g, "2000-01-01T00:00:00");
+		.replace(
+			/(<div class="sub">[^\n]*?)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
+			"$12000-01-01T00:00:00",
+		);
 	fs.writeFileSync(htmlPath, html);
 	fs.copyFileSync(htmlPath, path.join(CASES_DIR, name, "report.html"));
 	fs.writeFileSync(path.join(CASES_DIR, name, "report.txt"), txt);
@@ -213,7 +218,10 @@ function runCase(name, update) {
 	// manifest 全确定性（无 scannedAt/elapsedSec——时间戳会让 CI 漂移检测每次复现必失败）；
 	// 版本信息由 ref 标识，统计由 stats 承载。
 	const stats = parseStats(statLine);
-	if (Object.keys(stats).length === 0 && statLine) {
+	if (!statLine) {
+		// reviewer 三轮 Low：statLine 完全缺失（CLI 无 stats 行）比解析失败更严重——同样可见化
+		console.warn("  ⚠ 未捕获 stats 行（CLI 输出异常？）——manifest stats 将为空");
+	} else if (Object.keys(stats).length === 0) {
 		// reviewer Note：CLI 输出格式漂移时静默 {} 会污染 manifest——失败可见化
 		console.warn(`  ⚠ stats 解析失败（CLI 输出格式漂移？）: ${statLine}`);
 	}
@@ -241,25 +249,39 @@ const update = args.includes("--update");
 const names = args.filter((a) => !a.startsWith("--"));
 const targets = names.length > 0 ? names : Object.keys(CASES);
 
-/** dist 新鲜度：dist/cli.js 的 mtime ≥ src/ 下最新 .ts 文件（reviewer Medium-2：拉新代码后
+/** dist 新鲜度：dist/cli.js 的 mtime ≥ src/ 下最新源文件（reviewer Medium-2：拉新代码后
  *  直接跑 cases 会静默用旧引擎产出漂移快照——硬门禁而非仅警告）。 */
 function distFresh() {
-	const cli = fs.statSync(CLI).mtimeMs;
+	let cli;
+	try {
+		cli = fs.statSync(CLI).mtimeMs;
+	} catch {
+		return false; // CLI 缺失：调用方已 existsSync 兜底，此处防御
+	}
+	const SRCEXTS = [".ts", ".mts", ".cts"];
 	const latest = (dir) => {
 		let max = 0;
 		for (const f of fs.readdirSync(dir, { withFileTypes: true })) {
 			const p = path.join(dir, f.name);
 			if (f.isDirectory()) max = Math.max(max, latest(p));
-			else if (f.name.endsWith(".ts"))
+			else if (SRCEXTS.some((e) => f.name.endsWith(e)))
 				max = Math.max(max, fs.statSync(p).mtimeMs);
 		}
 		return max;
 	};
-	return cli >= latest(path.join(ROOT, "src"));
+	try {
+		return cli >= latest(path.join(ROOT, "src"));
+	} catch (e) {
+		// reviewer 三轮 Low：src 读取失败不得以 stack trace 崩溃——友好报错 + 拦截
+		console.error(`  ⚠ dist 新鲜度检查失败: ${e.message}`);
+		return false;
+	}
 }
 
 if (!fs.existsSync(CLI) || !distFresh()) {
-	console.error("dist/cli.js 不存在或过期（src/ 更新于其后）——先 npm run build");
+	console.error(
+		"dist/cli.js 不存在或过期（src/ 更新于其后）——先 npm run build",
+	);
 	process.exit(2);
 }
 try {
