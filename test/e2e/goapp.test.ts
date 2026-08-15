@@ -39,6 +39,10 @@ describe("E2E: goapp（Go——真实项目 hugo 驱动的盲区固化）", () =
 		expect(
 			[...main.chunk.calls].some((k) => k.startsWith("helper/export.go::")),
 		).toBe(true);
+		// 根目录包跨文件裸名边（bareNamesCrossFile dir="" 分支）：main 调 rootutil.go 的 rootHelper
+		expect(
+			[...main.chunk.calls].some((k) => k.startsWith("rootutil.go::")),
+		).toBe(true);
 	});
 
 	it("类型转换不产生未知调用点（int/string 高频盲区）", async () => {

@@ -7,5 +7,5 @@ import (
 )
 
 func main() {
-	fmt.Println(helper.Export("data.txt"))
+	fmt.Println(helper.Export("data.txt"), rootHelper())
 }
