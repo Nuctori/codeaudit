@@ -134,3 +134,48 @@ Iter-44 工具不完备/数据债收口的工程妥协经数学家 + Jeff Dean �
 - 外层保真度不可证（效应表数据错误/语言演进）——审查纪律承担
 - 标注正确性无统计建模（语料先验只进建议，不进判定）
 - 同 id⇒同判定在纯 id 标注（无 file）下仍是设计假设——导出默认带 file，建议标注时使用
+
+## 六、迭代56：A6-inner 形式化落地 + 函子性闭合（轮8 审计）
+
+### A6-inner 最小不动点证明（~13 行，机检证书见 ct-adversarial8 law:fixpoint）
+
+> 设凝聚 DAG D = (V, E)，效应格 L = P(Σ ∪ {?})（Σ 有限 ⟹ L^V 有限，A7）。
+> 定义 F: L^V → L^V，F(X)(v) = direct(v) ∪ ⋃_{(v,u)∈E} X(u)。
+>
+> 1. F 逐点单调（并集保序）且 L^V 有限 ⟹ Tarski/Kleene：μF = ⋃ₖ Fᵏ(∅) 存在，
+>    且上升链在 ≤ |V|·|Σ∪{?}| 步内稳定（每步至少新增一个格元素或终止）。
+> 2. D 无环（凝聚）⟹ 逆拓扑序 v₁…vₙ（(vᵢ,vⱼ)∈E ⟹ i>j）存在（拓扑排序定理）。
+> 3. 单趟逆拓扑 X(vᵢ) = direct(vᵢ) ∪ ⋃ X(后继) 恰为 F 的一步（后继分量已算），
+>    n 趟后 = Fⁿ(∅)（n = |V|）。
+> 4. 最小性：Fⁿ(∅) 的每个元素有 well-founded 推导链到 direct（拓扑深度归纳）；
+>    任何不动点 Y 满足 Y ⊇ F(∅) 且归纳 Y ⊇ Fᵏ(∅) ∀k ⟹ Y ⊇ Fⁿ(∅) ⟹ Fⁿ(∅) = μF。
+> 5. SCC 收缩保持不动点方程（分量内并集封闭，公理2）⟹ 单趟逆拓扑即最小不动点。∎
+>
+> 机检证书：test/audit/ct-adversarial8.test.ts law:fixpoint —— 对手动 Kleene 迭代
+> （Fᵏ(∅)）断言：单调不变量、≤|V|·|Σ∪{?}| 收敛、不动点方程、与 analyze 输出逐点相等
+> （含 SCC/未知/悬垂边 fixture）。
+
+### 函子性闭合（迭代56，两处违反处理）
+
+| 违反 | 处置 | 证据 |
+| --- | --- | --- |
+| globalClasses 同名类跨文件并集 | **已修**：classEntriesFor 作用域化——调用方文件有同名类 → 只解析本文件条目（Python/TS/JS 模块作用域）；无则回退并集（C# partial 跨文件成员）。覆盖 resolveClassMember（self/隐式 this/ctor/参数类型/局部绑定）、resolveCtorCall（构造体效应）、resolveObjDispatch（静态成员调用）。链路经 sink.callerFile 注入（迭代56）。it.fails 翻转（ct-adversarial2:147） | link.ts classEntriesFor；ct-adversarial2 law:functoriality；ct-adversarial8 law:functoriality-ctor/static |
+| stateDeps 全局 ⊤ 匹配一切写者 | **明确否决**（不修）：⊤ 是提取器降级的全局量词（extractor.ts:917），匹配一切写者是声明的过近似（state.ts:13-18），只影响耦合元数据与 R_state，不进 purity/effects/chain（公理3）；耦合视图下「新增写者 ⟹ ⊤ 读者依赖集增长」是量词语义而非函子性违反；按文件作用域化会使跨文件全局容器耦合漏报（方向安全承诺翻转），且修不掉合成 fixture 的同文件场景。真修复需提取器根追踪（消除裸 ⊤）——语义变更 >30 行，记录不修 | state.ts:37-46；ct-adversarial:193（保留 it.fails 锚定） |
+
+### 标注层循环依赖收口（任务3：grep 全部消费点）
+
+(file, id) 实例锚定已闭合于全部五个消费点：cli.ts:575-580（键构造）、scan.ts:462（判定应用，file 锚定优先）、scan.ts:451（未匹配回显）、corpus.ts:104-106（语料，file 锚定优先）、cli.ts:715-719（语料写，拒收按裸 id 拆分）。剩余面 = **裸 id 回退**（`ann.get(c.id)`，无 file 字段的标注按内容寻址匹配全部同 id chunk）——这是公理4 内容寻址契约本身（cli.ts:575 注释、axioms 五），非锚定修复的泄漏；导出恒带 file（cli.ts:1319）。边界已显式声明，标注工作流建议恒用 (file, id)。
+
+### 效应宇宙退化评估（任务4：Σ 完备性——只评估不实施）
+
+现状：判定格 Λ = {PURE<UNKNOWN<IMPURE} 与效应宇宙 Σ = {io, net, db, random, clock, state}（A7，LangPack 表声明）；**标注注入通道只产生 io**（scan.ts:467），`--effect-table` 注入可带任意效应类但标注协议固定 io。
+
+- **健全性**：不构成障碍——io 是最粗效应类（supremum 方向），标注 IMPURE→io 是过近似（S2 方向安全），永不假纯。
+- **完备性/精度**：构成精度天花板——标注 `net` 类函数后报告 {io}，`--sources`/chain 视图退化为「最近的 io」，db/random/clock 的源头定位在标注通道内不可分辨；内部表通道（impureGlobals 等）不受影响。
+- **结论（产品决策，不实施）**：扩展需标注协议 v2（verdict 带效应类）+ 语料 schema v3 + 效应表校准重标——收益（源头分类精度）低于成本（协议迁移 + 既有 ~1500 条标注失效），记录为有意取舍，与四·七 5（阈值标定）同族。
+
+### 残余（迭代56 记录）
+
+- superMap/virtualMembers/staticInitKey 仍按类名并集（C# partial 语义需要）；Python/TS/JS 跨文件同名类**继承**污染（a.py Svc extends 基类被 b.py 同名类基类并集）未堵——方向安全（过近似），类名+文件双键化需 >30 行，记录不修。
+- memberNameExists 仍跨文件并集（TS/JS 无 partial，并集是良性过近似；C# 无 memberNames 表不受影响）；isClassMemberName 并集是 C# partial 必需（不可作用域化）。
+- stateDeps ⊤ 的 it.fails 保留（锚定明确否决的偏差，防回归）。

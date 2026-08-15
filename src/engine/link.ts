@@ -468,7 +468,7 @@ export function link(
 											hasSubclass,
 											langHasDynamicExtends,
 											virtualMembers,
-											{ addEdge: (k: string) => calls.add(k) } as unknown as Sink,
+											{ addEdge: (k: string) => calls.add(k), callerFile: file } as unknown as Sink,
 											true,
 										);
 										if (r === "edges") continue;
@@ -493,6 +493,7 @@ export function link(
 							}
 						},
 						effectFromModule,
+						callerFile: file, // 迭代56：同名类解析作用域（函子性闭合）
 						addStateWrite: (pos) => {
 							extraStateWrites.push(pos);
 						},
@@ -571,6 +572,9 @@ interface Sink {
 	/** 迭代39 B10：记录 mutate 写位置（参数容器变异 → stateDeps 可见，--state 耦合图补齐）。 */
 	addStateWrite(pos: string): void;
 	effectFromModule(module: string, member: string | null): boolean;
+	/** 迭代56：调用方文件（同名类解析作用域——函子性闭合：analysis(A∪B) 不改变 A 内判定）。
+	 *  undefined = 无作用域（维持全项目并集，防御性回退）。 */
+	callerFile?: string;
 }
 
 // 命名空间导入解析（迭代36 r2 从 resolveImport 抽出——机械拆分，行为不变）
@@ -950,6 +954,27 @@ function isClassMemberName(
 	return false;
 }
 
+/** 迭代56：作用域化同名类条目查找（函子性闭合——ct-adversarial2 law:functoriality 翻转锚定）。
+ *  文件/模块作用域：Python/TS/JS 顶层类模块私有，跨文件同名 = 不同类 → 调用方文件有同名类时
+ *  只解析本文件条目（analysis(A∪B) 不改变 A 内同名类判定）；调用方文件无此类时回退全项目并集
+ *  （C# partial 类跨文件成员；同名导入类）。lang 隔离不变（迭代19 复审 F1）。 */
+function classEntriesFor(
+	globalClasses: ReadonlyMap<
+		string,
+		{ file: string; key: string; lang: string }[]
+	>,
+	cls: string,
+	lang: string,
+	callerFile: string | null,
+): { file: string; key: string; lang: string }[] {
+	const all = (globalClasses.get(cls) ?? []).filter((e) => e.lang === lang);
+	if (callerFile !== null) {
+		const local = all.filter((e) => e.file === callerFile);
+		if (local.length > 0) return local;
+	}
+	return all;
+}
+
 /** 迭代38 A + 迭代39 B7：类成员解析（继承/多态最小健全版）。
  *  polymorphic=true（self/隐式 this/参数接收者）：运行时对象可能是 cls 的子类——
  *  后代守卫：Python/JS 一切方法多态（pack.polymorphicMethods）→ cls ∈ hasSubclass 即降 "unknown"；
@@ -976,12 +1001,12 @@ function resolveClassMember(
 ): "edges" | "unknown" | "none" {
 	if (polymorphic && langHasDynamicExtends.has(pack.name)) return "unknown";
 	const reach = ancestorClosureOf(cls, pack, superMap);
+	const callerFile = sink.callerFile ?? null; // 迭代56：同名类解析作用域
 	/** c（同名并集内任一同语言文件）是否直接声明 method（含重载多定义）。 */
 	const declares = (c: string): boolean => {
-		const entries = globalClasses.get(c);
-		if (!entries) return false;
+		const entries = classEntriesFor(globalClasses, c, pack.name, callerFile);
+		if (entries.length === 0) return false;
 		for (const e of entries) {
-			if (e.lang !== pack.name) continue;
 			const tf = files.get(e.file);
 			if (!tf) continue;
 			const q = `${c}.${method}`;
@@ -1026,10 +1051,9 @@ function resolveClassMember(
 	// 非入口类统一 method（多态同名）。
 	const isCtor = method === cls;
 	for (const c of reach) {
-		const entries = globalClasses.get(c);
-		if (!entries) continue;
+		const entries = classEntriesFor(globalClasses, c, pack.name, callerFile);
+		if (entries.length === 0) continue;
 		for (const e of entries) {
-			if (e.lang !== pack.name) continue;
 			const tf = files.get(e.file);
 			if (!tf) continue;
 			const q = isCtor ? `${c}.${c}` : `${c}.${method}`;
@@ -1117,13 +1141,12 @@ function resolveCtorCall(
 		// 闭包内**全部** class chunk 原始调用并集（含基类字段初始化器；C# 静态初始化器在实例化路径
 		// 上执行，并入是过近似，S2 方向安全）。**并集必须先于 r==="edges" return**（显式 ctor +
 		// 字段初始化器并存时不得漏字段初始化器效应——独立审计 FAIL 反例）。
-		const clsEntries = globalClasses.get(t);
+		const clsEntries = classEntriesFor(globalClasses, t, pack.name, sink.callerFile ?? null);
 		let bodyEdges = 0;
 		for (const c of ancestorClosureOf(t, pack, superMap)) {
-			const entries = globalClasses.get(c);
-			if (!entries) continue;
+			const entries = classEntriesFor(globalClasses, c, pack.name, sink.callerFile ?? null);
+			if (entries.length === 0) continue;
 			for (const e of entries) {
-				if (e.lang !== pack.name) continue;
 				const tf = files.get(e.file);
 				const rc = tf?.chunkByKey.get(e.key);
 				// rc.calls 是原始调用（facts）——含字段初始化器调用；ctor-merge 边在 link 输出侧，不在此
@@ -1363,14 +1386,14 @@ function resolveObjDispatch(
 	// 项目内类 NetCall 撞效应表条目 NetCall: "net"——项目类优先（真实实现），表条目是通用库名。
 	// 遮蔽守卫：调用方局部赋值或模块级重绑（conn = make_evil() 遮蔽 import）→ 不解析
 	// 语言隔离（迭代19 复审 F1）：只解析同语言类——跨语言同名类不串味
-	const cls = globalClasses.get(call.obj);
+	// 迭代56：同名类解析作用域（函子性闭合）——调用方文件有同名类 → 只解析本文件条目
+	const same = classEntriesFor(globalClasses, call.obj, pack.name, sink.callerFile ?? null);
 	if (
-		cls &&
+		same.length > 0 &&
 		!caller.assigned.includes(call.obj) &&
 		!fi.moduleAssigned.has(call.obj)
 	) {
 		// 迭代37 P1-3：跨文件同名类 + 成员重载 → 全候选并集边（G5：含跨文件多命中）
-		const same = cls.filter((c) => c.lang === pack.name);
 		const q = `${call.obj}.${call.attr}`;
 		let any = false;
 		for (const c of same) {
@@ -1394,10 +1417,9 @@ function resolveObjDispatch(
 				}
 				continue;
 			}
-			const entries = globalClasses.get(c);
-			if (!entries) continue;
+			const entries = classEntriesFor(globalClasses, c, pack.name, sink.callerFile ?? null);
+			if (entries.length === 0) continue;
 			for (const e of entries) {
-				if (e.lang !== pack.name) continue;
 				const tf = files.get(e.file);
 				const rc = tf?.chunkByKey.get(e.key);
 				if (rc && rc.calls.length > 0) {

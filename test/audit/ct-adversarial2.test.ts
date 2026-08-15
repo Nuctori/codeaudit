@@ -144,8 +144,8 @@ describe("law:functoriality", () => {
 		expect(warm2.stats.cachedFiles).toBe(noCache.stats.files);
 	});
 
-	it.fails("同名类跨文件并集破坏不相交并图组合性（文档化偏差：link.ts globalClasses 是全项目命名空间——"
-		+ "analysis(A∪B) ≠ analysis(A)∘analysis(B)；修复需 link 作用域语义变更，暂不修）", async () => {
+	it("同名类跨文件不再破坏不相交并图组合性（迭代56 修复：link 同名类解析按调用方文件作用域——"
+		+ "classEntriesFor 本文件优先 + C# partial 并集回退；原为全项目命名空间并集，函子性违反已闭合）", async () => {
 		// 两个不相交项目，各自文件内都有 class Svc.save→helper——组合性要求分开判定不受对方影响
 		const dirA = join(dir, "f2-a");
 		const dirB = join(dir, "f2-b");
