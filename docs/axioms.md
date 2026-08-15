@@ -212,6 +212,11 @@ Iter-44 工具不完备/数据债收口的工程妥协经数学家 + Jeff Dean �
 ### 迭代57 其余记录（轮9）
 
 - **A6-inner 证书补强**（任务2）：证明步骤1「每步至少新增一个格元素」机制与有限格高度界 |V|·|Σ∪{?}| 原仅以宽松常数（8+4）断言；轮9 补满格攀登对拍（7 原子链，ct-adversarial9 law:fixpoint）——严格 +1 增长、恰 |Σ∪{?}| 步稳定、analyze == Kleene、幂等吸收。证明-测试对应审计：单调性（显式断言 + 轮8 判定格单调测试）、有限格（新高度界测试）、凝聚性（轮8 SCC fixture + 单趟对拍）三条件全覆盖，无漂移。
-- **S2/S4 通道穷举**（任务3）：轮7 三通道（裸名 miss/动态成员/HOF 实参）之外补 8 通道：C# 构造器 miss、C# 构造器别名 miss、C# base.M() 基类项目外、Python super().m() 哨兵、TS/Python 模块导入 miss（resolveMod null）、TS 泛型类型参数接收者、C# 重载并集边——全部「要么边要么 unknown」（ct-adversarial9 law:edge-case 8 用例）。
+- **S2/S4 通道穷举**（任务3）：轮7 三通道（裸名 miss/动态成员/HOF 实参）之外补 8 通道：C# 构造器 miss、C# 构造器别名 miss、C# base.M() 基类项目外、Python super().m() 哨兵、TS/Python 模块导入 miss（resolveMod null）、TS 泛型类型参数接收者、C# 重载并集边——全部「要么边要么 unknown」（ct-adversarial9 law:edge-case 8 用例）。轮10 终验补第 12 通道：**星号导入全 miss**（link.ts wildcards 循环 miss → markUnknown，ct-adversarial10）。
 - **⊤ 降级面**（任务1）：本节契约 + 3 锚定测试（写者全局 ⊤ / 根限定 ⊤ / R_state 饱和）。
 - **轮8 作用域化缺陷修复**（任务4）：见上表 globalClasses 行——C# partial S1 假纯闭合。
+
+### 迭代58 终验记录（轮10，边界显式化）
+
+- **C# throw 过报（F10-1）**：`throw new X()` → thrownTypes `"*"`（thrownTypeOf 不剥 C# object_creation_expression）——行为被 ct-adversarial5:143-156 钉住（`"*"` 保守保留），**记录不修**：方向安全（过近似），C# throw 表达式形态扩展属能力增强非健全性修复。
+- **localeCompare ICU 依赖（F10-2）**：5 处排序用 localeCompare（htmlreport.ts:371 / module.ts:75 / scan.ts:214,276 / python.ts:687）——字节序随 ICU 默认 locale 变化，跨环境非逐字节确定。**记录不修**：单机/CI 环境内确定；修 = 全量换 `<` 比较（机械但动 5 文件），触发条件 = 出现跨环境字节序依赖的消费者。
