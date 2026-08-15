@@ -169,16 +169,20 @@ function scanCase(dir, cfg, name) {
 	// 仅替换 <div class="sub"> 行内的时间戳——被扫描代码片段里嵌入的 ISO 字面量不得改写
 	// （reviewer 三轮 Low：g 全替换会失真快照内容）。
 	const htmlRaw = fs.readFileSync(htmlPath, "utf8");
-	if (!/<div class="sub">[^\n]*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(htmlRaw)) {
+	if (
+		!/<div class="sub">[^\n]*\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/.test(htmlRaw)
+	) {
 		// reviewer 四轮 Low-2：与 htmlreport.ts L555 布局强耦合——布局变更时静默 no-op
 		// → CI 漂移检测红（失败方向安全），但无即时提示；参照 statLine 模式可见化。
 		console.warn(
 			"  ⚠ html 头部时间戳未命中归一化正则（htmlreport 布局变更？）——快照可能非确定",
 		);
 	}
+	// replacer 函数（非替换串）：替换串 "$12000..." 经 $ 回退解析——正则捕获组 ≥12 时
+	// $12 语义漂移（reviewer 七轮 Low：字符串拼接 "$1"+"2000..." 是 no-op，未真正防漂移）。
 	const html = htmlRaw.replace(
 		/(<div class="sub">[^\n]*?)\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/,
-		"$1" + "2000-01-01T00:00:00",
+		(_, g1) => g1 + "2000-01-01T00:00:00",
 	);
 	fs.writeFileSync(htmlPath, html);
 	fs.copyFileSync(htmlPath, path.join(CASES_DIR, name, "report.html"));
