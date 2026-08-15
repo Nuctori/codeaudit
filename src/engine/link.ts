@@ -1731,11 +1731,15 @@ function resolveCall(
 		// Go 包作用域（bareNamesCrossFile）：裸名可见于同目录全部文件（Go 包=目录多文件，
 		// fi.bySimple 只查当前文件）。并集边（同名多候选全连，S1/S2/S3 安全同 P1-3）。
 		// 方法 chunk 无 ownerClass 归属会参与匹配（Go 方法名非包级名）——过近似连边方向安全。
-		if (pack.bareNamesCrossFile && fi.facts.file.includes("/")) {
-			const dir = fi.facts.file.slice(0, fi.facts.file.lastIndexOf("/"));
+		// 根目录包（main.go + util.go 同处根）：dir="" 时兄弟 = 所有无 "/" 的文件。
+		if (pack.bareNamesCrossFile) {
+			const slash = fi.facts.file.lastIndexOf("/");
+			const dir = slash === -1 ? "" : fi.facts.file.slice(0, slash);
 			const cross: string[] = [];
 			for (const [f, fi2] of files) {
-				if (f === fi.facts.file || !f.startsWith(dir + "/")) continue;
+				if (f === fi.facts.file) continue;
+				const s2 = f.lastIndexOf("/");
+				if (dir === "" ? s2 !== -1 : !f.startsWith(dir + "/")) continue;
 				const arr = fi2.bySimple.get(call.attr);
 				if (arr) for (const k of arr) cross.push(k);
 			}
