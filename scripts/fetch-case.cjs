@@ -166,7 +166,7 @@ function scanCase(dir, cfg, name) {
 	);
 	// 确定性：html 头部含生成时间戳（htmlreport scannedAt ?? new Date()）——归一化为固定值，
 	// 否则 CI 漂移检测（git diff --exit-code）每次复现必然失败。
-	// 仅替换 <div class="sub"> 行内的时间戳——被扫描代码片段里嵌入的 ISO 字面量不得改写
+	// 仅替换首个 <div class="sub"> 行内的时间戳——被扫描代码片段里嵌入的 ISO 字面量不得改写
 	// （reviewer 三轮 Low：g 全替换会失真快照内容）。
 	const htmlRaw = fs.readFileSync(htmlPath, "utf8");
 	if (
