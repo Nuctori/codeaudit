@@ -599,11 +599,19 @@ function resolveNamespaceImport(
 	const target = resolveMod(pack, imp.module, fi.facts.file);
 	if (target !== null) {
 		if (member !== null) {
-			const hit = resolveSymbol(target, member, 0);
-			if (hit !== null) {
-				sink.addEdge(hit);
-				return true;
+			// Go 目录包（resolveMod 返回目录）：查该目录下全部文件——TS/Python 恒单文件
+			// （前缀匹配只可能命中 Go 目录语义，天然退化）。并集边：多文件同名全连。
+			const dirPrefix = target + "/";
+			let found = false;
+			for (const [tf] of files) {
+				if (tf !== target && !tf.startsWith(dirPrefix)) continue;
+				const hit = resolveSymbol(tf, member, 0);
+				if (hit !== null) {
+					sink.addEdge(hit);
+					found = true;
+				}
 			}
+			if (found) return true;
 			// 点连成员：import a.b; a.b.fn() → callOf 首点切分得 obj=a、attr=b.fn，
 			// 全名 a.b.fn 去掉模块路径 a.b 后的段（fn）在模块内解析（遮蔽重绑则跳过）
 			if (call.obj !== null && !caller.assigned.includes(call.obj)) {
@@ -954,10 +962,13 @@ function isClassMemberName(
 	return false;
 }
 
-/** 迭代56：作用域化同名类条目查找（函子性闭合——ct-adversarial2 law:functoriality 翻转锚定）。
- *  文件/模块作用域：Python/TS/JS 顶层类模块私有，跨文件同名 = 不同类 → 调用方文件有同名类时
- *  只解析本文件条目（analysis(A∪B) 不改变 A 内同名类判定）；调用方文件无此类时回退全项目并集
- *  （C# partial 类跨文件成员；同名导入类）。lang 隔离不变（迭代19 复审 F1）。 */
+/** 迭代56+轮9：作用域化同名类条目查找（函子性闭合——ct-adversarial2 law:functoriality 翻转锚定）。
+ *  文件/模块作用域（fileScoped=true：Python/TS/JS 顶层类模块私有，跨文件同名 = 不同类）→ 调用方
+ *  文件有同名类时只解析本文件条目（analysis(A∪B) 不改变 A 内同名类判定）；调用方文件无此类时回退
+ *  全项目并集。
+ *  命名空间作用域（fileScoped=false：C#）→ 恒并集——partial 类跨文件成员必需（轮9 修正：
+ *  轮8 对 C# 误用文件作用域，partial 下回退条件永不触发（调用方文件总有 partial 声明 chunk），
+ *  跨文件 ctor/成员被吞 → S1 假纯实证 ct-adversarial9 law:functoriality）。lang 隔离不变（迭代19 F1）。 */
 function classEntriesFor(
 	globalClasses: ReadonlyMap<
 		string,
@@ -966,9 +977,10 @@ function classEntriesFor(
 	cls: string,
 	lang: string,
 	callerFile: string | null,
+	fileScoped: boolean,
 ): { file: string; key: string; lang: string }[] {
 	const all = (globalClasses.get(cls) ?? []).filter((e) => e.lang === lang);
-	if (callerFile !== null) {
+	if (fileScoped && callerFile !== null) {
 		const local = all.filter((e) => e.file === callerFile);
 		if (local.length > 0) return local;
 	}
@@ -1004,7 +1016,7 @@ function resolveClassMember(
 	const callerFile = sink.callerFile ?? null; // 迭代56：同名类解析作用域
 	/** c（同名并集内任一同语言文件）是否直接声明 method（含重载多定义）。 */
 	const declares = (c: string): boolean => {
-		const entries = classEntriesFor(globalClasses, c, pack.name, callerFile);
+		const entries = classEntriesFor(globalClasses, c, pack.name, callerFile, pack.fileScopedClasses === true);
 		if (entries.length === 0) return false;
 		for (const e of entries) {
 			const tf = files.get(e.file);
@@ -1051,7 +1063,7 @@ function resolveClassMember(
 	// 非入口类统一 method（多态同名）。
 	const isCtor = method === cls;
 	for (const c of reach) {
-		const entries = classEntriesFor(globalClasses, c, pack.name, callerFile);
+		const entries = classEntriesFor(globalClasses, c, pack.name, callerFile, pack.fileScopedClasses === true);
 		if (entries.length === 0) continue;
 		for (const e of entries) {
 			const tf = files.get(e.file);
@@ -1141,10 +1153,10 @@ function resolveCtorCall(
 		// 闭包内**全部** class chunk 原始调用并集（含基类字段初始化器；C# 静态初始化器在实例化路径
 		// 上执行，并入是过近似，S2 方向安全）。**并集必须先于 r==="edges" return**（显式 ctor +
 		// 字段初始化器并存时不得漏字段初始化器效应——独立审计 FAIL 反例）。
-		const clsEntries = classEntriesFor(globalClasses, t, pack.name, sink.callerFile ?? null);
+		const clsEntries = classEntriesFor(globalClasses, t, pack.name, sink.callerFile ?? null, pack.fileScopedClasses === true);
 		let bodyEdges = 0;
 		for (const c of ancestorClosureOf(t, pack, superMap)) {
-			const entries = classEntriesFor(globalClasses, c, pack.name, sink.callerFile ?? null);
+			const entries = classEntriesFor(globalClasses, c, pack.name, sink.callerFile ?? null, pack.fileScopedClasses === true);
 			if (entries.length === 0) continue;
 			for (const e of entries) {
 				const tf = files.get(e.file);
@@ -1387,7 +1399,7 @@ function resolveObjDispatch(
 	// 遮蔽守卫：调用方局部赋值或模块级重绑（conn = make_evil() 遮蔽 import）→ 不解析
 	// 语言隔离（迭代19 复审 F1）：只解析同语言类——跨语言同名类不串味
 	// 迭代56：同名类解析作用域（函子性闭合）——调用方文件有同名类 → 只解析本文件条目
-	const same = classEntriesFor(globalClasses, call.obj, pack.name, sink.callerFile ?? null);
+	const same = classEntriesFor(globalClasses, call.obj, pack.name, sink.callerFile ?? null, pack.fileScopedClasses === true);
 	if (
 		same.length > 0 &&
 		!caller.assigned.includes(call.obj) &&
@@ -1417,7 +1429,7 @@ function resolveObjDispatch(
 				}
 				continue;
 			}
-			const entries = classEntriesFor(globalClasses, c, pack.name, sink.callerFile ?? null);
+			const entries = classEntriesFor(globalClasses, c, pack.name, sink.callerFile ?? null, pack.fileScopedClasses === true);
 			if (entries.length === 0) continue;
 			for (const e of entries) {
 				const tf = files.get(e.file);
@@ -1713,6 +1725,22 @@ function resolveCall(
 			if (top.length > 1) {
 				// 迭代37 P1-3 并集边：同名顶层重定义 → 全候选（S1/S2/S3 可证安全）
 				for (const k of top) sink.addEdge(k);
+				return;
+			}
+		}
+		// Go 包作用域（bareNamesCrossFile）：裸名可见于同目录全部文件（Go 包=目录多文件，
+		// fi.bySimple 只查当前文件）。并集边（同名多候选全连，S1/S2/S3 安全同 P1-3）。
+		// 方法 chunk 无 ownerClass 归属会参与匹配（Go 方法名非包级名）——过近似连边方向安全。
+		if (pack.bareNamesCrossFile && fi.facts.file.includes("/")) {
+			const dir = fi.facts.file.slice(0, fi.facts.file.lastIndexOf("/"));
+			const cross: string[] = [];
+			for (const [f, fi2] of files) {
+				if (f === fi.facts.file || !f.startsWith(dir + "/")) continue;
+				const arr = fi2.bySimple.get(call.attr);
+				if (arr) for (const k of arr) cross.push(k);
+			}
+			if (cross.length > 0) {
+				for (const k of cross) sink.addEdge(k);
 				return;
 			}
 		}

@@ -579,6 +579,7 @@ export const pythonPack: LangPack = {
 	assignmentScopesLocals: true, // Python：函数内赋值即局部定义（迭代37 P0-2）
 	bareNameMeansThisInMethod: false,
 	trustedCtor: true, // Python C() 必返回实例或抛（__new__ 逃逸 = 文档化残余，迭代38 规则7）
+	fileScopedClasses: true, // 轮9：Python 类模块私有 → 同名类解析按文件作用域（函子性闭合）
 	builtinMutators,
 	frameworkIo: {
 		// Locust 压测客户端（迭代18 旧宇宙驱动）：self.client.get/post/... → net（段级前缀——

@@ -11,8 +11,9 @@ import { Purity, UNKNOWN_TARGET, type Chunk } from "../../src/core/types";
  * - law:fixpoint（A6-inner 机检证书）：效应传播 = 有限格单调函数 F 的最小不动点——
  *   手动 Kleene 迭代对拍 analyze 单趟逆拓扑输出；单调不变量；≤|V|·|Σ∪{?}| 收敛；不动点方程；
  *   迭代两次 == 迭代一次（幂等吸收）。
- * - law:functoriality（迭代56 闭合）：同名类跨文件并集作用域化——构造器路径（C# new Svc()）、
- *   静态成员路径（Svc.helper）、self 路径（ct-adversarial2 已锚）在不相交并图下判定不变。
+ * - law:functoriality（迭代56 闭合 + 轮9 修正）：同名类解析语言门控——构造器路径（C# new Svc()：
+ *   轮9 起 C# 恒并集 = partial 语义必需，见本文件 f1-ctor 注释与 ct-adversarial9 law:functoriality）、
+ *   静态成员路径（Svc.helper）、self 路径（ct-adversarial2 已锚）——Python/TS/JS 文件作用域，C# 命名空间作用域。
  * - law:annotation-boundary（任务3 收口）：(file,id) 锚定优先于裸 id 内容寻址，跨文件不泄漏。
  */
 
@@ -207,7 +208,9 @@ describe("law:fixpoint（A6-inner 机检证书）", () => {
 // law:functoriality —— 迭代56 同名类作用域化闭合（构造器/静态/self 三路径）
 // ---------------------------------------------------------------------------
 describe("law:functoriality（同名类作用域化：ctor/static 路径）", () => {
-	it("C# 构造器路径：new Svc() 在并图下不解析到异文件同名类构造器（resolveCtorCall 作用域）", async () => {
+	it("C# 构造器路径：new Svc() 跨文件同名类 = 命名空间作用域（轮9 修正——文件作用域化不适用于 C#："
+		+ "partial 类跨文件 ctor 必需并集，轮8 作用域化在 partial 下回退永不触发 → S1 假纯实证；"
+		+ "本 fixture 为非法 C#（同 namespace 非 partial 同名类 = 编译错误），并集过近似是 S2 方向安全选择）", async () => {
 		const root = join(dir, "f1-ctor");
 		mkdirSync(root, { recursive: true });
 		writeFileSync(
@@ -221,7 +224,8 @@ describe("law:functoriality（同名类作用域化：ctor/static 路径）", ()
 			].join("\n"),
 		);
 		const aloneA = await scanProject(root);
-		// 并图：b.cs 同名类带 io 构造器
+		// 并图：b.cs 同名类带 io 构造器——C# 命名空间作用域（globalClasses 并集，classEntriesFor
+		// fileScoped=false）：b.cs 构造器 io 必须传播（S1 永不假纯；并集 = S2 过近似方向安全）
 		writeFileSync(
 			join(root, "b.cs"),
 			[
@@ -238,8 +242,10 @@ describe("law:functoriality（同名类作用域化：ctor/static 路径）", ()
 		const makeAlone = aloneA.verdicts.find(
 			(v) => v.chunk.name === "Svc.Make",
 		)!;
-		expect(make.purity).toBe(makeAlone.purity); // 函子律：并集不改变 a.cs 内判定
-		expect(make.purity).toBe(Purity.PURE); // 且不吞 b.cs 构造器 io（旧并集语义会 IMPURE）
+		expect(makeAlone.purity).toBe(Purity.PURE); // 单项目：本文件 ctor 空 → 纯
+		// 并集语义下 a.cs 判定可因同命名空间同名类成员变化（S2 过近似），S1 永不假纯：
+		// b.cs 构造器 io 必须使 new Svc() 判 IMPURE（轮8 文件作用域化曾判 PURE = S1 违反）
+		expect(make.purity).toBe(Purity.IMPURE);
 		// b.cs 自身判定不受 a.cs 影响
 		const ctorB = joint.verdicts.find(
 			(v) => v.chunk.file === "b.cs" && v.chunk.name === "Svc.Svc",

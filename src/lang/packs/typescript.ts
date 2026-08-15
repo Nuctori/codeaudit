@@ -601,6 +601,7 @@ export const typescriptPack: LangPack = {
 	assignmentScopesLocals: false,
 	bareNameMeansThisInMethod: false,
 	trustedCtor: false, // JS/TS 构造器可 return 任意对象 → 不产 trusted 绑定（迭代38 规则7，B2 假纯洞）
+	fileScopedClasses: true, // 轮9：TS 类模块私有 → 同名类解析按文件作用域（函子性闭合）
 	stripModulePrefixes: ["node:"], // 迭代39：node:fs ≡ fs（运行时同模块）——引擎零语言常量完整态
 	frameworkIo: { ctx: ["model", "service", "app"] },
 	extractImports: extractEsmImports,

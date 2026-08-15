@@ -159,7 +159,7 @@ Iter-44 工具不完备/数据债收口的工程妥协经数学家 + Jeff Dean �
 
 | 违反 | 处置 | 证据 |
 | --- | --- | --- |
-| globalClasses 同名类跨文件并集 | **已修**：classEntriesFor 作用域化——调用方文件有同名类 → 只解析本文件条目（Python/TS/JS 模块作用域）；无则回退并集（C# partial 跨文件成员）。覆盖 resolveClassMember（self/隐式 this/ctor/参数类型/局部绑定）、resolveCtorCall（构造体效应）、resolveObjDispatch（静态成员调用）。链路经 sink.callerFile 注入（迭代56）。it.fails 翻转（ct-adversarial2:147） | link.ts classEntriesFor；ct-adversarial2 law:functoriality；ct-adversarial8 law:functoriality-ctor/static |
+| globalClasses 同名类跨文件并集 | **已修（轮9 修正）**：classEntriesFor 作用域化语言门控——Python/TS/JS 类模块私有（`fileScopedClasses: true`）→ 调用方文件有同名类 → 只解析本文件条目；无则回退并集。C# 恒并集（`fileScopedClasses` 缺省 false）——**轮8 对 C# 误用文件作用域：partial 类下回退条件永不触发（调用方文件总有 partial 声明 chunk），跨文件 ctor/成员被吞 → S1 假纯实证（ct-adversarial9 law:functoriality 两用例：ctor 假纯 PURE、静态成员 UNKNOWN 噪音）**。修复 = pack 标志 + classEntriesFor 门控（link.ts classEntriesFor/6 调用点，<30 行）；ct-adversarial8 f1-ctor 锚随语义翻转（并集 = S2 方向安全过近似） | link.ts classEntriesFor（fileScoped 参数）；pack.ts `fileScopedClasses`；python/typescript/javascript 包置 true；ct-adversarial9 law:functoriality（3 用例）；ct-adversarial2 law:functoriality（Python 锚不动） |
 | stateDeps 全局 ⊤ 匹配一切写者 | **明确否决**（不修）：⊤ 是提取器降级的全局量词（extractor.ts:917），匹配一切写者是声明的过近似（state.ts:13-18），只影响耦合元数据与 R_state，不进 purity/effects/chain（公理3）；耦合视图下「新增写者 ⟹ ⊤ 读者依赖集增长」是量词语义而非函子性违反；按文件作用域化会使跨文件全局容器耦合漏报（方向安全承诺翻转），且修不掉合成 fixture 的同文件场景。真修复需提取器根追踪（消除裸 ⊤）——语义变更 >30 行，记录不修 | state.ts:37-46；ct-adversarial:193（保留 it.fails 锚定） |
 
 ### 标注层循环依赖收口（任务3：grep 全部消费点）
@@ -179,3 +179,39 @@ Iter-44 工具不完备/数据债收口的工程妥协经数学家 + Jeff Dean �
 - superMap/virtualMembers/staticInitKey 仍按类名并集（C# partial 语义需要）；Python/TS/JS 跨文件同名类**继承**污染（a.py Svc extends 基类被 b.py 同名类基类并集）未堵——方向安全（过近似），类名+文件双键化需 >30 行，记录不修。
 - memberNameExists 仍跨文件并集（TS/JS 无 partial，并集是良性过近似；C# 无 memberNames 表不受影响）；isClassMemberName 并集是 C# partial 必需（不可作用域化）。
 - stateDeps ⊤ 的 it.fails 保留（锚定明确否决的偏差，防回归）。
+
+### 六·五、stateDeps ⊤ 的语义契约（迭代57 轮9 审计——降级面显式化）
+
+轮8 明确否决「⊤ 作用域化」后，轮9 把 ⊤ 的影响面写成可审计契约。**⊤ 是提取器降级的全局量词**：
+
+**何时引入**：
+
+1. **读侧全局 ⊤**：`f().x`/`d[k].x` 等非标识符接收者的成员读取，`subscriptRoot` 回溯失败 → `["⊤"]`；回溯到根标识符 → 根限定 `["d.⊤"]`（extractor.ts:917）。
+2. **写侧根限定 ⊤**：`d[k].x = v` 下标写 → `d.⊤`（与读侧对偶）；局部下标根 `dd[k].x=` 的 `dd` 过近似为 `dd.⊤`（state.ts 头注释）。
+3. **匹配规则**（state.ts:12-16,39-46）：全局 ⊤ **读**匹配一切写者位置；全局 ⊤ **写**（state.ts:46 `writes.has("⊤")`）匹配一切读者；根限定 `d.⊤` 匹配同根（`d.` 前缀）一切写者。
+
+**影响什么（噪音面——耦合元数据与风险似然，不进判定）**：
+
+- `verdict.stateDeps`（analyze.ts:170,184）——纯元数据。
+- R_state 似然因子（risk.ts:217-232）：⊤ 写者改动 → `writeSet={⊤}` → 全部 stateDeps 非空读者 broken（state=1 饱和）——L×C 风险矩阵的**似然噪音**，方向安全（过近似），不反向跳变。
+- `--state` 耦合图（state.ts:69-140，stateCouplingOf）：⊤ 写者出现在耦合链并耦合全部读者；⊤ 读者耦合全部写者——**可观测 false coupling**（两个调用边零交集的 chunk 因 ⊤ 显示耦合），已测试锚定为「已知近似」（ct-adversarial9 law:edge-case 首两用例）。
+- htmlreport 耦合 top-15（htmlreport.ts:376）、cli JSON 序列化（cli.ts:859-865,1014）。
+
+**不影响什么（判定面）**：
+
+- purity/effects/chain/chainCertain——stateDeps 在判定计算中零消费点（公理3：读不是副作用；⊤ 只是耦合可见性）。ct-adversarial9 锚定：⊤ 写者/根限定 ⊤ 读者场景下读者 purity 恒 PURE。
+- 标注通道、效应表、反向闭包（changedImpact）不读 stateDeps。
+
+**已知近似锚定（非静默）**：
+
+- 读者侧全局 ⊤ 的函子性偏差：`it.fails`（ct-adversarial.test.ts:193）——防回归。
+- 写者侧全局 ⊤ 与根限定 ⊤ 的耦合行为：**通过态测试**锚定当前语义（ct-adversarial9 law:edge-case），含 R_state 饱和边界。
+
+**未来真修复路径（记录不修，>30 行）**：提取器**根追踪**——`subscriptRoot` 失败点改为追溯变量声明链（`this.cache[k]` → 根 `this`，`getStore()[k]` → 根 `getStore` 返回类型），消除裸 ⊤ 与根限定 ⊤ 的语义差；修复后 it.fails 可翻转。风险：跨函数返回类型链（四·五 C 特性已否决）是根追踪的依赖，需先决策。
+
+### 迭代57 其余记录（轮9）
+
+- **A6-inner 证书补强**（任务2）：证明步骤1「每步至少新增一个格元素」机制与有限格高度界 |V|·|Σ∪{?}| 原仅以宽松常数（8+4）断言；轮9 补满格攀登对拍（7 原子链，ct-adversarial9 law:fixpoint）——严格 +1 增长、恰 |Σ∪{?}| 步稳定、analyze == Kleene、幂等吸收。证明-测试对应审计：单调性（显式断言 + 轮8 判定格单调测试）、有限格（新高度界测试）、凝聚性（轮8 SCC fixture + 单趟对拍）三条件全覆盖，无漂移。
+- **S2/S4 通道穷举**（任务3）：轮7 三通道（裸名 miss/动态成员/HOF 实参）之外补 8 通道：C# 构造器 miss、C# 构造器别名 miss、C# base.M() 基类项目外、Python super().m() 哨兵、TS/Python 模块导入 miss（resolveMod null）、TS 泛型类型参数接收者、C# 重载并集边——全部「要么边要么 unknown」（ct-adversarial9 law:edge-case 8 用例）。
+- **⊤ 降级面**（任务1）：本节契约 + 3 锚定测试（写者全局 ⊤ / 根限定 ⊤ / R_state 饱和）。
+- **轮8 作用域化缺陷修复**（任务4）：见上表 globalClasses 行——C# partial S1 假纯闭合。

@@ -243,6 +243,14 @@ export interface LangPack {
 	/** 迭代38 A 规则7：构造器结果可信（new C() 必返回 C 实例或抛）——C#/Python true；
 	 *  JS/TS false（构造器可 return 任意对象）→ 不产 trusted localBinding，class: 接收者落 ?。 */
 	readonly trustedCtor?: boolean;
+	/** 迭代56+（轮9 修正）：类名是否文件/模块作用域（Python/TS/JS 模块私有类）。
+	 *  true = 调用方文件有同名类时只解析本文件条目（函子性闭合）；
+	 *  false/缺省 = 命名空间作用域（C#：同名类跨文件并集是 partial 语义必需——轮8 作用域化
+	 *  在 partial 下回退条件永不触发，跨文件 ctor/成员被吞 → S1 假纯，ct-adversarial9 实证）。 */
+	readonly fileScopedClasses?: boolean;
+	/** 包作用域裸名（Go：同目录全部文件的顶层定义对包内裸名调用可见——fi.bySimple 只查
+	 *  当前文件，Go 包=目录多文件语义需跨文件查询）。TS/Python 模块隔离/C# 命名空间不设。 */
+	readonly bareNamesCrossFile?: boolean;
 	/** 迭代39 B7：类方法默认多态（Python/JS 一切方法原型分派 → true 即现状宽守卫；
 	 *  C# false → 仅 virtual/override/abstract 族降 ?，非 virtual 静态分派精确（L4）。 */
 	readonly polymorphicMethods?: boolean;
