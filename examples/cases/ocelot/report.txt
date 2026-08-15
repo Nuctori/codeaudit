@@ -1,0 +1,165 @@
+STATS: pure 1390, impure 439, unknown 540
+拓扑：2369 nodes / 724 edges / 桥比例 21% / 自环 0 / 环 0 / 深度 2 / 未知边 4353
+  ➜ 网状结构（仅 21% 边是唯一通道——多数边有替代路径，环化度高；4353 条未知边未计入）
+  ➜ 有向形态：源 2192 个 / 汇 2235 个 / 逆向依赖边 0（环内边 0 + 自环 0，治理优先）
+  ➜ 154 条桥边（模块间唯一连通通道——契约测试/版本兼容必保接口）
+  ➜ 62 个割点枢纽（必经分量——改动影响面最大，评审从严）
+  ➜ 调用图最深路径 2 层（结构深度；真实效应传播深度看 HTML 长传播链——chain 只是最近源距离）
+
+效应源（chain=0 IMPURE，直接调 io/net/random/state 的源头；353 个）：
+   17 调用  DiscoveryDownstreamRouteFinder.Get   DownstreamRouteFinder/Finder/DiscoveryDownstreamRouteFinder.cs:31
+   16 调用  ChangeDownstreamPathTemplate.ChangeDownstreamPath DownstreamPathManipulation/ChangeDownstreamPathTemplate.cs:20
+   14 调用  HttpDataRepository.Update            Infrastructure/RequestData/HttpDataRepository.cs:29
+   14 调用  LeastConnection.LeaseAsync           LoadBalancer/Balancers/LeastConnection.cs:32
+   14 调用  NoLoadBalancer.LeaseAsync            LoadBalancer/Balancers/NoLoadBalancer.cs:20
+   13 调用  CookieStickySessions.LeaseAsync      LoadBalancer/Balancers/CookieStickySessions.cs:71
+   11 调用  LoadBalancerHouse.GetResponse        LoadBalancer/LoadBalancerHouse.cs:43
+   11 调用  AddQueriesToRequest.SetQueriesOnDownstreamRequest QueryStrings/AddQueriesToRequest.cs:19
+    8 调用  DynamicRoutesCreator.SetUpDynamicRoute Configuration/Creator/DynamicRoutesCreator.cs:59
+    5 调用  UpstreamTemplatePatternCreator.GetRegex Configuration/Creator/UpstreamTemplatePatternCreator.cs:96
+    5 调用  CircuitBreakerDelegatingHandler.CircuitBreakerDelegatingHandler QualityOfService/CircuitBreakerDelegatingHandler.cs:79
+    5 调用  ServiceFabricServiceDiscoveryProvider.GetAsync ServiceDiscovery/Providers/ServiceFabricServiceDiscoveryProvider.cs:17
+    5 调用  UpstreamHeaderTemplate.UpstreamHeaderTemplate Values/UpstreamHeaderTemplate.cs:15
+    4 调用  FileRoute.DeepCopy                   Configuration/File/FileRoute.cs:64
+    4 调用  FileRoute.FileRoute                  Configuration/File/FileRoute.cs:8
+  … 共 353 个（--top N 查看更多）
+
+状态耦合（写方按读者数降序；top 15）：
+   66 读者  ExceptionHandlerMiddleware.TrySetGlobalRequestId context.TraceIdentifier      Errors/ExceptionHandlerMiddleware.cs:63  ← 示例读者 Authentication/AuthenticationMiddleware.cs:20（等 66 个）
+   64 读者  AuthenticationMiddleware.Invoke      context.User                 Authentication/AuthenticationMiddleware.cs:20  ← 示例读者 Authorization/AuthorizationMiddleware.cs:26（等 64 个）
+   60 读者  DownstreamUrlCreatorMiddleware.Invoke context.⊤                    DownstreamUrlCreator/DownstreamUrlCreatorMiddleware.cs:34  ← 示例读者 Authentication/AuthenticationMiddleware.cs:20（等 60 个）
+   60 读者  ExceptionHandlerMiddleware.Invoke    context.⊤                    Errors/ExceptionHandlerMiddleware.cs:27  ← 示例读者 Authentication/AuthenticationMiddleware.cs:20（等 60 个）
+   60 读者  RateLimitingMiddleware.ReturnQuotaExceededResponse context.⊤                    RateLimiting/RateLimitingMiddleware.cs:121  ← 示例读者 Authentication/AuthenticationMiddleware.cs:20（等 60 个）
+   60 读者  HttpContextResponder.SetResponseOnHttpContext context.⊤                    Responder/HttpContextResponder.cs:21  ← 示例读者 Authentication/AuthenticationMiddleware.cs:20（等 60 个）
+   60 读者  HttpContextResponder.SetStatusCode   context.⊤                    Responder/HttpContextResponder.cs:84  ← 示例读者 Authentication/AuthenticationMiddleware.cs:20（等 60 个）
+   60 读者  SecurityMiddleware.HandleWebSocketErrors context.⊤                    Security/SecurityMiddleware.cs:50  ← 示例读者 Authentication/AuthenticationMiddleware.cs:20（等 60 个）
+   54 读者  RequestIdMiddleware.SetOcelotRequestId httpContext.TraceIdentifier  RequestId/Middleware/RequestIdMiddleware.cs:34  ← 示例读者 Cache/CachedResponse.cs:5（等 54 个）
+   51 读者  ExceptionExtensions.AllMessages      builder                      Errors/ExceptionExtensions.cs:11  ← 示例读者 Cache/CachedResponse.cs:5（等 51 个）
+   51 读者  StringBuilderExtensions.AppendNext   builder,builder              Infrastructure/Extensions/StringBuilderExtensions.cs:11  ← 示例读者 Cache/CachedResponse.cs:5（等 51 个）
+   50 读者  AuthenticationOptionsCreator.Merge   options.AllowAnonymous,options.AllowedScopes,options.AuthenticationProviderKey,options.AuthenticationProviderKeys Configuration/Creator/AuthenticationOptionsCreator.cs:51  ← 示例读者 Cache/CachedResponse.cs:5（等 50 个）
+   50 读者  LoadBalancerOptionsCreator.Merge     options.Type,options.Key,options.Expiry Configuration/Creator/LoadBalancerOptionsCreator.cs:55  ← 示例读者 Cache/CachedResponse.cs:5（等 50 个）
+   50 读者  ConfigurationBuilderExtensions.GuardSchema configuration.Aggregates,configuration.Routes,configuration.DynamicRoutes,configuration.GlobalConfiguration DependencyInjection/ConfigurationBuilderExtensions.cs:171  ← 示例读者 Cache/CachedResponse.cs:5（等 50 个）
+   49 读者  QoSOptionsCreator.Merge              options.DurationOfBreak,options.BreakDuration,options.ExceptionsAllowedBeforeBreaking,options.MinimumThroughput,options.FailureRatio,options.SamplingDuration,options.TimeoutValue,options.Timeout Configuration/Creator/QoSOptionsCreator.cs:50  ← 示例读者 Cache/CachedResponse.cs:5（等 49 个）
+  … 共 332 个写方（--top N 查看更多）
+  （注：11 个写方含 ⊤ 降级匹配——近似耦合，见 README 已知限制）
+
+圈复杂度 top（>5；共 56 个；top 15）：
+  C= 18  n= 2  ErrorsToHttpStatusCodeMapper.Map         Responder/ErrorsToHttpStatusCodeMapper.cs:8
+  C= 16  n= 1  RateLimitOptionsCreator.Create           Configuration/Creator/RateLimitOptionsCreator.cs:15
+  C= 15  n= 3  UpstreamTemplatePatternCreator.Create    Configuration/Creator/UpstreamTemplatePatternCreator.cs:23
+  C= 14  n= 2  CacheOptionsCreator.Create               Configuration/Creator/CacheOptionsCreator.cs:25
+  C= 14  n= 2  HttpHandlerOptionsCreator.Create         Configuration/Creator/HttpHandlerOptionsCreator.cs:34
+  C= 14  n= 2  LoadBalancerOptionsCreator.Create        Configuration/Creator/LoadBalancerOptionsCreator.cs:25
+  C= 12  n= 4  StreamHttpContent.CopyAsync              Request/Mapper/StreamHttpContent.cs:38
+  C= 11  n= 2  HttpExceptionToErrorMapper.Map           Requester/HttpExceptionToErrorMapper.cs:18
+  C= 11  n= 1  AuthenticationOptionsCreator.Create      Configuration/Creator/AuthenticationOptionsCreator.cs:25
+  C= 11  n= 1  QoSOptionsCreator.Create                 Configuration/Creator/QoSOptionsCreator.cs:24
+  C= 10  n= 2  WebSocketsProxyMiddleware.Proxy          WebSockets/WebSocketsProxyMiddleware.cs:87
+  C=  9  n= 5  ClaimsAuthorizer.Authorize               Authorization/ClaimsAuthorizer.cs:24
+  C=  9  n= 4  SimpleJsonResponseAggregator.MapAggregateContent Multiplexer/SimpleJsonResponseAggregator.cs:15
+  C=  9  n= 3  AuthorizationMiddleware.Invoke           Authorization/AuthorizationMiddleware.cs:26
+  C=  9  n= 2  RateLimitingMiddleware.Invoke            RateLimiting/RateLimitingMiddleware.cs:30
+
+重复代码（同内容哈希多实例；共 52 组；top 15）：
+  ×10  FileAggregateRoute.RouteKeys             Configuration/File/FileAggregateRoute.cs:10
+      ↳ Configuration/File/FileAggregateRoute.cs:10
+      ↳ Configuration/File/FileGlobalAuthenticationOptions.cs:12
+      ↳ Configuration/File/FileGlobalCacheOptions.cs:12
+      ↳ Configuration/File/FileGlobalHttpHandlerOptions.cs:11
+      ↳ Configuration/File/FileGlobalLoadBalancerOptions.cs:11
+  × 5  AddHeader.Key                            Configuration/Creator/AddHeader.cs:11
+      ↳ Configuration/Creator/AddHeader.cs:11
+      ↳ Configuration/DownstreamRoute.cs:79
+      ↳ Configuration/HeaderFindAndReplace.cs:41
+      ↳ LoadBalancer/StickySession.cs:18
+      ↳ Middleware/Header.cs:11
+  × 5  FileGlobalConfiguration.Metadata         Configuration/File/FileGlobalConfiguration.cs:36
+      ↳ Configuration/File/FileGlobalConfiguration.cs:36
+      ↳ Configuration/File/FileGlobalRateLimiting.cs:9
+      ↳ Configuration/File/FileRateLimiting.cs:9
+      ↳ Configuration/File/FileRouteBase.cs:31
+      ↳ Configuration/MetadataOptions.cs:54
+  × 3  AddHeader.Value                          Configuration/Creator/AddHeader.cs:12
+      ↳ Configuration/Creator/AddHeader.cs:12
+      ↳ Values/DownstreamPath.cs:10
+      ↳ Values/DownstreamPathTemplate.cs:10
+  × 3  FileGlobalConfiguration.Timeout          Configuration/File/FileGlobalConfiguration.cs:53
+      ↳ Configuration/File/FileGlobalConfiguration.cs:53
+      ↳ Configuration/File/FileQoSOptions.cs:58
+      ↳ Configuration/File/FileRouteBase.cs:48
+  × 3  FileHostAndPort.Port                     Configuration/File/FileHostAndPort.cs:20
+      ↳ Configuration/File/FileHostAndPort.cs:20
+      ↳ Configuration/File/FileServiceDiscoveryProvider.cs:7
+      ↳ Request/Middleware/DownstreamRequest.cs:33
+  × 3  FileHostAndPort.Host                     Configuration/File/FileHostAndPort.cs:19
+      ↳ Configuration/File/FileHostAndPort.cs:19
+      ↳ Configuration/File/FileServiceDiscoveryProvider.cs:6
+      ↳ Request/Middleware/DownstreamRequest.cs:31
+  × 3  Lease.HostAndPort                        LoadBalancer/Lease.cs:31
+      ↳ LoadBalancer/Lease.cs:31
+      ↳ LoadBalancer/StickySession.cs:14
+      ↳ Values/Service.cs:26
+  × 3  OcelotLoggerFactory.Dispose              Logging/OcelotLoggerFactory.cs:25
+      ↳ Logging/OcelotLoggerFactory.cs:25
+      ↳ Middleware/DownstreamResponse.cs:37
+      ↳ QualityOfService/QualityOfServiceFactory.cs:60
+  × 2  CachedResponse.ReasonPhrase              Cache/CachedResponse.cs:23
+      ↳ Cache/CachedResponse.cs:23
+      ↳ Middleware/DownstreamResponse.cs:34
+  × 2  CachedResponse.StatusCode                Cache/CachedResponse.cs:19
+      ↳ Cache/CachedResponse.cs:19
+      ↳ Middleware/DownstreamResponse.cs:32
+  × 2  ClaimToThing.Index                       Configuration/ClaimToThing.cs:16
+      ↳ Configuration/ClaimToThing.cs:16
+      ↳ Configuration/HeaderFindAndReplace.cs:46
+  × 2  HeaderTransformations.AddHeadersToUpstream Configuration/Creator/HeaderTransformations.cs:22
+      ↳ Configuration/Creator/HeaderTransformations.cs:22
+      ↳ Configuration/DownstreamRoute.cs:106
+  × 2  HeaderTransformations.AddHeadersToDownstream Configuration/Creator/HeaderTransformations.cs:21
+      ↳ Configuration/Creator/HeaderTransformations.cs:21
+      ↳ Configuration/DownstreamRoute.cs:105
+  × 2  IDynamicsCreator.Create                  Configuration/Creator/IDynamicsCreator.cs:7
+      ↳ Configuration/Creator/IDynamicsCreator.cs:7
+      ↳ Configuration/Creator/IRoutesCreator.cs:7
+
+测试盲区：0/2369 生产 chunk 被 Tests/ 引用（覆盖 0.0%；未覆盖 2369；top 15）：
+  调用者=  47  OkResponse.OkResponse                    Responses/OkResponse.cs:5
+  调用者=  47  OkResponse.OkResponse                    Responses/OkResponse.cs:10
+  调用者=  47  Response.Response                        Responses/Response.cs:12
+  调用者=  47  Response.Response                        Responses/Response.cs:24
+  调用者=  47  Response.Response                        Responses/Response.cs:7
+  调用者=  47  Response.Response                        Responses/Response.cs:29
+  调用者=  34  ErrorResponse.ErrorResponse              Responses/ErrorResponse.cs:18
+  调用者=  34  ErrorResponse.ErrorResponse              Responses/ErrorResponse.cs:11
+  调用者=  34  ErrorResponse.ErrorResponse              Responses/ErrorResponse.cs:22
+  调用者=  34  ErrorResponse.ErrorResponse              Responses/ErrorResponse.cs:7
+  调用者=  33  Error.Error                              Errors/Error.cs:12
+  调用者=  33  Error.Error                              Errors/Error.cs:5
+  调用者=   6  RateLimitRule.<static-init>              Configuration/RateLimitRule.cs:6
+  调用者=   6  CouldNotFindPlaceholderError.CouldNotFindPlaceholderError Infrastructure/CouldNotFindPlaceholderError.cs:7
+  调用者=   6  Header.Header                            Middleware/Header.cs:5
+
+疑似死代码（零调用者；共 1651 个，其中高置信 2 个；top 15）：
+  [疑]  AdministrationPath                       Administration/AdministrationPath.cs:3
+  [疑]  AdministrationPath.AdministrationPath    Administration/AdministrationPath.cs:5
+  [疑]  AdministrationPath.Path                  Administration/AdministrationPath.cs:12
+  [疑]  AdministrationPath.IssuerSigningKey      Administration/AdministrationPath.cs:13
+  [疑]  AdministrationPath.ExternalJwtSigningUrl Administration/AdministrationPath.cs:14
+  [疑]  FileConfigurationController              Administration/FileConfigurationController.cs:11
+  [疑]  FileConfigurationController.FileConfigurationController Administration/FileConfigurationController.cs:19
+  [疑]  FileConfigurationController.Get          Administration/FileConfigurationController.cs:25
+  [疑]  FileConfigurationController.Post         Administration/FileConfigurationController.cs:43
+  [疑]  IAdministrationPath                      Administration/IAdministrationPath.cs:3
+  [疑]  IAdministrationPath.Path                 Administration/IAdministrationPath.cs:5
+  [疑]  IAdministrationPath.IssuerSigningKey     Administration/IAdministrationPath.cs:6
+  [疑]  IAdministrationPath.ExternalJwtSigningUrl Administration/IAdministrationPath.cs:7
+  [疑]  OutputCacheController                    Administration/OutputCacheController.cs:9
+  [疑]  OutputCacheController.OutputCacheController Administration/OutputCacheController.cs:16
+codeaudit 0.3.1 — 2369 chunks, 378 files, unknown-rate 26.2%, cycles 0, parse-errors 8
+  图完整度：26.1% 调用点已解析（4353 未知站点）
+效应表[python]: 118 条目 / 命中 0 / corpus-inactive 118
+效应表[typescript]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[tsx]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[javascript]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[csharp]: 179 条目 / 命中 24 / corpus-inactive 155 / 咨询未中 2260 站点（补表候选）
+效应表[go]: 157 条目 / 命中 0 / corpus-inactive 157

@@ -1,0 +1,21 @@
+{
+  "repo": "https://github.com/gohugoio/hugo.git",
+  "ref": "0805c734a41b75403e3970e0070227916b6845d2",
+  "lang": "go",
+  "scanDir": ".",
+  "prune": [
+    "**/*.js",
+    "**/*.mjs",
+    "**/*.cjs",
+    "**/*_test.go"
+  ],
+  "scannedAt": "2026-08-15T01:28:31.643Z",
+  "elapsedSec": 12.9,
+  "stats": {
+    "chunks": 5981,
+    "files": 521,
+    "unknownRate": 72.5,
+    "cycles": 2,
+    "parseErrors": 0
+  }
+}

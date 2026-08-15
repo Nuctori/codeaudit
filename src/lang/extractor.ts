@@ -2017,7 +2017,8 @@ function flattenCallTarget(node: SyntaxNode, pack: LangPack): string | null {
 		const attr =
 			node.childForFieldName("attribute") ??
 			node.childForFieldName("property") ??
-			node.childForFieldName("name");
+			node.childForFieldName("name") ??
+			node.childForFieldName("field"); // Go selector_expression（operand/field 命名字段）
 		if (!obj || !attr) return null;
 		const objText = flattenCallTarget(obj, pack);
 		if (objText === null) return null;
@@ -2034,7 +2035,11 @@ function flattenCallTarget(node: SyntaxNode, pack: LangPack): string | null {
 			}
 			return null;
 		}
-		if (attr.type === "identifier" || attr.type === "property_identifier") {
+		if (
+			attr.type === "identifier" ||
+			attr.type === "property_identifier" ||
+			attr.type === "field_identifier" // Go selector_expression 成员名节点
+		) {
 			return objText + "." + attr.text;
 		}
 		return null;

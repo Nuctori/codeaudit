@@ -1,0 +1,16 @@
+{
+  "repo": "https://github.com/anomalyco/opencode.git",
+  "ref": "4643e65ad6334de3e4e68dedc201d5fbb828c9fe",
+  "lang": "typescript",
+  "scanDir": "packages",
+  "prune": [],
+  "scannedAt": "2026-08-15T01:27:04.561Z",
+  "elapsedSec": 111.1,
+  "stats": {
+    "chunks": 18490,
+    "files": 3257,
+    "unknownRate": 65.3,
+    "cycles": 18,
+    "parseErrors": 28
+  }
+}

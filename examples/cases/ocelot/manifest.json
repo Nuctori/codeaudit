@@ -1,0 +1,16 @@
+{
+  "repo": "https://github.com/ThreeMammals/Ocelot.git",
+  "ref": "78c983d895e274e25becfee9d256f17b1908e15c",
+  "lang": "csharp",
+  "scanDir": "src",
+  "prune": [],
+  "scannedAt": "2026-08-15T01:32:03.527Z",
+  "elapsedSec": 3.7,
+  "stats": {
+    "chunks": 2369,
+    "files": 378,
+    "unknownRate": 26.2,
+    "cycles": 0,
+    "parseErrors": 8
+  }
+}

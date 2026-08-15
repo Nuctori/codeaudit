@@ -1,0 +1,198 @@
+STATS: pure 3569, impure 3824, unknown 11097
+拓扑：18490 nodes / 14986 edges / 桥比例 39% / 自环 1084 / 环 12 / 深度 11 / 未知边 247531
+  ➜ 混合结构（桥比例 39%——部分模块松耦合、部分网状）
+  ➜ 1084 个自递归 chunk（自我调用——重构时注意终止性）
+  ➜ 12 个循环依赖（SCC>1——初始化/销毁顺序风险）
+  ➜ 有向形态：源 10229 个 / 汇 11986 个 / 逆向依赖边 1111（环内边 27 + 自环 1084，治理优先）
+  ➜ 其中 2 个多入口纠缠环（多个调用者从不同节点进环——重构雷区，优先解耦）
+  ➜ 5915 条桥边（模块间唯一连通通道——契约测试/版本兼容必保接口）
+  ➜ 2886 个割点枢纽（必经分量——改动影响面最大，评审从严）
+  ➜ 调用图最深路径 11 层（结构深度；真实效应传播深度看 HTML 长传播链——chain 只是最近源距离）
+
+效应源（chain=0 IMPURE，直接调 io/net/random/state 的源头；2684 个）：
+   43 调用  <module>                             opencode/src/cli/cmd/github.handler.ts:1
+   40 调用  <module>                             desktop/src/main/index.ts:1
+   36 调用  Prompt                               tui/src/component/prompt/index.tsx:143
+   34 调用  <module>                             opencode/src/provider/provider.ts:1
+   32 调用  <module>                             llm/src/protocols/openai-responses.ts:1
+   32 调用  spawn                                opencode/src/lsp/server.ts:1188
+   31 调用  spawn                                opencode/src/lsp/server.ts:1699
+   31 调用  spawn                                opencode/src/lsp/server.ts:589
+   31 调用  spawn                                opencode/src/lsp/server.ts:939
+   30 调用  spawn                                opencode/src/lsp/server.ts:1365
+   30 调用  spawn                                opencode/src/lsp/server.ts:436
+   30 调用  spawn                                opencode/src/lsp/server.ts:533
+   30 调用  spawn                                opencode/src/lsp/server.ts:236
+   30 调用  spawn                                opencode/src/lsp/server.ts:827
+   30 调用  spawn                                opencode/src/lsp/server.ts:122
+  … 共 2684 个（--top N 查看更多）
+
+状态耦合（写方按读者数降序；top 15）：
+  1066 读者  transition                           state                        desktop/src/main/updater-controller.ts:31  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 1066 个）
+  1066 读者  setState                             state                        desktop/src/main/wsl/servers.ts:81  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 1066 个）
+  1066 读者  take                                 state                        opencode/src/cli/cmd/run/demo.ts:254  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 1066 个）
+  1066 读者  queueSplash                          state                        opencode/src/cli/cmd/run/runtime.lifecycle.ts:151  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 1066 个）
+  1066 读者  trace                                state                        opencode/src/cli/cmd/run/trace.ts:53  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 1066 个）
+  1066 读者  registerTool                         state                        session-ui/src/components/message-part.tsx:1484  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 1066 个）
+  1047 读者  <module>                             data.$schema,result.model,result.plugin,result.plugin_origins,remoteConfig.$schema,result.agent,result.mode,result.command,process.env,result.permission,perms.edit,result.username,result.share,result.compaction opencode/src/config/config.ts:1  ← 示例读者 app/e2e/performance/benchmark.ts:120（等 1047 个）
+  1024 读者  result                               loaded,value                 console/core/src/util/memo.ts:5  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 1024 个）
+  1024 读者  result                               value,loaded                 opencode/src/util/lazy.ts:5  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 1024 个）
+  1017 读者  ViewerShell                          props.⊤                      session-ui/src/components/file.tsx:693  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 1017 个）
+  1017 读者  Autocomplete                         props.⊤                      tui/src/component/prompt/autocomplete.tsx:75  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 1017 个）
+  944 读者  <module>                             process.platform,process.arch,platform.⊤,process.assetName,arch.⊤,asset.browser_download_url opencode/src/lsp/server.ts:1  ← 示例读者 app/e2e/performance/benchmark.ts:120（等 944 个）
+  934 读者  reset                                assertions.length,runs.length,denyAction,runFailure,afterPermission,result core/test/tool-bash.test.ts:82  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 934 个）
+  933 读者  merge                                result                       opencode/src/config/config.ts:351  ← 示例读者 app/e2e/performance/timeline-stability/adverse.spec.ts:1（等 933 个）
+  919 读者  <module>                             provider.integrationID,process.⊤,provider.api,provider.⊤,model.api,model.⊤,provider.disabled,model.cost core/test/catalog.test.ts:1  ← 示例读者 app/e2e/performance/benchmark.ts:120（等 919 个）
+  … 共 1216 个写方（--top N 查看更多）
+  （注：214 个写方含 ⊤ 降级匹配——近似耦合，见 README 已知限制）
+
+圈复杂度 top（>5；共 1879 个；top 15）：
+  C=358  n= 5  Page                                     app/src/pages/session.tsx:353
+  C=336  n= 6  LegacyLayout                             app/src/pages/layout.tsx:86
+  C=323  n= 6  createServerSession                      app/src/context/server-session.ts:188
+  C=290  n= 6  PromptInput                              app/src/components/prompt-input.tsx:117
+  C=205  n= 7  handler                                  console/app/src/routes/zen/util/handler.ts:72
+  C=204  n= 4  MessageTimeline                          app/src/pages/session/timeline/message-timeline.tsx:238
+  C=199  n= 8  Prompt                                   tui/src/component/prompt/index.tsx:143
+  C=183  n= 4  createPromptState                        opencode/src/cli/cmd/run/footer.prompt.tsx:282
+  C=148  n= 4  createLayer                              opencode/src/cli/cmd/run/stream.transport.ts:391
+  C=131  n= 5  Session                                  tui/src/routes/session/index.tsx:178
+  C=129  n= 7  Terminal                                 app/src/components/terminal.tsx:172
+  C=122  n= 5  custom                                   opencode/src/provider/provider.ts:168
+  C=117  n= 4  mockOpenCodeServer                       app/e2e/utils/mock-server.ts:33
+  C=107  n= 3  RunFooterView                            opencode/src/cli/cmd/run/footer.view.tsx:118
+  C= 97  n= 4  createPromptInputV2Controller            session-ui/src/v2/components/prompt-input/interaction.ts:56
+
+重复代码（同内容哈希多实例；共 458 组；top 15）：
+  ×24  loadLsp                                  app/src/context/global-sync/event-reducer.test.ts:151
+      ↳ app/src/context/global-sync/event-reducer.test.ts:151
+      ↳ app/src/context/global-sync/event-reducer.test.ts:403
+      ↳ app/src/context/global-sync/event-reducer.test.ts:414
+      ↳ app/src/context/global-sync/event-reducer.test.ts:436
+      ↳ app/src/context/global-sync/event-reducer.test.ts:454
+  ×23  push                                     app/src/context/global-sync/event-reducer.test.ts:149
+      ↳ app/src/context/global-sync/event-reducer.test.ts:149
+      ↳ app/src/context/global-sync/event-reducer.test.ts:401
+      ↳ app/src/context/global-sync/event-reducer.test.ts:412
+      ↳ app/src/context/global-sync/event-reducer.test.ts:434
+      ↳ app/src/context/global-sync/event-reducer.test.ts:452
+  ×12  required                                 core/test/catalog.test.ts:17
+      ↳ core/test/catalog.test.ts:17
+      ↳ core/test/config/provider.test.ts:22
+      ↳ core/test/plugin/provider-amazon-bedrock.test.ts:23
+      ↳ core/test/plugin/provider-anthropic.test.ts:22
+      ↳ core/test/plugin/provider-azure-cognitive-services.test.ts:23
+  ×12  fakeSelectorSdk                          core/test/plugin/provider-amazon-bedrock.test.ts:49
+      ↳ core/test/plugin/provider-amazon-bedrock.test.ts:49
+      ↳ core/test/plugin/provider-azure-cognitive-services.test.ts:49
+      ↳ core/test/plugin/provider-azure.test.ts:49
+      ↳ core/test/plugin/provider-cloudflare-workers-ai.test.ts:49
+      ↳ core/test/plugin/provider-cohere.test.ts:23
+  ×12  make                                     core/test/plugin/provider-amazon-bedrock.test.ts:50
+      ↳ core/test/plugin/provider-amazon-bedrock.test.ts:50
+      ↳ core/test/plugin/provider-azure-cognitive-services.test.ts:50
+      ↳ core/test/plugin/provider-azure.test.ts:50
+      ↳ core/test/plugin/provider-cloudflare-workers-ai.test.ts:50
+      ↳ core/test/plugin/provider-cohere.test.ts:24
+  ×11  handler                                  opencode/src/cli/cmd/account.ts:263
+      ↳ opencode/src/cli/cmd/account.ts:263
+      ↳ opencode/src/cli/cmd/agent.ts:258
+      ↳ opencode/src/cli/cmd/debug/file.ts:72
+      ↳ opencode/src/cli/cmd/debug/index.ts:38
+      ↳ opencode/src/cli/cmd/debug/lsp.ts:12
+  ×10  theme                                    tui/src/feature-plugins/home/footer.tsx:11
+      ↳ tui/src/feature-plugins/home/footer.tsx:11
+      ↳ tui/src/feature-plugins/home/footer.tsx:28
+      ↳ tui/src/feature-plugins/home/footer.tsx:55
+      ↳ tui/src/feature-plugins/sidebar/context.tsx:14
+      ↳ tui/src/feature-plugins/sidebar/files.tsx:16
+  × 9  remove                                   opencode/test/control-plane/adapters.test.ts:26
+      ↳ opencode/test/control-plane/adapters.test.ts:26
+      ↳ opencode/test/server/httpapi-instance-context.test.ts:61
+      ↳ opencode/test/server/httpapi-promptasync-context.test.ts:66
+      ↳ opencode/test/server/httpapi-session.test.ts:101
+      ↳ opencode/test/server/httpapi-workspace-routing.test.ts:96
+  × 8  lines                                    app/e2e/performance/timeline-stability/adverse.spec.ts:244
+      ↳ app/e2e/performance/timeline-stability/adverse.spec.ts:244
+      ↳ app/e2e/performance/timeline-stability/environment-matrix.spec.ts:91
+      ↳ app/e2e/performance/timeline-stability/interaction.spec.ts:233
+      ↳ app/e2e/performance/timeline-stability/lifecycle.spec.ts:151
+      ↳ app/e2e/performance/timeline-stability/scroll-interaction.spec.ts:322
+  × 8  InvalidRequestReason.retryable           llm/src/schema/errors.ts:42
+      ↳ llm/src/schema/errors.ts:42
+      ↳ llm/src/schema/errors.ts:53
+      ↳ llm/src/schema/errors.ts:69
+      ↳ llm/src/schema/errors.ts:93
+      ↳ llm/src/schema/errors.ts:104
+  × 7  isRecord                                 app/src/context/highlights.tsx:21
+      ↳ app/src/context/highlights.tsx:21
+      ↳ app/src/context/server.tsx:41
+      ↳ app/src/utils/persist.ts:171
+      ↳ opencode/test/provider/cf-ai-gateway-e2e.test.ts:25
+      ↳ opencode/test/server/httpapi-provider.test.ts:41
+  × 7  set                                      app/src/pages/session/session-model-helpers.test.ts:62
+      ↳ app/src/pages/session/session-model-helpers.test.ts:62
+      ↳ app/src/pages/session/session-model-helpers.test.ts:63
+      ↳ app/src/pages/session/session-model-helpers.test.ts:85
+      ↳ app/src/pages/session/session-model-helpers.test.ts:86
+      ↳ app/src/pages/session/session-model-helpers.test.ts:118
+  × 6  directory                                app/src/components/dialog-manage-models.tsx:31
+      ↳ app/src/components/dialog-manage-models.tsx:31
+      ↳ app/src/components/dialog-manage-models.tsx:123
+      ↳ app/src/components/dialog-select-model-unpaid-v2.tsx:24
+      ↳ app/src/components/dialog-select-model-unpaid.tsx:21
+      ↳ app/src/components/dialog-select-model.tsx:134
+  × 6  app                                      opencode/test/server/httpapi-compression.test.ts:12
+      ↳ opencode/test/server/httpapi-compression.test.ts:12
+      ↳ opencode/test/server/httpapi-config.test.ts:10
+      ↳ opencode/test/server/httpapi-cors-vary.test.ts:11
+      ↳ opencode/test/server/httpapi-mcp.test.ts:19
+      ↳ opencode/test/server/httpapi-pty.test.ts:45
+  × 5  index                                    app/src/components/session/session-sortable-tab-v2.tsx:28
+      ↳ app/src/components/session/session-sortable-tab-v2.tsx:28
+      ↳ app/src/components/session/session-sortable-terminal-tab-v2.tsx:27
+      ↳ app/src/components/titlebar-tab-strip.tsx:40
+      ↳ app/src/components/titlebar-tab-strip.tsx:183
+      ↳ app/src/pages/home/home-projects-view.tsx:463
+
+测试盲区：601/16061 生产 chunk 被 Tests/ 引用（覆盖 3.7%；未覆盖 15460；top 15）：
+  调用者=  40  define                                   core/src/plugin/internal.ts:59
+  调用者=  37  useDialog                                tui/src/ui/dialog.tsx:225
+  调用者=  32  userMessage                              app/e2e/performance/timeline-stability/fixture.ts:352
+  调用者=  32  assistantMessage                         app/e2e/performance/timeline-stability/fixture.ts:378
+  调用者=  32  expectSessionTitle                       app/e2e/utils/waits.ts:9
+  调用者=  30  mockOpenCodeServer                       app/e2e/utils/mock-server.ts:33
+  调用者=  30  spawn                                    opencode/src/lsp/server.ts:589
+  调用者=  30  spawn                                    opencode/src/lsp/server.ts:436
+  调用者=  30  spawn                                    opencode/src/lsp/server.ts:533
+  调用者=  30  spawn                                    opencode/src/lsp/server.ts:236
+  调用者=  30  spawn                                    opencode/src/lsp/server.ts:1699
+  调用者=  30  spawn                                    opencode/src/lsp/server.ts:1365
+  调用者=  30  spawn                                    opencode/src/lsp/server.ts:1188
+  调用者=  30  spawn                                    opencode/src/lsp/server.ts:827
+  调用者=  30  spawn                                    opencode/src/lsp/server.ts:489
+
+疑似死代码（零调用者；共 6119 个，其中高置信 4681 个；top 15）：
+  [高]  onNavigation                             app/e2e/performance/benchmark.ts:80
+  [高]  stop                                     app/e2e/performance/benchmark.ts:91
+  [高]  send                                     app/e2e/performance/timeline-stability/fixture.ts:172
+  [高]  sendAll                                  app/e2e/performance/timeline-stability/fixture.ts:177
+  [高]  settle                                   app/e2e/performance/timeline-stability/fixture.ts:184
+  [高]  tick                                     app/e2e/performance/timeline-stability/fixture.ts:189
+  [高]  waitForPart                              app/e2e/performance/timeline-stability/fixture.ts:199
+  [高]  sample                                   app/e2e/performance/timeline-stability/fixture.ts:278
+  [高]  category                                 app/e2e/performance/timeline/first-navigation-metrics.ts:10
+  [高]  sample                                   app/e2e/performance/timeline/home-tab-navigation-benchmark.spec.ts:49
+  [高]  summarize                                app/e2e/performance/timeline/navigation-milestones.ts:10
+  [高]  sample                                   app/e2e/performance/timeline/review-pane-scaling-benchmark.spec.ts:112
+  [高]  sample                                   app/e2e/performance/timeline/review-pane-scaling-benchmark.spec.ts:243
+  [高]  recordShifts                             app/e2e/performance/timeline/session-tab-repaint-probe.ts:51
+  [高]  recordMutations                          app/e2e/performance/timeline/session-tab-repaint-probe.ts:71
+codeaudit 0.3.1 — 18490 chunks, 3257 files, unknown-rate 65.3%, cycles 18, parse-errors 28
+  图完整度：10.8% 调用点已解析（247531 未知站点）
+效应表[python]: 118 条目 / 命中 0 / corpus-inactive 118
+效应表[typescript]: 122 条目 / 命中 65 / corpus-inactive 57 / 咨询未中 113972 站点（补表候选）
+效应表[tsx]: 122 条目 / 命中 46 / corpus-inactive 76 / 咨询未中 44088 站点（补表候选）
+效应表[javascript]: 122 条目 / 命中 13 / corpus-inactive 109 / 咨询未中 103 站点（补表候选）
+效应表[csharp]: 179 条目 / 命中 0 / corpus-inactive 179
+效应表[go]: 157 条目 / 命中 0 / corpus-inactive 157

@@ -161,8 +161,29 @@ codeaudit scan src --changed src/engine/scan.ts
 | TSX | 同上 | 同上 | 独立 tsx 语法 |
 | JavaScript | 同上 | ESM + `require()` | |
 | C# | 类/方法/构造/局部函数（Unity） | using 别名 | Unity/.NET 类名效应表；属性访问器与事件订阅建模；中文标识符部分文件解析失败 → 方向安全 UNKNOWN |
+| Go | 函数/方法（receiver） | 标准库/第三方效应表 + 项目内目录包解析 | 包作用域裸名跨文件解析；类型转换判纯；receiver 方法调用落 ?（标注工作流覆盖） |
 
 新语言 = 实现一个 `LangPack`（数据表 + 两个行为函数），核心引擎零改动。架构与扩展点见 [docs/pipeline.md](docs/pipeline.md)。
+
+## 真实项目用例
+
+每个支持的语言都有真实开源项目用例（[examples/cases/](examples/cases/)）——语言支持充分性由真实代码验证，非合成 fixture：
+
+```bash
+npm run build
+node scripts/fetch-case.cjs            # 复现全部用例快照（pinned commit，确定性）
+node scripts/fetch-case.cjs --update   # 刷新到上游最新
+```
+
+| 用例 | 语言 | 规模 | unknown-rate | 用途 |
+| --- | --- | --- | --- | --- |
+| opencode（AI agent monorepo） | TS/TSX | 3257 文件 / 18490 chunks | 65.3% | TS/TSX 大库验证（32 包） |
+| express（Node 框架） | JS | 50 文件 / 113 chunks | 28.3% | JS ESM+require 双形态 |
+| hugo（静态站点生成器） | Go | 521 文件 / 5981 chunks | 72.5% | Go pack 真实驱动（迭代 19 模式） |
+| flask（Web 框架） | Python | 24 文件 / 466 chunks | 52.1% | 装饰器/蓝图形态 |
+| ocelot（API 网关） | C# | 378 文件 / 2369 chunks | 26.2% | C# 静态语义 + 暴露 C# 12 集合表达式盲区 |
+
+产物（报告 + manifest）入 git，CI 每周复现 + 漂移检测（`.github/workflows/cases.yml`）。详见 [examples/cases/README.md](examples/cases/README.md)。
 
 ## AI 标注闭环
 

@@ -1,0 +1,115 @@
+STATS: pure 109, impure 132, unknown 225
+拓扑：466 nodes / 102 edges / 桥比例 85% / 自环 5 / 环 0 / 深度 3 / 未知边 861
+  ➜ 近树结构（85% 边是唯一通道——模块间松耦合，改动局部化）
+  ➜ 5 个自递归 chunk（自我调用——重构时注意终止性）
+  ➜ 有向形态：源 388 个 / 汇 386 个 / 逆向依赖边 5（环内边 0 + 自环 5，治理优先）
+  ➜ 87 条桥边（模块间唯一连通通道——契约测试/版本兼容必保接口）
+  ➜ 38 个割点枢纽（必经分量——改动影响面最大，评审从严）
+  ➜ 调用图最深路径 3 层（结构深度；真实效应传播深度看 HTML 长传播链——chain 只是最近源距离）
+
+效应源（chain=0 IMPURE，直接调 io/net/random/state 的源头；90 个）：
+    7 调用  ScriptInfo.load_app                  flask/cli.py:333
+    4 调用  locate_app                           flask/cli.py:241
+    3 调用  Flask.run                            flask/app.py:633
+    3 调用  Flask.__init_subclass__              flask/app.py:255
+    3 调用  run_command                          flask/cli.py:935
+    3 调用  AppContext.pop                       flask/ctx.py:446
+    2 调用  Blueprint.__init__                   flask/blueprints.py:19
+    2 调用  FlaskGroup.make_context              flask/cli.py:657
+    2 调用  App.add_url_rule                     flask/sansio/app.py:605
+    2 调用  FlaskClient.__init__                 flask/testing.py:125
+    2 调用  FlaskCliRunner.invoke                flask/testing.py:275
+    2 调用  FlaskClient._request_from_builder_args flask/testing.py:193
+    1 调用  Flask.handle_exception               flask/app.py:900
+    1 调用  Flask.make_response                  flask/app.py:1227
+    1 调用  Flask.create_url_adapter             flask/app.py:510
+  … 共 90 个（--top N 查看更多）
+
+状态耦合（写方按读者数降序；top 15）：
+  135 读者  Config.from_object                   self                         flask/config.py:218  ← 示例读者 flask/app.py:1024（等 135 个）
+  135 读者  Config.from_prefixed_env             self                         flask/config.py:126  ← 示例读者 flask/app.py:1024（等 135 个）
+  135 读者  Config.from_mapping                  self                         flask/config.py:304  ← 示例读者 flask/app.py:1024（等 135 个）
+  135 读者  SessionMixin.permanent               self                         flask/sessions.py:33  ← 示例读者 flask/app.py:1024（等 135 个）
+   51 读者  Scaffold.__init__                    self.import_name,self.static_folder,self.static_url_path,self.template_folder,self.root_path,self.view_functions,self.error_handler_spec,self.before_request_funcs,self.after_request_funcs,self.teardown_request_funcs,self.template_context_processors,self.url_value_preprocessors,self.url_default_functions flask/sansio/scaffold.py:75  ← 示例读者 flask/app.py:1423（等 51 个）
+   40 读者  _prepare_send_file_kwargs            kwargs                       flask/helpers.py:402  ← 示例读者 flask/app.py:255（等 40 个）
+   40 读者  FlaskCliRunner.invoke                kwargs                       flask/testing.py:275  ← 示例读者 flask/app.py:255（等 40 个）
+   40 读者  FlaskClient._request_from_builder_args kwargs                       flask/testing.py:193  ← 示例读者 flask/app.py:255（等 40 个）
+   39 读者  App.__init__                         self.instance_path,self.config,self.aborter,self.json,self.url_build_error_handlers,self.teardown_appcontext_funcs,self.shell_context_processors,self.blueprints,self.extensions,self.url_map,self.subdomain_matching,self._got_first_request flask/sansio/app.py:279  ← 示例读者 flask/app.py:633（等 39 个）
+   38 读者  App.add_url_rule                     options,self.view_functions  flask/sansio/app.py:605  ← 示例读者 flask/app.py:633（等 38 个）
+   37 读者  Environment.__init__                 options,self.app             flask/templating.py:42  ← 示例读者 flask/app.py:633（等 37 个）
+   31 读者  BlueprintSetupState.__init__         self.app,self.blueprint,self.options,self.first_registration,self.subdomain,self.url_prefix,self.name,self.name_prefix,self.url_defaults flask/sansio/blueprints.py:41  ← 示例读者 flask/app.py:633（等 31 个）
+   31 读者  Blueprint.__init__                   self.name,self.url_prefix,self.subdomain,self.deferred_functions,self.url_values_defaults,self.cli_group,self._blueprints flask/sansio/blueprints.py:174  ← 示例读者 flask/app.py:633（等 31 个）
+   30 读者  _AppCtxGlobals.__setattr__           self.__dict__                flask/ctx.py:59  ← 示例读者 flask/app.py:510（等 30 个）
+   29 读者  Config.__init__                      self.root_path               flask/config.py:94  ← 示例读者 flask/app.py:510（等 29 个）
+  … 共 65 个写方（--top N 查看更多）
+  （注：10 个写方含 ⊤ 降级匹配——近似耦合，见 README 已知限制）
+
+圈复杂度 top（>5；共 36 个；top 15）：
+  C= 17  n= 2  Blueprint.register                       flask/sansio/blueprints.py:273
+  C= 13  n= 3  Flask.make_response                      flask/app.py:1227
+  C= 13  n= 3  load_dotenv                              flask/cli.py:698
+  C= 13  n= 3  Flask.url_for                            flask/app.py:1105
+  C= 13  n= 2  routes_command                           flask/cli.py:1061
+  C= 12  n= 2  App.add_url_rule                         flask/sansio/app.py:605
+  C= 12  n= 2  EnvironBuilder.__init__                  flask/testing.py:49
+  C= 11  n= 2  Flask.run                                flask/app.py:633
+  C= 11  n= 2  explain_template_loading_attempts        flask/debughelpers.py:124
+  C= 10  n= 3  find_app_by_string                       flask/cli.py:120
+  C= 10  n= 2  Flask.__init_subclass__                  flask/app.py:255
+  C=  9  n= 4  find_best_app                            flask/cli.py:41
+  C=  9  n= 2  _validate_key                            flask/cli.py:828
+  C=  9  n= 2  get_root_path                            flask/helpers.py:587
+  C=  8  n= 4  ScriptInfo.load_app                      flask/cli.py:333
+
+重复代码（同内容哈希多实例；共 3 组；top 15）：
+  × 2  Flask.send_static_file                   flask/app.py:393
+      ↳ flask/app.py:393
+      ↳ flask/blueprints.py:82
+  × 2  _make_timedelta                          flask/app.py:74
+      ↳ flask/app.py:74
+      ↳ flask/sansio/app.py:52
+  × 2  TagTuple.to_json                         flask/json/tag.py:140
+      ↳ flask/json/tag.py:140
+      ↳ flask/json/tag.py:153
+
+测试盲区：0/466 生产 chunk 被 Tests/ 引用（覆盖 0.0%；未覆盖 466；top 15）：
+  调用者=   4  NoAppException                           flask/cli.py:37
+  调用者=   4  get_debug_flag                           flask/helpers.py:28
+  调用者=   3  _CollectErrors                           flask/helpers.py:654
+  调用者=   3  _CollectErrors.raise_any                 flask/helpers.py:676
+  调用者=   3  _split_blueprint_path                    flask/helpers.py:645
+  调用者=   3  loads                                    flask/json/__init__.py:77
+  调用者=   3  dumps                                    flask/json/__init__.py:13
+  调用者=   2  ScriptInfo                               flask/cli.py:293
+  调用者=   2  _called_with_wrong_args                  flask/cli.py:94
+  调用者=   2  main                                     flask/cli.py:1122
+  调用者=   2  _prepare_send_file_kwargs                flask/helpers.py:402
+  调用者=   2  get_load_dotenv                          flask/helpers.py:36
+  调用者=   2  send_from_directory                      flask/helpers.py:543
+  调用者=   2  stream_with_context                      flask/helpers.py:52
+  调用者=   2  _endpoint_from_view_func                 flask/sansio/scaffold.py:709
+
+疑似死代码（零调用者；共 362 个，其中高置信 0 个；top 15）：
+  [疑]  _make_timedelta                          flask/app.py:74
+  [疑]  wrapper                                  flask/app.py:87
+  [疑]  wrapper                                  flask/app.py:99
+  [疑]  Flask                                    flask/app.py:110
+  [疑]  Flask.__init_subclass__                  flask/app.py:255
+  [疑]  Flask.get_send_file_max_age              flask/app.py:366
+  [疑]  Flask.send_static_file                   flask/app.py:393
+  [疑]  Flask.open_resource                      flask/app.py:415
+  [疑]  Flask.open_instance_resource             flask/app.py:448
+  [疑]  Flask.create_jinja_environment           flask/app.py:470
+  [疑]  Flask.create_url_adapter                 flask/app.py:510
+  [疑]  Flask.raise_routing_exception            flask/app.py:563
+  [疑]  Flask.update_template_context            flask/app.py:591
+  [疑]  Flask.make_shell_context                 flask/app.py:621
+  [疑]  Flask.run                                flask/app.py:633
+codeaudit 0.3.1 — 466 chunks, 24 files, unknown-rate 52.1%, cycles 0
+  图完整度：32.2% 调用点已解析（861 未知站点）
+效应表[python]: 118 条目 / 命中 45 / corpus-inactive 72 / 咨询未中 578 站点（补表候选）
+效应表[typescript]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[tsx]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[javascript]: 122 条目 / 命中 0 / corpus-inactive 122
+效应表[csharp]: 179 条目 / 命中 0 / corpus-inactive 179
+效应表[go]: 157 条目 / 命中 0 / corpus-inactive 157
