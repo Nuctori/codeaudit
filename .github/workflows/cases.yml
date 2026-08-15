@@ -30,7 +30,7 @@ jobs:
           }
       - name: 用例产物完整性
         run: |
-          for c in opencode express hugo flask; do
+          for c in opencode express hugo flask ocelot; do
             test -f examples/cases/$c/manifest.json || { echo "::error::缺少 $c manifest"; exit 1; }
           done
-          echo "4/4 用例产物完整"
+          echo "5/5 用例产物完整"

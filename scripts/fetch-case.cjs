@@ -61,6 +61,14 @@ const CASES = {
 		prune: [],
 		note: "Python Web 框架（装饰器/类视图/蓝图）——Python 语言支持验证",
 	},
+	ocelot: {
+		repo: "https://github.com/ThreeMammals/Ocelot.git",
+		ref: "78c983d895e274e25becfee9d256f17b1908e15c", // @2026-08-15（首次实测）
+		lang: "csharp",
+		scanDir: "src",
+		prune: [],
+		note: "API 网关（纯 C#，~380 文件）——C# 语言支持验证（暴露 C# 12 集合表达式盲区）",
+	},
 };
 
 function sh(cmd, cwd) {

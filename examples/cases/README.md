@@ -10,6 +10,7 @@
 | [express](express/) | JS | 50 文件（产品代码） | 113 | 28.3% | 0 | ~2s | expressjs/express（MIT） |
 | [hugo](hugo/) | Go | 521 文件（纯 Go） | 5981 | 72.5% | 0 | ~5s | gohugoio/hugo（Apache-2.0） |
 | [flask](flask/) | Python | 24 文件 | 466 | 52.1% | 0 | ~1s | pallets/flask（BSD-3） |
+| [ocelot](ocelot/) | C# | 378 文件 | 2369 | 26.2% | 8（2.1%） | ~1s | ThreeMammals/Ocelot（MIT） |
 
 每个用例的产物（入 git，合计 <250KB/用例）：`report.txt`（全视图文本快照）、`report.html`（自包含技术债报告）、`manifest.json`（repo/pinned ref/统计/扫描时间）。完整 JSON（可达 68MB）不入库，本地生成：`node dist/cli.js scan <clone> --no-cache --json out.json`。
 
@@ -32,6 +33,7 @@ node scripts/fetch-case.cjs --update   # 全部刷新到上游默认分支最新
 - **跨包/跨文件边**：opencode 65.3% 与 hugo 72.5% 的主体是**方法调用**（`obj.method()` 动态分派，TS/Python/Go 一致语义）与**第三方库**（npm 包内部不展开，效应表未列成员落 `?`）。
 - **hugo 的 Go 盲区**：receiver 方法调用（`s.save()`，Go 无 this）与第三方库（goldmark 等）——Go pack 已知限制，见 `src/lang/packs/go.ts` 文件头。
 - express 28.3% 最低（纯 JS 框架，效应表覆盖好）；opencode 28 个 parse-errors 来自极端语法文件（0.86%，方向安全降级）。
+- **ocelot 的 8 个 parse-errors = C# 12 集合表达式盲区**（`Routes = []`，tree-sitter-c_sharp.wasm 未支持）——方向安全降级（parseError 标记 → PURE 标注被拒），仅 8 文件受影响，其余 370 文件正常。这是真实项目暴露语法盲区的实例——C# 12 支持是后续迭代项（升级 wasm）。
 
 **真实发现示例**（详见各 report.txt 治理榜）：
 - hugo：`CopyDir`（{fs} 文件复制枢纽）、`watcher.New`（{clock}）、`hugofs.NewWalkway`（{fs,io}）——Go 标准库效应表命中驱动的真实治理清单。

@@ -181,6 +181,7 @@ node scripts/fetch-case.cjs --update   # 刷新到上游最新
 | express（Node 框架） | JS | 50 文件 / 113 chunks | 28.3% | JS ESM+require 双形态 |
 | hugo（静态站点生成器） | Go | 521 文件 / 5981 chunks | 72.5% | Go pack 真实驱动（迭代 19 模式） |
 | flask（Web 框架） | Python | 24 文件 / 466 chunks | 52.1% | 装饰器/蓝图形态 |
+| ocelot（API 网关） | C# | 378 文件 / 2369 chunks | 26.2% | C# 静态语义 + 暴露 C# 12 集合表达式盲区 |
 
 产物（报告 + manifest）入 git，CI 每周复现 + 漂移检测（`.github/workflows/cases.yml`）。详见 [examples/cases/README.md](examples/cases/README.md)。
 
