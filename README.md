@@ -177,7 +177,7 @@ node scripts/fetch-case.cjs --update   # 刷新到上游最新
 
 | 用例 | 语言 | 规模 | unknown-rate | 用途 |
 | --- | --- | --- | --- | --- |
-| opencode（AI agent monorepo） | TS/TSX | 3257 文件 / 18490 chunks | 65.3% | TS/TSX 大库验证（32 包） |
+| opencode（AI agent monorepo） | TS/TSX | 2445 文件 / 15367 chunks | 66.7% | TS/TSX 大库验证（32 包，prune 测试） |
 | express（Node 框架） | JS | 50 文件 / 113 chunks | 28.3% | JS ESM+require 双形态 |
 | hugo（静态站点生成器） | Go | 521 文件 / 5981 chunks | 72.5% | Go pack 真实驱动（迭代 19 模式） |
 | flask（Web 框架） | Python | 24 文件 / 466 chunks | 52.1% | 装饰器/蓝图形态 |

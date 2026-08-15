@@ -6,7 +6,7 @@
 
 | 用例 | 语言 | 扫描规模 | chunks | unknown-rate | parse-errors | 用时 | 上游 |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| [opencode](opencode/) | TS/TSX | 3257 文件（32 包 monorepo） | 18490 | 65.3% | 28（0.86%） | ~34s | anomalyco/opencode（MIT） |
+| [opencode](opencode/) | TS/TSX | 2445 文件（32 包 monorepo，prune 测试） | 15367 | 66.7% | 28（1.1%） | ~23s | anomalyco/opencode（MIT） |
 | [express](express/) | JS | 50 文件（产品代码） | 113 | 28.3% | 0 | ~2s | expressjs/express（MIT） |
 | [hugo](hugo/) | Go | 521 文件（纯 Go） | 5981 | 72.5% | 0 | ~5s | gohugoio/hugo（Apache-2.0） |
 | [flask](flask/) | Python | 24 文件 | 466 | 52.1% | 0 | ~1s | pallets/flask（BSD-3） |
@@ -30,15 +30,17 @@ node scripts/fetch-case.cjs --update   # 全部刷新到上游默认分支最新
 ## 数字解读（诚实呈现）
 
 **unknown-rate 的组成**（方向安全，非缺陷——标注工作流覆盖）：
-- **跨包/跨文件边**：opencode 65.3% 与 hugo 72.5% 的主体是**方法调用**（`obj.method()` 动态分派，TS/Python/Go 一致语义）与**第三方库**（npm 包内部不展开，效应表未列成员落 `?`）。
+
+- **跨包/跨文件边**：opencode 66.7% 与 hugo 72.5% 的主体是**方法调用**（`obj.method()` 动态分派，TS/Python/Go 一致语义）与**第三方库**（npm 包内部不展开，效应表未列成员落 `?`）。
 - **hugo 的 Go 盲区**：receiver 方法调用（`s.save()`，Go 无 this）与第三方库（goldmark 等）——Go pack 已知限制，见 `src/lang/packs/go.ts` 文件头。
-- express 28.3% 最低（纯 JS 框架，效应表覆盖好）；opencode 28 个 parse-errors 来自极端语法文件（0.86%，方向安全降级）。
+- express 28.3% 最低（纯 JS 框架，效应表覆盖好）；opencode 28 个 parse-errors 来自极端语法文件（1.1%，方向安全降级）。
 - **ocelot 的 8 个 parse-errors = C# 12 集合表达式盲区**（`Routes = []`，tree-sitter-c_sharp.wasm 未支持）——方向安全降级（parseError 标记 → PURE 标注被拒），仅 8 文件受影响，其余 370 文件正常。这是真实项目暴露语法盲区的实例——C# 12 支持是后续迭代项（升级 wasm）。
 
 **真实发现示例**（详见各 report.txt 治理榜）：
+
 - hugo：`CopyDir`（{fs} 文件复制枢纽）、`watcher.New`（{clock}）、`hugofs.NewWalkway`（{fs,io}）——Go 标准库效应表命中驱动的真实治理清单。
 - opencode：`spawn`（{fs,io,net,state}，30 调用者，LSP 服务器副作用枢纽）——TS 效应表在真实大型 monorepo 上的判别力。
-- 效应表咨询未中数（补表候选）是各用例的副产品：如 opencode TS 表 113972 站点、hugo Go 表见报告尾部——AI 标注闭环的输入。
+- 效应表咨询未中数（补表候选）是各用例的副产品：如 opencode TS 表 57444 站点、hugo Go 表见报告尾部——AI 标注闭环的输入。
 
 ## 维护
 
