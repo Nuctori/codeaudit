@@ -8,6 +8,7 @@ import { proofCompleteness } from "./proof";
 import { duplicateGroups, testCoverage, deadChunks } from "./gov";
 import { stateCouplingOf } from "./state";
 import { moduleGraph, renderModuleGraphPanel } from "./depgraph";
+import { compareCodepoints } from "./determinism";
 
 /**
  * 技术债 HTML 可视化（迭代49 插件化：通用报告渲染器；迭代50 全量纲补全；
@@ -368,7 +369,7 @@ export function renderTechdebtHtml(
 		.sort(
 			(a, b) =>
 				(a.confidence === "high" ? 0 : 1) - (b.confidence === "high" ? 0 : 1) ||
-				a.file.localeCompare(b.file) ||
+				compareCodepoints(a.file, b.file) ||
 				a.line - b.line,
 		)
 		.slice(0, 15);

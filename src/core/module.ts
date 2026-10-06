@@ -1,4 +1,5 @@
 import type { Verdict } from "./types";
+import { compareCodepoints } from "./determinism";
 
 /** 迭代44-r4：模块级聚合（重构范围决策视图）——按文件路径前缀聚合 verdicts。
  *  数据全部来自 report（纯派生，零新扫描）。depth = 目录段数（2 = 顶级模块/命名空间）。 */
@@ -72,7 +73,7 @@ export function moduleSummary(
 			pure: p,
 			impure: i,
 			unknown: u,
-			effects: [...(effects.get(mod) ?? [])].sort((a, b) => a.localeCompare(b)),
+			effects: [...(effects.get(mod) ?? [])].sort(compareCodepoints),
 			maxChain: maxChain.get(mod) ?? 0,
 			maxComplexity: maxComplexity.get(mod) ?? 0,
 			unknownRate: n === 0 ? 0 : u / n,

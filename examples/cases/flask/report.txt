@@ -10,8 +10,8 @@ STATS: pure 109, impure 132, unknown 225
 效应源（chain=0 IMPURE，直接调 io/net/random/state 的源头；90 个）：
     7 调用  ScriptInfo.load_app                  flask/cli.py:333
     4 调用  locate_app                           flask/cli.py:241
-    3 调用  Flask.run                            flask/app.py:633
     3 调用  Flask.__init_subclass__              flask/app.py:255
+    3 调用  Flask.run                            flask/app.py:633
     3 调用  run_command                          flask/cli.py:935
     3 调用  AppContext.pop                       flask/ctx.py:446
     2 调用  Blueprint.__init__                   flask/blueprints.py:19
@@ -21,24 +21,24 @@ STATS: pure 109, impure 132, unknown 225
     2 调用  FlaskCliRunner.invoke                flask/testing.py:275
     2 调用  FlaskClient._request_from_builder_args flask/testing.py:193
     1 调用  Flask.handle_exception               flask/app.py:900
-    1 调用  Flask.make_response                  flask/app.py:1227
-    1 调用  Flask.create_url_adapter             flask/app.py:510
+    1 调用  Flask.full_dispatch_request          flask/app.py:995
+    1 调用  Flask.wsgi_app                       flask/app.py:1569
   … 共 90 个（--top N 查看更多）
 
 状态耦合（写方按读者数降序；top 15）：
-  135 读者  Config.from_object                   self                         flask/config.py:218  ← 示例读者 flask/app.py:1024（等 135 个）
-  135 读者  Config.from_prefixed_env             self                         flask/config.py:126  ← 示例读者 flask/app.py:1024（等 135 个）
-  135 读者  Config.from_mapping                  self                         flask/config.py:304  ← 示例读者 flask/app.py:1024（等 135 个）
-  135 读者  SessionMixin.permanent               self                         flask/sessions.py:33  ← 示例读者 flask/app.py:1024（等 135 个）
-   51 读者  Scaffold.__init__                    self.import_name,self.static_folder,self.static_url_path,self.template_folder,self.root_path,self.view_functions,self.error_handler_spec,self.before_request_funcs,self.after_request_funcs,self.teardown_request_funcs,self.template_context_processors,self.url_value_preprocessors,self.url_default_functions flask/sansio/scaffold.py:75  ← 示例读者 flask/app.py:1423（等 51 个）
-   40 读者  _prepare_send_file_kwargs            kwargs                       flask/helpers.py:402  ← 示例读者 flask/app.py:255（等 40 个）
-   40 读者  FlaskCliRunner.invoke                kwargs                       flask/testing.py:275  ← 示例读者 flask/app.py:255（等 40 个）
-   40 读者  FlaskClient._request_from_builder_args kwargs                       flask/testing.py:193  ← 示例读者 flask/app.py:255（等 40 个）
-   39 读者  App.__init__                         self.instance_path,self.config,self.aborter,self.json,self.url_build_error_handlers,self.teardown_appcontext_funcs,self.shell_context_processors,self.blueprints,self.extensions,self.url_map,self.subdomain_matching,self._got_first_request flask/sansio/app.py:279  ← 示例读者 flask/app.py:633（等 39 个）
-   38 读者  App.add_url_rule                     options,self.view_functions  flask/sansio/app.py:605  ← 示例读者 flask/app.py:633（等 38 个）
-   37 读者  Environment.__init__                 options,self.app             flask/templating.py:42  ← 示例读者 flask/app.py:633（等 37 个）
-   31 读者  BlueprintSetupState.__init__         self.app,self.blueprint,self.options,self.first_registration,self.subdomain,self.url_prefix,self.name,self.name_prefix,self.url_defaults flask/sansio/blueprints.py:41  ← 示例读者 flask/app.py:633（等 31 个）
-   31 读者  Blueprint.__init__                   self.name,self.url_prefix,self.subdomain,self.deferred_functions,self.url_values_defaults,self.cli_group,self._blueprints flask/sansio/blueprints.py:174  ← 示例读者 flask/app.py:633（等 31 个）
+  135 读者  Config.from_prefixed_env             self                         flask/config.py:126  ← 示例读者 flask/app.py:900（等 135 个）
+  135 读者  Config.from_object                   self                         flask/config.py:218  ← 示例读者 flask/app.py:900（等 135 个）
+  135 读者  Config.from_mapping                  self                         flask/config.py:304  ← 示例读者 flask/app.py:900（等 135 个）
+  135 读者  SessionMixin.permanent               self                         flask/sessions.py:33  ← 示例读者 flask/app.py:900（等 135 个）
+   51 读者  Scaffold.__init__                    self.import_name,self.static_folder,self.static_url_path,self.template_folder,self.root_path,self.view_functions,self.error_handler_spec,self.before_request_funcs,self.after_request_funcs,self.teardown_request_funcs,self.template_context_processors,self.url_value_preprocessors,self.url_default_functions flask/sansio/scaffold.py:75  ← 示例读者 flask/app.py:1397（等 51 个）
+   40 读者  _prepare_send_file_kwargs            kwargs                       flask/helpers.py:402  ← 示例读者 flask/app.py:1520（等 40 个）
+   40 读者  FlaskCliRunner.invoke                kwargs                       flask/testing.py:275  ← 示例读者 flask/app.py:1520（等 40 个）
+   40 读者  FlaskClient._request_from_builder_args kwargs                       flask/testing.py:193  ← 示例读者 flask/app.py:1520（等 40 个）
+   39 读者  App.__init__                         self.instance_path,self.config,self.aborter,self.json,self.url_build_error_handlers,self.teardown_appcontext_funcs,self.shell_context_processors,self.blueprints,self.extensions,self.url_map,self.subdomain_matching,self._got_first_request flask/sansio/app.py:279  ← 示例读者 flask/app.py:900（等 39 个）
+   38 读者  App.add_url_rule                     options,self.view_functions  flask/sansio/app.py:605  ← 示例读者 flask/app.py:969（等 38 个）
+   37 读者  Environment.__init__                 options,self.app             flask/templating.py:42  ← 示例读者 flask/app.py:510（等 37 个）
+   31 读者  BlueprintSetupState.__init__         self.app,self.blueprint,self.options,self.first_registration,self.subdomain,self.url_prefix,self.name,self.name_prefix,self.url_defaults flask/sansio/blueprints.py:41  ← 示例读者 flask/app.py:510（等 31 个）
+   31 读者  Blueprint.__init__                   self.name,self.url_prefix,self.subdomain,self.deferred_functions,self.url_values_defaults,self.cli_group,self._blueprints flask/sansio/blueprints.py:174  ← 示例读者 flask/app.py:510（等 31 个）
    30 读者  _AppCtxGlobals.__setattr__           self.__dict__                flask/ctx.py:59  ← 示例读者 flask/app.py:510（等 30 个）
    29 读者  Config.__init__                      self.root_path               flask/config.py:94  ← 示例读者 flask/app.py:510（等 29 个）
   … 共 65 个写方（--top N 查看更多）
@@ -78,8 +78,8 @@ STATS: pure 109, impure 132, unknown 225
   调用者=   3  _CollectErrors                           flask/helpers.py:654
   调用者=   3  _CollectErrors.raise_any                 flask/helpers.py:676
   调用者=   3  _split_blueprint_path                    flask/helpers.py:645
-  调用者=   3  loads                                    flask/json/__init__.py:77
   调用者=   3  dumps                                    flask/json/__init__.py:13
+  调用者=   3  loads                                    flask/json/__init__.py:77
   调用者=   2  ScriptInfo                               flask/cli.py:293
   调用者=   2  _called_with_wrong_args                  flask/cli.py:94
   调用者=   2  main                                     flask/cli.py:1122

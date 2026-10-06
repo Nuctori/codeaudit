@@ -1,6 +1,7 @@
 import type { SyntaxNode } from "../pack";
 import type { LangPack, RawImport } from "../pack";
 import type { Effect } from "../../core/types";
+import { compareCodepoints } from "../../core/determinism";
 import { dirname, join, normalize } from "node:path";
 
 /** 统一 / 分隔（projectFiles 在 discoverFiles 已是 / 分隔；Windows 候选路径需同款）。 */
@@ -684,7 +685,7 @@ export const pythonPack: LangPack = {
 			}
 		}
 		if (matches.length === 0) return null;
-		matches.sort((a, b) => a.length - b.length || a.localeCompare(b));
+		matches.sort((a, b) => a.length - b.length || compareCodepoints(a, b));
 		return matches[0]!;
 	},
 };

@@ -97,7 +97,12 @@ function shOut(cmd, cwd) {
 /** 克隆（浅，blob:none）+ checkout 目标 ref。返回 clone 目录。 */
 function cloneCase(name, cfg, update) {
 	const dir = path.join(TMP_ROOT, name);
-	sh(`git clone --depth 1 --filter=blob:none ${cfg.repo} ${dir}`);
+	// clone --no-checkout：Git for Windows 上 `git -c core.autocrlf=false clone` 的初始
+	// 检出不生效（系统级 autocrlf=true 仍会转 CRLF），必须先落 local config 再检出。
+	// 行尾转换会改变源码文本 → chunk 内容哈希(key)随平台漂移 → 快照 tie-break 漂移
+	// （flask 实测）。统一 LF 保证工作区字节级跨平台一致。
+	sh(`git clone --no-checkout --depth 1 --filter=blob:none ${cfg.repo} ${dir}`);
+	sh(`git config core.autocrlf false`, dir);
 	const manifest = manifestPath(name);
 	const pinned = fs.existsSync(manifest)
 		? JSON.parse(fs.readFileSync(manifest, "utf8")).ref
@@ -106,6 +111,9 @@ function cloneCase(name, cfg, update) {
 		// 复现模式：checkout manifest 记录的 pinned ref（浅 fetch 单 commit）
 		sh(`git fetch --depth 1 origin ${pinned}`, dir);
 		sh(`git checkout --detach ${pinned}`, dir);
+	} else {
+		// update 模式/无 pin：检出默认分支 HEAD（local config 已生效，LF）
+		sh(`git reset --hard HEAD`, dir);
 	}
 	return dir;
 }
@@ -138,6 +146,22 @@ function pruneFiles(dir, patterns) {
 		}
 	}
 	console.log(`  [prune] ${n} 个文件（非目标语言/测试）`);
+}
+
+/** 剪除 symlink（git 元数据识别，跨平台一致）。Windows 无符号链接权限时 git 把
+ * symlink 物化为含目标路径的普通文本文件——扫描器多计文件且解析报错；Linux 是真
+ * symlink，扫描行为又不同。两平台快照必然漂移（opencode 的 2 个 custom-elements.d.ts
+ * 即此问题），统一删除保证产物可复现。 */
+function pruneSymlinks(dir) {
+	const listed = shOut("git ls-files -s", dir).split("\n");
+	let n = 0;
+	for (const line of listed) {
+		const tab = line.indexOf("\t");
+		if (tab < 0 || !line.startsWith("120000")) continue;
+		fs.rmSync(path.join(dir, line.slice(tab + 1)), { force: true });
+		n++;
+	}
+	if (n > 0) console.log(`  [prune] ${n} 个 symlink（跨平台确定性）`);
 }
 
 /** 扫描：全视图文本 + HTML 报告。返回 stats 行。 */
@@ -217,6 +241,7 @@ function runCase(name, update) {
 	console.log(`\n=== ${name}（${cfg.lang}）===\n${cfg.note}`);
 	fs.mkdirSync(path.join(CASES_DIR, name), { recursive: true });
 	const dir = cloneCase(name, cfg, update);
+	pruneSymlinks(dir);
 	pruneFiles(dir, cfg.prune);
 
 	const { statLine } = scanCase(dir, cfg, name);

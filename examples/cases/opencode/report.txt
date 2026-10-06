@@ -1,9 +1,9 @@
-STATS: pure 2988, impure 2886, unknown 9493
-拓扑：15367 nodes / 11427 edges / 桥比例 43% / 自环 1047 / 环 12 / 深度 11 / 未知边 142441
+STATS: pure 2988, impure 2886, unknown 9491
+拓扑：15365 nodes / 11427 edges / 桥比例 43% / 自环 1047 / 环 12 / 深度 11 / 未知边 142439
   ➜ 混合结构（桥比例 43%——部分模块松耦合、部分网状）
   ➜ 1047 个自递归 chunk（自我调用——重构时注意终止性）
   ➜ 12 个循环依赖（SCC>1——初始化/销毁顺序风险）
-  ➜ 有向形态：源 8665 个 / 汇 10062 个 / 逆向依赖边 1074（环内边 27 + 自环 1047，治理优先）
+  ➜ 有向形态：源 8663 个 / 汇 10060 个 / 逆向依赖边 1074（环内边 27 + 自环 1047，治理优先）
   ➜ 其中 2 个多入口纠缠环（多个调用者从不同节点进环——重构雷区，优先解耦）
   ➜ 4883 条桥边（模块间唯一连通通道——契约测试/版本兼容必保接口）
   ➜ 2403 个割点枢纽（必经分量——改动影响面最大，评审从严）
@@ -148,7 +148,7 @@ STATS: pure 2988, impure 2886, unknown 9493
       ↳ session-ui/src/v2/components/line-comment-annotations-v2.tsx:134
       ↳ session-ui/src/v2/components/line-comment-annotations-v2.tsx:165
 
-测试盲区：0/15367 生产 chunk 被 Tests/ 引用（覆盖 0.0%；未覆盖 15367；top 15）：
+测试盲区：0/15365 生产 chunk 被 Tests/ 引用（覆盖 0.0%；未覆盖 15365；top 15）：
   调用者=  40  define                                   core/src/plugin/internal.ts:59
   调用者=  37  useDialog                                tui/src/ui/dialog.tsx:225
   调用者=  30  spawn                                    opencode/src/lsp/server.ts:589
@@ -181,10 +181,10 @@ STATS: pure 2988, impure 2886, unknown 9493
   [高]  partUpdated                              app/e2e/performance/timeline-stability/fixture.ts:327
   [高]  partDelta                                app/e2e/performance/timeline-stability/fixture.ts:337
   [高]  messageUpdated                           app/e2e/performance/timeline-stability/fixture.ts:341
-codeaudit 0.3.1 — 15367 chunks, 2445 files, unknown-rate 66.7%, cycles 16, parse-errors 28
-  图完整度：14.4% 调用点已解析（142441 未知站点）
+codeaudit 0.3.1 — 15365 chunks, 2443 files, unknown-rate 66.7%, cycles 16, parse-errors 26
+  图完整度：14.4% 调用点已解析（142439 未知站点）
 效应表[python]: 118 条目 / 命中 0 / corpus-inactive 118
-效应表[typescript]: 122 条目 / 命中 65 / corpus-inactive 57 / 咨询未中 57444 站点（补表候选）
+效应表[typescript]: 122 条目 / 命中 65 / corpus-inactive 57 / 咨询未中 57442 站点（补表候选）
 效应表[tsx]: 122 条目 / 命中 46 / corpus-inactive 76 / 咨询未中 42810 站点（补表候选）
 效应表[javascript]: 122 条目 / 命中 10 / corpus-inactive 112 / 咨询未中 24 站点（补表候选）
 效应表[csharp]: 179 条目 / 命中 0 / corpus-inactive 179

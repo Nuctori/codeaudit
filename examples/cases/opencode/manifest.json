@@ -13,10 +13,10 @@
     "**/__tests__/**"
   ],
   "stats": {
-    "chunks": 15367,
-    "files": 2445,
+    "chunks": 15365,
+    "files": 2443,
     "unknownRate": 66.7,
     "cycles": 16,
-    "parseErrors": 28
+    "parseErrors": 26
   }
 }

@@ -18,6 +18,7 @@ import {
 import { Extractor } from "../lang/extractor";
 import { link } from "./link";
 import { analyze } from "../core/analyze";
+import { compareCodepoints } from "../core/determinism";
 import {
 	Purity,
 	type ScanReport,
@@ -211,7 +212,7 @@ export function discoverFiles(
 		let entries;
 		try {
 			entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
-				a.name.localeCompare(b.name),
+				compareCodepoints(a.name, b.name),
 			);
 		} catch (err) {
 			if (depth === 0) throw err; // 根目录不存在/不可读 → 报错退出 2（main().catch）
@@ -273,7 +274,7 @@ export async function scan(opts: ScanOptions): Promise<ScanReport> {
 	const parseErrFiles = new Map<string, number>(); // 文件 → 最小 ERROR 行号（迭代55：行粒度降级）
 
 	const sortedFiles = [...fileMap.entries()].sort((a, b) =>
-		a[0].localeCompare(b[0]),
+		compareCodepoints(a[0], b[0]),
 	);
 	for (const [file, pack] of sortedFiles) {
 		// 超限文件跳过（防 OOM）
